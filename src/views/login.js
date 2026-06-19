@@ -17,6 +17,7 @@ export function renderLogin() {
           <span class="g-mark">G</span> Continue with Google
         </button>
         <p class="login-fine faint">your reactions stay hidden from anyone who hasn't read that far.</p>
+        <a class="login-fine faint transparency-link" href="transparency.html">AI transparency statement</a>
       </div>
     </div>
   `, (root) => {

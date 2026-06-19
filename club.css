@@ -60,6 +60,9 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .login-mark { font-size: 3rem; }
 .login-blurb { font-size: 1.05rem; line-height: 1.5; color: var(--text-primary); margin: 4px 0 6px; }
 .login-fine { margin-top: 6px; }
+.transparency-link { display: inline-block; margin-top: 10px; color: var(--yarn-slate);
+  text-decoration: underline; text-underline-offset: 3px; }
+.transparency-link:hover { color: var(--yarn-bark); }
 .google-btn { display: inline-flex; align-items: center; gap: 10px; }
 .g-mark { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center;
   background: var(--surface); color: var(--yarn-rust); border-radius: 50%; font-weight: 800; }

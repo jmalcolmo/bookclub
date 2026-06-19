@@ -20,7 +20,8 @@ supabase/.temp/
 # Local secrets folder — never commit
 .passwords/
 
-# Claude Code / local AI tooling — local config, not part of the app
+# Claude Code / local AI tooling — local config, not part of the app.
+# NOTE: CLAUDE.md is intentionally committed — it's shared project context for
+# any AI agent working here. Only local/per-machine config is ignored.
 .claude/
-CLAUDE.md
 .mcp.json

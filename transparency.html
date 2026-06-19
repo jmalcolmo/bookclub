@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Transparency — The Reading Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="club.css" />
+  <style>
+    .doc { max-width: 720px; margin: 0 auto; padding: 40px 22px 90px; }
+    .doc .patch { align-items: stretch; text-align: left; cursor: default; min-height: 0;
+      padding: 28px 30px; }
+    .doc h1 { margin: 0 0 6px; }
+    .doc h2 { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
+      letter-spacing: .03em; margin: 26px 0 8px; font-size: 1.3rem; }
+    .doc p, .doc li { font-family: var(--font-display); font-size: 1.05rem; line-height: 1.6; }
+    .doc ul { padding-left: 20px; }
+    .doc li { margin-bottom: 6px; }
+    .doc .updated { font-family: var(--font-mono); font-size: .8rem; color: var(--text-muted);
+      letter-spacing: .06em; }
+    .doc .draft-note { font-family: var(--font-mono); font-size: .8rem; color: var(--warning);
+      border: 2px dashed var(--warning); border-radius: 8px; padding: 8px 12px; margin: 14px 0; }
+    .doc .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  </style>
+</head>
+<body class="club-body">
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <div class="doc">
+    <div class="topbar">
+      <a class="btn-back" href="index.html">← back to the app</a>
+      <span class="updated">last updated: 2026-06-19</span>
+    </div>
+
+    <div class="patch">
+      <h1 class="stamp-title small">AI TRANSPARENCY</h1>
+      <p class="updated">a personal statement on how AI is used here</p>
+
+      <p class="draft-note">Draft — written to be personalized. Edit this to your own
+        voice and stance before relying on it publicly.</p>
+
+      <p>
+        I believe people deserve to know when and how artificial intelligence is
+        involved in the things they use. The Reading Room is built and maintained
+        with the help of AI tools, and this page explains what that means — plainly,
+        and without spin.
+      </p>
+
+      <h2>How AI is used</h2>
+      <ul>
+        <li><strong>Building the app.</strong> I use AI coding assistants (Anthropic's
+          Claude) to help write, review, and refactor the code that runs this site.</li>
+        <li><strong>With human oversight.</strong> AI is a tool, not the author. I
+          read, test, and make the final call on every change that ships. Decisions
+          about features, data, and how your information is handled are mine.</li>
+        <li><strong>Not pretending to be human.</strong> Nothing on this site
+          impersonates a person. If a feature is automated, it's automated.</li>
+      </ul>
+
+      <h2>What this means for your data</h2>
+      <ul>
+        <li>Your account is created through Google sign-in. The app stores your
+          display name, avatar, the clubs you join, your reading progress, your
+          reactions, and your reviews.</li>
+        <li>Your reading data powers the spoiler protection: reactions are hidden
+          from anyone who hasn't read that far. That gating is enforced on the
+          server, not just in the page.</li>
+        <li>Your content is shared with the members of your club, by design. It is
+          not sold, and it is not used to train AI models.</li>
+      </ul>
+
+      <h2>My commitments</h2>
+      <ul>
+        <li>Be honest about where AI is involved.</li>
+        <li>Keep a human responsible for what the app does.</li>
+        <li>Collect only the data the app needs to work.</li>
+        <li>Update this page when those practices change.</li>
+      </ul>
+
+      <h2>Questions</h2>
+      <p>
+        If anything here is unclear or you want something corrected, reach out:
+        <a href="mailto:malcolm.olexa24@gmail.com">malcolm.olexa24@gmail.com</a>.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
