@@ -1,0 +1,21 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp
+
+# Node (only if tooling is added later)
+node_modules/
+npm-debug.log*
+
+# Local-only secrets. The anon keys in config.js are public-safe, but never
+# commit a service_role key or .env with secrets.
+.env
+.env.*
+*.service_role*
+supabase/.temp/
+
+# Local secrets folder — never commit
+.passwords/

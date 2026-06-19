@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Marble Race — Book Club Edition</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Grain overlay -->
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <!-- ============================= -->
+  <!-- SCREEN: MAIN MENU             -->
+  <!-- ============================= -->
+  <section data-screen="menu" class="screen active">
+    <header class="menu-header">
+      <h1 class="stamp-title">THE&nbsp;MARBLE&nbsp;RACE</h1>
+      <p class="subtitle">a book club edition</p>
+    </header>
+
+    <div class="patch-grid">
+      <button class="patch patch-marbles" data-nav="marbles">
+        <span class="patch-icon">🔮</span>
+        <span class="patch-label">Manage Marbles</span>
+        <span class="patch-sub">add, edit, remove</span>
+      </button>
+      <button class="patch patch-race" data-nav="setup">
+        <span class="patch-icon">🏁</span>
+        <span class="patch-label">Start a Race</span>
+        <span class="patch-sub">pick players &amp; map</span>
+      </button>
+      <button class="patch patch-help" data-action="toggle-help">
+        <span class="patch-icon">📖</span>
+        <span class="patch-label">How to Play</span>
+        <span class="patch-sub">the rules, briefly</span>
+      </button>
+    </div>
+
+    <div class="help-accordion" data-help hidden>
+      <h3>The rules, briefly</h3>
+      <ol>
+        <li>Create a marble for every book-club member. Give them a name, a picture if you like, and a theme song (YouTube link).</li>
+        <li>Start a race. Pick which marbles are competing today and choose a map.</li>
+        <li>Watch the physics. Orbs will spawn during the race — some help, some hurt.</li>
+        <li>The marble in the lead has its theme song playing. When the lead changes, so does the music.</li>
+        <li>First marble to the finish picks the next book.</li>
+      </ol>
+    </div>
+
+    <footer class="menu-footer">
+      <span data-marble-count>0 marbles in the jar</span>
+    </footer>
+  </section>
+
+  <!-- ============================= -->
+  <!-- SCREEN: MARBLE MANAGEMENT     -->
+  <!-- ============================= -->
+  <section data-screen="marbles" class="screen">
+    <div class="screen-header">
+      <button class="btn-back" data-nav="menu">← back</button>
+      <h2 class="stamp-title small">THE MARBLE JAR</h2>
+      <button class="btn-primary" data-action="new-marble">+ New Marble</button>
+    </div>
+
+    <div class="marbles-grid" data-marbles-grid>
+      <!-- cards injected by JS -->
+    </div>
+
+    <div class="empty-state" data-empty-state hidden>
+      <p>the jar is empty.</p>
+      <p class="faint">make a marble to get started.</p>
+    </div>
+  </section>
+
+  <!-- ============================= -->
+  <!-- SCREEN: RACE SETUP            -->
+  <!-- ============================= -->
+  <section data-screen="setup" class="screen">
+    <div class="screen-header">
+      <button class="btn-back" data-nav="menu">← back</button>
+      <h2 class="stamp-title small">RACE SETUP</h2>
+      <span></span>
+    </div>
+
+    <div class="setup-layout">
+      <div class="setup-panel panel-marbles">
+        <h3>pick your racers</h3>
+        <p class="faint">minimum 2 marbles</p>
+        <div class="setup-marble-list" data-setup-marbles></div>
+      </div>
+
+      <div class="setup-panel panel-maps">
+        <h3>pick your map</h3>
+        <div class="map-cards" data-map-cards>
+          <button class="map-card" data-map="gauntlet">
+            <span class="map-emoji">🏔️</span>
+            <span class="map-title">The Gauntlet</span>
+            <span class="map-desc">narrow zigzag canyon. tight passages and dramatic lead changes.</span>
+          </button>
+          <button class="map-card" data-map="alpine">
+            <span class="map-emoji">🎿</span>
+            <span class="map-title">Alpine Drop</span>
+            <span class="map-desc">wide open slopes with mogul bumps. fast and clear.</span>
+          </button>
+          <button class="map-card" data-map="pinball">
+            <span class="map-emoji">🎰</span>
+            <span class="map-title">Pinball Alley</span>
+            <span class="map-desc">dense bumper field. pure chaos, constant lead changes.</span>
+          </button>
+          <button class="map-card" data-map="random">
+            <span class="map-emoji">🎲</span>
+            <span class="map-title">Random</span>
+            <span class="map-desc">let the dice decide for you.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="setup-footer">
+      <button class="btn-primary big" data-action="start-race" disabled>Start the Race</button>
+    </div>
+  </section>
+
+  <!-- ============================= -->
+  <!-- SCREEN: RACE                  -->
+  <!-- ============================= -->
+  <section data-screen="race" class="screen race-screen">
+    <div class="race-topbar">
+      <button class="btn-back small" data-action="quit-race">← quit</button>
+      <div class="race-now-playing" data-now-playing>
+        <span class="np-icon">🎵</span>
+        <span data-np-name>—</span>
+      </div>
+      <div class="race-controls">
+        <span class="race-timer" data-race-timer>0.0s</span>
+        <button class="btn-icon" data-action="toggle-mute" title="mute">🔊</button>
+      </div>
+    </div>
+
+    <div class="race-body">
+      <aside class="race-leaderboard">
+        <h4>leaderboard</h4>
+        <ol data-leaderboard></ol>
+      </aside>
+
+      <div class="race-canvas-wrap" data-canvas-wrap>
+        <!-- canvas injected by Matter.js -->
+      </div>
+    </div>
+
+    <div class="youtube-players" data-yt-host aria-hidden="true"></div>
+  </section>
+
+  <!-- ============================= -->
+  <!-- SCREEN: RESULTS (celebration + podium) -->
+  <!-- ============================= -->
+  <section data-screen="results" class="screen results-screen">
+    <!-- Phase 1: celebration -->
+    <div class="celebration" data-celebration>
+      <canvas class="sparkle-canvas" data-sparkle-canvas></canvas>
+      <div class="winner-stage">
+        <div class="winner-marble" data-winner-marble></div>
+        <h1 class="winner-name" data-winner-name>—</h1>
+        <p class="winner-sub">PICKS THE NEXT BOOK</p>
+      </div>
+      <div class="celebration-footer">
+        <div class="countdown-bar"><div class="countdown-fill" data-countdown-fill></div></div>
+        <button class="btn-ghost" data-action="show-podium">show podium →</button>
+      </div>
+    </div>
+
+    <!-- Phase 2: podium -->
+    <div class="podium-phase" data-podium-phase hidden>
+      <h2 class="stamp-title small">THE PODIUM</h2>
+      <div class="podium" data-podium></div>
+      <div class="full-order" data-full-order></div>
+      <div class="podium-actions">
+        <button class="btn-ghost" data-action="race-again">↻ Race Again</button>
+        <button class="btn-primary" data-nav="menu">Back to Menu</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= -->
+  <!-- MODAL: MARBLE EDITOR          -->
+  <!-- ============================= -->
+  <div class="modal-backdrop" data-modal="marble-editor" hidden>
+    <div class="modal marble-editor">
+      <div class="modal-header">
+        <h3 data-editor-title>new marble</h3>
+        <button class="btn-close" data-action="close-editor">×</button>
+      </div>
+      <form class="modal-body" data-editor-form>
+        <label class="field">
+          <span class="field-label">name</span>
+          <input type="text" name="name" required maxlength="24" placeholder="e.g. Sarah" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">avatar <span class="faint">(optional)</span></span>
+          <input type="file" name="avatar" accept="image/*" />
+          <div class="avatar-preview" data-avatar-preview></div>
+        </label>
+
+        <label class="field">
+          <span class="field-label">theme song <span class="faint">(youtube link, optional)</span></span>
+          <input type="url" name="youtube" placeholder="https://www.youtube.com/watch?v=..." />
+          <span class="field-help" data-yt-help></span>
+        </label>
+
+        <div class="field yt-time-fields" data-yt-time-fields hidden>
+          <span class="field-label">clip <span class="faint">(optional)</span></span>
+          <div class="yt-time-row">
+            <div class="yt-time-col">
+              <span class="yt-time-label">start</span>
+              <input type="text" name="yt_start" placeholder="0:00" autocomplete="off" />
+            </div>
+            <span class="yt-time-sep">→</span>
+            <div class="yt-time-col">
+              <span class="yt-time-label">end</span>
+              <input type="text" name="yt_end" placeholder="1:30" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-action="close-editor">cancel</button>
+          <button type="submit" class="btn-primary">save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================= -->
+  <!-- MODAL: IMAGE CROPPER          -->
+  <!-- ============================= -->
+  <div class="modal-backdrop" data-modal="image-cropper" hidden>
+    <div class="modal image-cropper-modal">
+      <div class="modal-header">
+        <h3>adjust photo</h3>
+        <button type="button" class="btn-close" data-action="cancel-crop">×</button>
+      </div>
+      <div class="modal-body cropper-body">
+        <div class="crop-container" data-crop-container>
+          <img class="crop-image" data-crop-image draggable="false" alt="" />
+          <div class="crop-overlay" aria-hidden="true"></div>
+          <div class="crop-circle-outline" aria-hidden="true"></div>
+        </div>
+        <div class="crop-controls">
+          <button type="button" class="btn-ghost crop-zoom-btn" data-action="zoom-out">−</button>
+          <input type="range" class="zoom-slider" data-zoom-slider min="100" max="300" value="100" />
+          <button type="button" class="btn-ghost crop-zoom-btn" data-action="zoom-in">+</button>
+        </div>
+        <p class="crop-hint">drag to reposition · scroll to zoom</p>
+      </div>
+      <div class="cropper-actions">
+        <button type="button" class="btn-ghost" data-action="cancel-crop">cancel</button>
+        <button type="button" class="btn-primary" data-action="confirm-crop">use photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================= -->
+  <!-- TOAST CONTAINER               -->
+  <!-- ============================= -->
+  <div class="toast-container" data-toast-container></div>
+
+  <!-- CDN: Matter.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <!-- CDN: canvas-confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+  <!-- CDN: YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <!-- App -->
+  <script src="app.js"></script>
+</body>
+</html>

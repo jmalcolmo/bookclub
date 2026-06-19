@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Reading Room — Book Club</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="club.css" />
+</head>
+<body class="club-body">
+
+  <!-- Grain overlay -->
+  <div class="grain-overlay" aria-hidden="true"></div>
+
+  <!-- Top nav (hidden until signed in) -->
+  <header class="club-nav" data-nav-bar hidden>
+    <button class="club-brand" data-nav="clubs">
+      <span class="brand-mark">📚</span>
+      <span class="brand-text">THE READING ROOM</span>
+    </button>
+    <nav class="club-nav-links">
+      <button class="navlink" data-nav="clubs">my clubs</button>
+      <button class="navlink" data-nav="profile">profile</button>
+      <button class="navlink navlink-user" data-nav="profile">
+        <span class="nav-avatar" data-nav-avatar></span>
+        <span data-nav-name>…</span>
+      </button>
+      <button class="navlink navlink-signout" data-action="signout">sign out</button>
+    </nav>
+  </header>
+
+  <!-- Everything is rendered into #app by the router -->
+  <main id="app" class="club-app">
+    <div class="boot-splash">
+      <h1 class="stamp-title">THE READING ROOM</h1>
+      <p class="subtitle">loading…</p>
+    </div>
+  </main>
+
+  <!-- Toasts -->
+  <div class="toast-container" data-toast-container></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
