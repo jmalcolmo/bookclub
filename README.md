@@ -14,6 +14,35 @@ fourth picker method.
 
 ---
 
+## Environments (live)
+
+| | Dev | Prod |
+|---|---|---|
+| **App URL** | http://localhost:5174 | https://jmalcolmo.github.io/bookclub/ |
+| **Supabase project ref** | `wwzvwjhohkyudytoqvfl` | `kxiyvqpmmfbibeoygmnw` |
+| **Selected when** | hostname is `localhost`/`127.0.0.1` | any other hostname |
+| **Data** | throwaway test data | real users — keep clean |
+
+- Repo: <https://github.com/jmalcolmo/bookclub> (public). GitHub Pages deploys from
+  the `master` branch root; every `git push` rebuilds prod automatically.
+- The two environments are fully isolated databases — data does **not** cross over.
+- `config.js` holds only the public **publishable** keys (safe to commit; guarded by
+  RLS). Secrets (DB password, `service_role`/`secret` keys) live in `.passwords/`,
+  which is git-ignored and must never be committed.
+
+### Deploy workflow
+
+```bash
+# 1. edit code, test locally against DEV (see "Run locally")
+# 2. ship to PROD:
+git add -A
+git commit -m "..."
+git push
+# GitHub Pages rebuilds https://jmalcolmo.github.io/bookclub/ in ~1-2 min.
+```
+
+---
+
 ## Architecture
 
 ```
@@ -70,31 +99,36 @@ server works:
 
 ```bash
 # Python
-python -m http.server 5173
+python -m http.server 5174
 # or Node
-npx serve -l 5173
+npx serve -l 5174
 ```
 
-Then open <http://localhost:5173>. It will use the **dev** Supabase project.
+Then open <http://localhost:5174>. It will use the **dev** Supabase project.
+(Port 5174 is what's registered in the dev project's Redirect URLs, so Google
+sign-in works locally — use that port, or add your chosen port there too.)
 
 ---
 
 ## Deploy to production (GitHub Pages)
 
-```bash
-git add -A
-git commit -m "..."
-git push
-```
-
-Then in the repo on GitHub: **Settings → Pages → Build and deployment → Source:
-Deploy from a branch**, pick your branch and `/ (root)`. The site publishes at
-`https://<username>.github.io/<repo>/`, which uses the **prod** Supabase project.
+GitHub Pages is **already configured** for this repo (source: `master` branch,
+`/` root). To ship, just push — see "Deploy workflow" above. The site publishes at
+<https://jmalcolmo.github.io/bookclub/>, which uses the **prod** Supabase project.
 
 `.nojekyll` is included so GitHub Pages serves the `src/` modules as-is.
 
-> Make sure the prod URL is listed in the **prod** Supabase project's Redirect URLs
-> (step 2 above), or Google sign-in will bounce back with an error.
+> The prod URL is registered in the **prod** Supabase project's URL Configuration
+> (Site URL + Redirect URLs). If sign-in ever bounces with a redirect error, check
+> that those still match the live URL.
+
+### Re-running this setup from scratch
+
+If you ever recreate the repo, re-enable Pages with:
+
+```bash
+gh api -X POST repos/<owner>/<repo>/pages -f "source[branch]=master" -f "source[path]=/"
+```
 
 ---
 
