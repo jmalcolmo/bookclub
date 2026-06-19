@@ -1,0 +1,13 @@
+{
+  "name": "reading-room-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Integration tests for The Reading Room (the app itself has no build step).",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run.mjs"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2"
+  }
+}
