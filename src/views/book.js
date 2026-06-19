@@ -1,4 +1,4 @@
-import { render, navigate } from "../router.js";
+import { render, navigate, onCleanup } from "../router.js";
 import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
@@ -222,8 +222,5 @@ function wire(root, { clubId, book, mine }) {
   loadReactions(root, book.id);
   const unsub = api.subscribe(`reactions-${book.id}`, "reactions", `book_id=eq.${book.id}`,
     () => loadReactions(root, book.id));
-  // tidy up the subscription when navigating away
-  window.addEventListener("hashchange", function off() {
-    unsub(); window.removeEventListener("hashchange", off);
-  });
+  onCleanup(unsub); // router tears this down before the next (re)render
 }

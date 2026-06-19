@@ -5,6 +5,16 @@ import { toast } from "./ui.js";
 const routes = [];
 let notFound = () => { document.getElementById("app").innerHTML = "<p>Not found.</p>"; };
 
+// Cleanups (e.g. realtime unsubscribes) registered by the current view. They run
+// before the next render — including re-renders of the same route — so views
+// never leave a stale subscription behind.
+let cleanups = [];
+export function onCleanup(fn) { cleanups.push(fn); }
+function runCleanups() {
+  const fns = cleanups; cleanups = [];
+  fns.forEach((fn) => { try { fn(); } catch (e) { console.warn(e); } });
+}
+
 export function route(pattern, handler) {
   // pattern like "/club/:id/book/:bookId"
   const keys = [];
@@ -26,6 +36,7 @@ export function currentPath() {
 }
 
 export async function resolve() {
+  runCleanups(); // tear down the previous view's subscriptions first
   const path = currentPath();
   const app = document.getElementById("app");
   for (const r of routes) {

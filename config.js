@@ -11,14 +11,12 @@
 
 const ENVIRONMENTS = {
   dev: {
-    // TODO: paste your DEV Supabase project values
-    SUPABASE_URL: "https://YOUR_DEV_PROJECT.supabase.co",
-    SUPABASE_ANON_KEY: "YOUR_DEV_ANON_KEY",
+    SUPABASE_URL: "https://wwzvwjhohkyudytoqvfl.supabase.co",
+    SUPABASE_ANON_KEY: "sb_publishable_oWZKSlHJFMQDSiAt-3SwOA_xslAn-_s",
   },
   prod: {
-    // TODO: paste your PROD Supabase project values
-    SUPABASE_URL: "https://YOUR_PROD_PROJECT.supabase.co",
-    SUPABASE_ANON_KEY: "YOUR_PROD_ANON_KEY",
+    SUPABASE_URL: "https://kxiyvqpmmfbibeoygmnw.supabase.co",
+    SUPABASE_ANON_KEY: "sb_publishable_B7uxeAfGEWdrZX4if8ZNQw_X6_KIWmH",
   },
 };
 

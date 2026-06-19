@@ -9,6 +9,11 @@
 -- Needed for gen_random_uuid()
 create extension if not exists "pgcrypto";
 
+-- The helper functions below reference tables that are created later in this
+-- script. Don't validate function bodies at creation time (they only run after
+-- the tables exist). Scoped to this session/transaction only.
+set check_function_bodies = off;
+
 -- ============================================================================
 -- HELPER FUNCTIONS (security definer, to avoid recursive RLS on club_members)
 -- ============================================================================

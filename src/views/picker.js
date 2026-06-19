@@ -1,4 +1,4 @@
-import { render, navigate } from "../router.js";
+import { render, navigate, onCleanup } from "../router.js";
 import { esc, toast, avatarHTML, colorFor } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
@@ -177,7 +177,7 @@ async function renderVote({ clubId, club, members, selection }) {
     paint();
     const unsub = api.subscribe(`votes-${selection.id}`, "selection_votes",
       `selection_id=eq.${selection.id}`, paint);
-    window.addEventListener("hashchange", function off() { unsub(); window.removeEventListener("hashchange", off); });
+    onCleanup(unsub);
 
     root.querySelector("[data-close-vote]")?.addEventListener("click", async () => {
       const votes = await api.selectionVotes(selection.id);
