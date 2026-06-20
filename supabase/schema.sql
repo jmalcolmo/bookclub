@@ -32,7 +32,9 @@ as $$
   );
 $$;
 
--- Is the current user the owner of this club?
+-- Is the current user an owner-tier member of this club? The club CREATOR holds
+-- the distinct 'creator' role; 'owner' remains valid for future use. Both tiers
+-- carry the same privileges for now (no creator-specific functions yet).
 create or replace function public.is_club_owner(_club_id uuid)
 returns boolean
 language sql
@@ -42,7 +44,7 @@ set search_path = public
 as $$
   select exists (
     select 1 from club_members
-    where club_id = _club_id and user_id = auth.uid() and role = 'owner'
+    where club_id = _club_id and user_id = auth.uid() and role in ('creator','owner')
   );
 $$;
 
@@ -182,10 +184,19 @@ $$;
 create table if not exists club_members (
   club_id   uuid not null references clubs(id) on delete cascade,
   user_id   uuid not null references auth.users(id) on delete cascade,
-  role      text not null default 'member' check (role in ('owner','member')),
+  -- 'creator' = the person who made the club (assigned by trigger below).
+  -- 'owner'   = reserved owner-tier role for future use / ownership transfer.
+  -- 'member'  = everyone who joins.
+  role      text not null default 'member' check (role in ('creator','owner','member')),
   joined_at timestamptz not null default now(),
   primary key (club_id, user_id)
 );
+
+-- Make the role set safe to widen on already-provisioned projects, and migrate
+-- existing creators (previously stored as 'owner') to the new 'creator' role.
+alter table club_members drop constraint if exists club_members_role_check;
+alter table club_members add  constraint club_members_role_check check (role in ('creator','owner','member'));
+update club_members set role = 'creator' where role = 'owner';
 
 alter table club_members enable row level security;
 
@@ -204,7 +215,7 @@ drop policy if exists "members_delete_self_or_owner" on club_members;
 create policy "members_delete_self_or_owner" on club_members
   for delete using (user_id = auth.uid() or is_club_owner(club_id));
 
--- When a club is created, make the creator an owner member automatically.
+-- When a club is created, make the creator a 'creator' member automatically.
 create or replace function public.handle_new_club()
 returns trigger
 language plpgsql
@@ -213,7 +224,7 @@ set search_path = public
 as $$
 begin
   insert into public.club_members (club_id, user_id, role)
-  values (new.id, new.created_by, 'owner')
+  values (new.id, new.created_by, 'creator')
   on conflict do nothing;
   return new;
 end;

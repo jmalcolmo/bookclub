@@ -241,7 +241,7 @@ async function ensureClub(ownerId, fallbackOwnerId) {
 // ---- membership -------------------------------------------------------------
 async function ensureMembers(club, members, ownerId) {
   const rows = members.map((m) => ({ club_id: club.id, user_id: m.id, role: "member" }));
-  if (ownerId) rows.push({ club_id: club.id, user_id: ownerId, role: "owner" });
+  if (ownerId) rows.push({ club_id: club.id, user_id: ownerId, role: "creator" });
   unwrap("members", await db.from("club_members")
     .upsert(rows, { onConflict: "club_id,user_id" }));
 }
