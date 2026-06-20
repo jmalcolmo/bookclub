@@ -10,8 +10,9 @@ export async function renderPicker({ params }) {
     api.getClub(clubId), api.clubMembers(clubId), api.openSelections(clubId),
   ]);
 
+  // If a vote is already in progress, surface it as a resumable banner — but
+  // still show the method options so "Pick next reader" never skips the choice.
   const openVote = open.find((s) => s.method === "vote");
-  if (openVote) return renderVote({ clubId, club, members, selection: openVote });
 
   render(`
     <div class="screen-pad picker-screen">
@@ -19,6 +20,11 @@ export async function renderPicker({ params }) {
         <button class="btn-back" data-nav="club">← ${esc(club.name)}</button>
         <h2 class="stamp-title small">WHO PICKS NEXT?</h2><span></span>
       </div>
+      ${openVote ? `
+        <div class="parked-note patch">
+          <p>🗳️ A vote is already in progress.</p>
+          <button class="btn-primary" data-goto-vote>Go to the open vote →</button>
+        </div>` : ""}
       <p class="faint center">choose how your club decides who picks the next book.</p>
       <div class="method-grid">
         <button class="method-card patch" data-m="wheel">
@@ -38,6 +44,8 @@ export async function renderPicker({ params }) {
     </div>
   `, (root) => {
     root.querySelector("[data-nav='club']").addEventListener("click", () => navigate(`/club/${clubId}`));
+    root.querySelector("[data-goto-vote]")?.addEventListener("click", () =>
+      renderVote({ clubId, club, members, selection: openVote }));
     root.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => {
       root.querySelectorAll("[data-m]").forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
@@ -45,7 +53,11 @@ export async function renderPicker({ params }) {
       const m = b.dataset.m;
       if (m === "wheel") wheelStage(stage, { clubId, members });
       else if (m === "pick") pickStage(stage, { clubId, members });
-      else if (m === "vote") startVoteStage(stage, { clubId });
+      // Resume an existing open vote rather than opening a duplicate.
+      else if (m === "vote") {
+        if (openVote) renderVote({ clubId, club, members, selection: openVote });
+        else startVoteStage(stage, { clubId });
+      }
       else raceStage(stage);
     }));
   });
