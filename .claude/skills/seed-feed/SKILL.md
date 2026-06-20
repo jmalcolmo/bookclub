@@ -53,8 +53,15 @@ A deterministic RNG keeps each reseed similar.
 
 ## Important notes
 
-- **Dev only.** The script hard-refuses to run unless it is pointed at the dev
-  project (`wwzvwjhohkyudytoqvfl`). Never aim it at prod.
+- **Dev only — production can never be seeded.** Three independent gates must all
+  pass before it writes anything: (1) the endpoint URL is the dev project
+  (`wwzvwjhohkyudytoqvfl`), (2) the `service_role` key's own JWT `ref` claim is the
+  dev project, and (3) neither the URL nor the key references the prod project
+  (`kxiyvqpmmfbibeoygmnw`). Any mismatch aborts with a loud `REFUSING TO RUN`. So
+  even deliberately passing a prod URL + prod key is refused. The seeder is also
+  inert on the live site — `index.html` never imports it, so merging it to `main`
+  causes no seeding in prod; it only runs when you manually invoke `npm run seed`
+  locally with the git-ignored dev key.
 - **Your account must exist as a dev user to be added as owner.** A Supabase auth
   user is only created on first sign-in. If you've never signed into the **dev**
   site with Google, the script will say so and seed the club without you — sign in
