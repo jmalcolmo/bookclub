@@ -19,7 +19,8 @@ export async function renderClub({ params }) {
   if (book) progress = await api.bookProgress(book.id);
   const progById = Object.fromEntries(progress.map((p) => [p.user_id, p]));
 
-  const isOwner = members.find((m) => m.user_id === store.user.id)?.role === "owner";
+  const myRole = members.find((m) => m.user_id === store.user.id)?.role;
+  const isOwner = myRole === "creator" || myRole === "owner";
 
   // ---- current book panel ----
   let bookPanel;
@@ -67,7 +68,7 @@ export async function renderClub({ params }) {
       <li class="member-row">
         ${avatarHTML(m.profile, 34)}
         <span class="member-name">${esc(m.profile?.display_name || "Reader")}
-          ${m.role === "owner" ? `<span class="owner-pip">owner</span>` : ""}</span>
+          ${m.role === "creator" || m.role === "owner" ? `<span class="owner-pip">${esc(m.role)}</span>` : ""}</span>
         <span class="member-progress">
           <span class="progress-bar"><span class="progress-fill" style="width:${pct}%"></span></span>
           <span class="progress-label faint">${statusLabel}</span>

@@ -18,7 +18,7 @@ export async function renderClubs() {
       <button class="club-card patch" data-club="${c.id}" style="--accent:${color}">
         <span class="club-card-name">${esc(c.name)}</span>
         <span class="club-card-desc">${esc(c.description || "")}</span>
-        <span class="club-card-meta">${c.member_count || 1} member${(c.member_count||1) === 1 ? "" : "s"}${c.my_role === "owner" ? " · owner" : ""}</span>
+        <span class="club-card-meta">${c.member_count || 1} member${(c.member_count||1) === 1 ? "" : "s"}${c.my_role === "creator" || c.my_role === "owner" ? ` · ${esc(c.my_role)}` : ""}</span>
       </button>`;
   }).join("");
 

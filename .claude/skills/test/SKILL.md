@@ -50,7 +50,7 @@ npm test
 
 ## What it covers
 
-sign-in (password) · Open Library lookup · create club · owner auto-membership ·
+sign-in (password) · Open Library lookup · create club · creator auto-membership (role 'creator') ·
 find-by-code RPC · non-member cannot read club · join · read club · add book · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 progress unlocks later reactions · **review gate (hidden until finished)** · review visible

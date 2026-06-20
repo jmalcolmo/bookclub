@@ -97,10 +97,10 @@ await step("A creates a club", async () => {
   assert(club.join_code?.length === 6, "join code not generated");
 });
 
-await step("A is auto-added as owner member (trigger)", async () => {
+await step("A is auto-added as creator member (trigger)", async () => {
   const { data, error } = await cA.from("club_members").select("*").eq("club_id", club.id).eq("user_id", A.id).single();
   if (error) throw error;
-  assert(data.role === "owner", "creator is not owner");
+  assert(data.role === "creator", `creator should have role 'creator', got '${data.role}'`);
 });
 
 await step("B finds the club by code (RPC, not enumeration)", async () => {
