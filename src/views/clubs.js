@@ -45,7 +45,7 @@ export async function renderClubs() {
   });
 }
 
-function createClubModal() {
+export function createClubModal() {
   const accentBtns = ACCENTS.map(([name, color], i) =>
     `<button type="button" class="accent-dot ${i === 0 ? "active" : ""}" data-accent="${name}" style="background:${color}"></button>`).join("");
 
@@ -98,7 +98,7 @@ function createClubModal() {
   });
 }
 
-function joinClubModal() {
+export function joinClubModal() {
   openModal(`
     <h3>Join a Club</h3>
     <form data-form class="modal-body">

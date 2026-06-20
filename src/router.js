@@ -32,7 +32,7 @@ export function navigate(path) {
 }
 
 export function currentPath() {
-  return window.location.hash.replace(/^#/, "") || "/clubs";
+  return window.location.hash.replace(/^#/, "") || "/feed";
 }
 
 export async function resolve() {

@@ -3,7 +3,11 @@
    Builds on the granny-square system in styles.css (variables + base classes).
    ============================================================================= */
 
-.club-body { overflow-y: auto; }
+/* `overflow-x: clip` (not `hidden`) still clips the rotated patches sideways but
+   does NOT make <body> a scroll container — so position:sticky (the nav + the book
+   detail's side rails) sticks to the viewport instead of scrolling away. The base
+   `html, body { overflow-x: hidden }` in styles.css would otherwise break sticky. */
+.club-body { overflow-x: clip; overflow-y: visible; }
 .club-app { display: block; min-height: 100vh; }
 .screen-pad { max-width: 920px; margin: 0 auto; padding: 28px 22px 80px; }
 .center { text-align: center; }
@@ -149,12 +153,46 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
   display: flex; align-items: center; justify-content: center; background: var(--surface); }
 .ol-meta { display: flex; flex-direction: column; gap: 2px; }
 
-/* ---- BOOK DETAIL ---- */
-.book-hero { flex-direction: row; align-items: flex-start; text-align: left; gap: 20px; min-height: 0;
-  padding: 20px; margin-bottom: 20px; }
-.book-hero-info { display: flex; flex-direction: column; gap: 4px; }
+/* ---- BOOK DETAIL · social-feed layout ----
+   Three columns: the book (fixed left rail), the activity feed (center, scrolls),
+   and my progress (fixed right rail). Rails are sticky so they stay put as the
+   feed scrolls — the social-media reading-room layout. */
+.book-feed { max-width: 1320px; margin: 0 auto; padding: 24px 22px 80px;
+  display: grid; gap: 24px; align-items: start;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(240px, 330px); }
+
+.feed-rail { position: sticky; top: 80px; align-self: start;
+  max-height: calc(100vh - 100px); overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 14px; padding-right: 2px; }
+.feed-rail .btn-back { align-self: flex-start; }
+
+/* left rail · the book */
+.book-rail-card { flex-direction: column; align-items: center; text-align: center; gap: 12px;
+  min-height: 0; padding: 18px 16px; cursor: default; }
+.book-rail-card .book-cover.lg { width: 150px; height: 222px; }
+.book-rail-info { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.book-rail-info .book-title { font-size: 1.25rem; }
+
+/* center · the feed column */
+.feed-column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.feed-stream { display: flex; flex-direction: column; gap: 12px; }
+.feed-item { animation: feed-pop .25s ease; }
+@keyframes feed-pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* notification (member activity) cards */
+.notif-card { display: flex; align-items: center; gap: 12px; background: var(--surface);
+  border: 3px solid var(--yarn-sage); border-left-width: 7px; border-radius: 12px;
+  padding: 11px 14px; box-shadow: var(--shadow-soft); }
+.notif-icon { font-size: 1.35rem; flex: 0 0 auto; }
+.notif-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.notif-text { margin: 0; font-family: var(--font-display); font-size: 1rem; color: var(--text-primary); }
+.notif-time { font-size: .72rem; }
+.notif-highlight { border-color: var(--yarn-ochre);
+  background: color-mix(in srgb, var(--yarn-ochre) 14%, var(--surface)); }
+.notif-highlight .notif-text { font-weight: 700; color: var(--yarn-bark); }
+
 .progress-panel, .reaction-compose, .reviews-section { align-items: stretch; text-align: left;
-  min-height: 0; padding: 18px 20px; margin-bottom: 18px; cursor: default; }
+  min-height: 0; padding: 18px 20px; margin-bottom: 0; cursor: default; }
 .progress-form, .react-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
 .inline-field, .react-page { font-family: var(--font-mono); font-size: .85rem; display: flex;
   align-items: center; gap: 6px; }
@@ -190,6 +228,98 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .review-name { font-family: var(--font-display); font-weight: 600; }
 .review-stars { color: var(--yarn-ochre); margin-left: auto; font-size: .95rem; }
 .review-body { margin: 6px 0 0; line-height: 1.45; }
+
+/* ---- APP FEED · home (clubs rail · activity feed · reading rail) ----
+   Reuses the book-detail feed primitives (.feed-rail, .feed-column, .feed-stream,
+   .feed-item, .notif-card) and adds the home-specific shell + rail content.
+   Left = clubs, center = cross-club activity, right = your reading. */
+.feed-shell { max-width: 1320px; margin: 0 auto; padding: 24px 22px 80px;
+  display: grid; gap: 24px; align-items: start;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(240px, 330px); }
+.feed-title { margin: 0 2px 6px; }
+.feed-mobile-bar { display: none; }
+
+/* rail scaffolding (shared by both rails) */
+.rail-section { display: flex; flex-direction: column; gap: 10px; }
+.rail-section + .rail-section { margin-top: 16px; }
+.rail-head { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-muted); margin: 0; }
+.rail-empty { margin: 0; }
+.rail-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 18px;
+  border-top: 2px dashed var(--yarn-clay); padding-top: 16px; }
+.rail-actions .btn-ghost, .rail-actions .btn-primary { width: 100%; }
+
+/* left rail · club cards */
+.rail-club-card { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+  background: color-mix(in srgb, var(--accent, var(--yarn-sage)) 12%, var(--surface));
+  border: 3px solid var(--accent, var(--yarn-sage)); border-radius: 12px;
+  padding: 10px; cursor: pointer; box-shadow: var(--shadow-soft); }
+.rail-club-card:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
+.rail-club-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rail-club-name { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
+  font-size: 1.02rem; line-height: 1.15; }
+.rail-club-book { font-family: var(--font-display); font-style: italic; color: var(--text-primary);
+  font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* right rail · my reading */
+.reading-item { display: flex; align-items: flex-start; gap: 10px; text-align: left; width: 100%;
+  background: var(--surface); border: 3px solid var(--yarn-sage); border-radius: 12px;
+  padding: 10px; cursor: pointer; box-shadow: var(--shadow-soft); }
+.reading-item:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
+.reading-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.reading-title { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
+  font-size: 1rem; line-height: 1.15; }
+.reading-club { font-size: .78rem; }
+.reading-item .progress-bar { max-width: none; width: 100%; }
+.reading-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.reading-foot .progress-label { min-width: 0; text-align: left; }
+.reading-foot .deadline-badge { margin-top: 0; }
+.deadline-badge.soon { border-color: var(--warning); color: var(--warning); }
+
+/* right rail · vote alerts */
+.vote-alert { display: flex; align-items: center; gap: 9px; text-align: left; width: 100%;
+  background: color-mix(in srgb, var(--yarn-ochre) 14%, var(--surface));
+  border: 3px solid var(--yarn-ochre); border-radius: 12px; padding: 10px;
+  cursor: pointer; box-shadow: var(--shadow-soft); }
+.vote-alert:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
+.vote-alert-icon { font-size: 1.2rem; flex: 0 0 auto; }
+.vote-alert-text { font-family: var(--font-display); font-size: .92rem; color: var(--text-primary); }
+
+/* center · feed cards (clickable; reaction cards carry club/book context) */
+.feed-item[data-go] { cursor: pointer; }
+.notif-card[data-go]:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
+.feed-reaction { background: var(--surface); border: 3px solid var(--yarn-slate); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 6px; }
+.feed-reaction:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
+.feed-reaction .reaction-head { margin-bottom: 0; flex-wrap: wrap; }
+.feed-context { font-family: var(--font-mono); font-size: .7rem; }
+.feed-reaction .reaction-page { margin-left: auto; }
+.feed-reaction .reaction-body { font-size: 1rem; }
+.feed-empty { text-align: center; padding: 40px 24px; }
+
+/* feed mobile drawers: on narrow screens the two rails slide in from the edges,
+   triggered by the buttons in .feed-mobile-bar; center feed stays full-width. */
+.feed-drawer-backdrop { position: fixed; inset: 0; z-index: 940; background: rgba(42,37,32,.45); }
+
+@media (max-width: 900px) {
+  .feed-shell { grid-template-columns: 1fr; gap: 14px; }
+  .feed-title-desktop { display: none; }
+  .feed-mobile-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    position: sticky; top: 56px; z-index: 800; background: var(--bg);
+    padding: 8px 0; margin: -4px 0 2px; }
+  .feed-mobile-bar .feed-title { margin: 0; }
+
+  /* override the book-page rail un-stick: here rails are off-canvas drawers */
+  .feed-shell .feed-rail { position: fixed; top: 0; bottom: 0; z-index: 950;
+    width: min(86vw, 340px); max-height: none; margin: 0; gap: 12px;
+    background: var(--surface); box-shadow: var(--shadow-deep);
+    padding: 64px 16px 24px; overflow-y: auto; transition: transform .25s ease; }
+  .feed-shell .feed-rail-clubs { left: 0; transform: translateX(-105%);
+    border-right: 3px solid var(--yarn-bark); border-radius: 0 16px 16px 0; }
+  .feed-shell .feed-rail-reading { right: 0; transform: translateX(105%);
+    border-left: 3px solid var(--yarn-bark); border-radius: 16px 0 0 16px; }
+  .feed-shell .feed-rail.open { transform: none; }
+}
 
 /* ---- PICKER ---- */
 .picker-screen .method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr));
@@ -258,6 +388,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 
 .err-pre { font-family: var(--font-mono); font-size: .78rem; white-space: pre-wrap;
   background: var(--surface-2); padding: 10px; border-radius: 8px; border: 2px solid var(--negative); }
+
+/* feed layout collapses to a single scrolling column on narrow screens; the
+   book + progress rails un-stick and stack above/below the feed. */
+@media (max-width: 900px) {
+  .book-feed { grid-template-columns: 1fr; gap: 18px; }
+  .feed-rail { position: static; max-height: none; overflow: visible; }
+  .book-rail-card { flex-direction: row; text-align: left; }
+  .book-rail-card .book-cover.lg { width: 96px; height: 142px; }
+  .book-rail-info { align-items: flex-start; text-align: left; }
+}
 
 @media (max-width: 600px) {
   .member-name { min-width: 80px; }

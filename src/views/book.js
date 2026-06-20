@@ -18,70 +18,71 @@ export async function renderBook({ params }) {
   const finished = mine?.status === "finished";
 
   render(`
-    <div class="screen-pad book-detail">
-      <div class="screen-header">
-        <button class="btn-back" data-nav="club">← ${esc(book.title).slice(0, 24)}</button>
-        <span></span><span></span>
-      </div>
-
-      <div class="book-hero patch">
-        ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="">`
-                         : `<div class="book-cover lg book-cover-blank">📖</div>`}
-        <div class="book-hero-info">
-          <h2 class="book-title">${esc(book.title)}</h2>
-          <p class="book-author">${esc(book.author || "")}</p>
-          <p class="faint">${book.page_count ? `${book.page_count} pages · ` : ""}status: ${esc(book.status)}</p>
-          ${book.deadline ? `<p class="faint">deadline: ${fmtDate(book.deadline)} ${deadlineNote(book.deadline)}</p>` : ""}
+    <div class="book-feed">
+      <!-- LEFT RAIL · the book (fixed) -->
+      <aside class="feed-rail feed-rail-left book-rail">
+        <button class="btn-back" data-nav="club">← back to club</button>
+        <div class="patch book-rail-card">
+          ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="">`
+                           : `<div class="book-cover lg book-cover-blank">📖</div>`}
+          <div class="book-rail-info">
+            <h2 class="book-title">${esc(book.title)}</h2>
+            <p class="book-author">${esc(book.author || "")}</p>
+            <p class="faint">${book.page_count ? `${book.page_count} pages` : ""}</p>
+            <p class="faint">status: ${esc(book.status)}</p>
+            ${book.deadline ? `<p class="faint">deadline: ${fmtDate(book.deadline)}<br>${deadlineNote(book.deadline)}</p>` : ""}
+          </div>
         </div>
-      </div>
+      </aside>
 
-      <!-- MY PROGRESS -->
-      <div class="progress-panel patch">
-        <h4>my progress</h4>
-        <form data-progress class="progress-form">
-          <label class="inline-field">page
-            <input name="page" type="number" min="0" max="${book.page_count || 100000}"
-              value="${myPage}" ${book.page_count ? `` : ``} /></label>
-          ${book.page_count ? `<span class="faint">/ ${book.page_count}</span>` : ""}
-          <button type="button" class="btn-ghost small" data-act="started">mark started</button>
-          <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
-          <button type="submit" class="btn-primary small">save</button>
-        </form>
-        <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
-        ${book.status !== "finished" ? `
-          <div class="book-admin">
-            <button class="btn-ghost small" data-act="extend">＋ extend deadline 7d</button>
-            <button class="btn-ghost small" data-act="finish-book">mark book finished for club</button>
-          </div>` : ""}
-      </div>
-
-      <!-- POST REACTION -->
-      <div class="reaction-compose patch">
-        <h4>post a reaction</h4>
-        <form data-react class="react-form">
-          <div class="react-page">at page
-            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}" required></div>
-          <textarea name="body" rows="2" maxlength="600" required
-            placeholder="what happened? how'd it hit you? (only visible to people who've read this far)"></textarea>
-          <button type="submit" class="btn-primary small">post reaction</button>
-        </form>
-      </div>
-
-      <!-- REACTIONS FEED (already spoiler-filtered by the server) -->
-      <div class="reactions-feed">
-        <h4 class="feed-head">reactions <span class="faint" data-react-count></span></h4>
-        <div data-reactions><p class="faint">loading…</p></div>
-      </div>
-
-      <!-- REVIEWS (finished only) -->
-      <div class="reviews-section patch">
-        <h4>reviews</h4>
-        ${finished ? reviewFormHTML(myRev) : `
-          <p class="faint locked-note">🔒 reviews unlock once you've marked the book finished.</p>`}
-        <div data-reviews class="reviews-list">
-          ${finished ? renderReviews(reviews) : ""}
+      <!-- CENTER · the feed (scrolls) -->
+      <main class="feed-column">
+        <div class="reaction-compose patch">
+          <h4>post a reaction</h4>
+          <form data-react class="react-form">
+            <div class="react-page">at page
+              <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}" required></div>
+            <textarea name="body" rows="2" maxlength="600" required
+              placeholder="what happened? how'd it hit you? (only visible to people who've read this far)"></textarea>
+            <button type="submit" class="btn-primary small">post reaction</button>
+          </form>
         </div>
-      </div>
+
+        <h4 class="feed-head">the feed <span class="faint" data-feed-count></span></h4>
+        <div class="feed-stream" data-feed><p class="faint">loading…</p></div>
+
+        <!-- REVIEWS (finished only) -->
+        <div class="reviews-section patch">
+          <h4>reviews</h4>
+          ${finished ? reviewFormHTML(myRev) : `
+            <p class="faint locked-note">🔒 reviews unlock once you've marked the book finished.</p>`}
+          <div data-reviews class="reviews-list">
+            ${finished ? renderReviews(reviews) : ""}
+          </div>
+        </div>
+      </main>
+
+      <!-- RIGHT RAIL · my progress (fixed, mirrors the book) -->
+      <aside class="feed-rail feed-rail-right">
+        <div class="progress-panel patch">
+          <h4>my progress</h4>
+          <form data-progress class="progress-form">
+            <label class="inline-field">page
+              <input name="page" type="number" min="0" max="${book.page_count || 100000}"
+                value="${myPage}" /></label>
+            ${book.page_count ? `<span class="faint">/ ${book.page_count}</span>` : ""}
+            <button type="button" class="btn-ghost small" data-act="started">mark started</button>
+            <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
+            <button type="submit" class="btn-primary small">save</button>
+          </form>
+          <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
+          ${book.status !== "finished" ? `
+            <div class="book-admin">
+              <button class="btn-ghost small" data-act="extend">＋ extend deadline 7d</button>
+              <button class="btn-ghost small" data-act="finish-book">mark book finished for club</button>
+            </div>` : ""}
+        </div>
+      </aside>
     </div>
   `, (root) => wire(root, { clubId, book, mine }));
 }
@@ -118,7 +119,7 @@ function renderReviews(reviews) {
 
 function reactionCardHTML(r, mineId) {
   return `
-    <div class="reaction-card" data-id="${r.id}">
+    <div class="feed-item reaction-card" data-id="${r.id}">
       <div class="reaction-head">
         ${avatarHTML(r.profile, 30)}
         <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
@@ -130,16 +131,75 @@ function reactionCardHTML(r, mineId) {
     </div>`;
 }
 
-async function loadReactions(root, bookId) {
-  const host = root.querySelector("[data-reactions]");
-  const reactions = await api.bookReactions(bookId);
-  root.querySelector("[data-react-count]").textContent =
-    reactions.length ? `(${reactions.length} unlocked)` : "";
-  host.innerHTML = reactions.length
-    ? reactions.map((r) => reactionCardHTML(r, store.user.id)).join("")
-    : `<p class="faint">no reactions you can see yet — log more pages to unlock them.</p>`;
+function notifCardHTML(n) {
+  return `
+    <div class="feed-item notif-card ${n.highlight ? "notif-highlight" : ""}">
+      <span class="notif-icon" aria-hidden="true">${n.icon}</span>
+      <div class="notif-main">
+        <p class="notif-text">${esc(n.text)}</p>
+        <span class="notif-time faint">${timeAgo(n.ts)}</span>
+      </div>
+    </div>`;
+}
+
+// Derive "activity" notifications from each member's latest reading_progress row.
+// These are computed client-side from progress (no notifications table yet), so
+// each member contributes one card reflecting their current state.
+function buildNotifications(progress, memberCount, book) {
+  const items = [];
+  const me = store.user?.id;
+  for (const p of progress) {
+    const name = (p.user_id === me ? "You" : (p.profile?.display_name || "A reader"));
+    if (p.status === "finished") {
+      items.push({ ts: p.finished_at || p.updated_at, icon: "🎉",
+        text: `${name} finished the book` });
+    } else if (p.status === "reading" && p.current_page > 0) {
+      const of = book.page_count ? ` of ${book.page_count}` : "";
+      items.push({ ts: p.updated_at, icon: "📖",
+        text: `${name} read to page ${p.current_page}${of}` });
+    } else if (p.status === "reading" || p.started_at) {
+      items.push({ ts: p.started_at || p.updated_at, icon: "🔖",
+        text: `${name} started reading` });
+    }
+  }
+  const finishedRows = progress.filter((p) => p.status === "finished");
+  if (memberCount > 0 && finishedRows.length >= memberCount) {
+    const lastTs = finishedRows.reduce(
+      (m, p) => Math.max(m, new Date(p.finished_at || p.updated_at).getTime()), 0);
+    items.push({ ts: new Date(lastTs).toISOString(), icon: "🏆", highlight: true,
+      text: "Everyone has finished the book!" });
+  }
+  return items;
+}
+
+// Build the merged, newest-first feed: spoiler-safe reactions (RLS already
+// filtered them) interleaved with activity notifications.
+async function loadFeed(root, clubId, book) {
+  const host = root.querySelector("[data-feed]");
+  const [reactions, progress, members] = await Promise.all([
+    api.bookReactions(book.id),
+    api.bookProgress(book.id),
+    api.clubMembers(clubId),
+  ]);
+
+  const notifs = buildNotifications(progress, members.length, book);
+  const feed = [
+    ...reactions.map((r) => ({ kind: "reaction", ts: r.created_at, data: r })),
+    ...notifs.map((n) => ({ kind: "notif", ts: n.ts, data: n })),
+  ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+  const countEl = root.querySelector("[data-feed-count]");
+  if (countEl) countEl.textContent =
+    reactions.length ? `(${reactions.length} reaction${reactions.length === 1 ? "" : "s"} unlocked)` : "";
+
+  host.innerHTML = feed.length
+    ? feed.map((item) => item.kind === "reaction"
+        ? reactionCardHTML(item.data, store.user.id)
+        : notifCardHTML(item.data)).join("")
+    : `<p class="faint">nothing here yet — be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
+
   host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
-    try { await api.deleteReaction(b.dataset.del); loadReactions(root, bookId); }
+    try { await api.deleteReaction(b.dataset.del); loadFeed(root, clubId, book); }
     catch (err) { toast(err.message, "error"); }
   }));
 }
@@ -156,7 +216,7 @@ function wire(root, { clubId, book, mine }) {
       await api.setProgress(book.id, page, st);
       mine = { current_page: page, status: st };
       toast("Progress saved", "success");
-      loadReactions(root, book.id); // newly unlocked reactions appear
+      loadFeed(root, clubId, book); // newly unlocked reactions + updated activity
     } catch (err) { toast(err.message, "error"); }
   };
   pForm.addEventListener("submit", (e) => { e.preventDefault(); save(); });
@@ -193,7 +253,7 @@ function wire(root, { clubId, book, mine }) {
       await api.addReaction(book.id, page, body);
       e.target.body.value = "";
       toast("Reaction posted", "success");
-      loadReactions(root, book.id);
+      loadFeed(root, clubId, book);
     } catch (err) { toast(err.message, "error"); }
   });
 
@@ -218,9 +278,12 @@ function wire(root, { clubId, book, mine }) {
     } catch (err) { toast(err.message, "error"); }
   });
 
-  // initial reactions load + live updates
-  loadReactions(root, book.id);
-  const unsub = api.subscribe(`reactions-${book.id}`, "reactions", `book_id=eq.${book.id}`,
-    () => loadReactions(root, book.id));
-  onCleanup(unsub); // router tears this down before the next (re)render
+  // initial feed load + live updates (reactions AND member progress feed activity)
+  loadFeed(root, clubId, book);
+  const unsubReactions = api.subscribe(`reactions-${book.id}`, "reactions", `book_id=eq.${book.id}`,
+    () => loadFeed(root, clubId, book));
+  const unsubProgress = api.subscribe(`progress-${book.id}`, "reading_progress", `book_id=eq.${book.id}`,
+    () => loadFeed(root, clubId, book));
+  onCleanup(unsubReactions); // router tears these down before the next (re)render
+  onCleanup(unsubProgress);
 }
