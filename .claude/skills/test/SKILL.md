@@ -14,18 +14,28 @@ The harness lives in `tests/run.mjs`; deps in `package.json`.
 
 ## One-time setup
 
-1. Create two confirmed test users in the **dev** project
-   (`wwzvwjhohkyudytoqvfl`) → Authentication → Users → **Add user** (twice).
-2. Save their creds to `.passwords/test-users.json` (git-ignored):
-   ```json
-   { "a": { "email": "...", "password": "..." },
-     "b": { "email": "...", "password": "..." } }
-   ```
-   (Or set `TEST_A_EMAIL` / `TEST_A_PASSWORD` / `TEST_B_EMAIL` / `TEST_B_PASSWORD`.)
-3. Install deps once: `npm install`.
+Install deps once: `npm install`.
 
-> Optional: set `SUPABASE_SERVICE_ROLE` (from dev → Settings → API, keep it in
-> `.passwords`, never commit) and the runner will auto-create the two users for you.
+Then provision two test users in the **dev** project. Easiest is the helper:
+
+```bash
+# pre-confirmed via admin API (no emails, no rate limit) — recommended:
+SUPABASE_SERVICE_ROLE="$(cat .passwords/dev-service-role.txt)" node tests/provision-users.mjs
+```
+
+`tests/provision-users.mjs` creates the users and writes `.passwords/test-users.json`
+(git-ignored). Notes:
+- The dev project has **"Confirm email" ON**, so plain sign-up tries to send mail and
+  hits the email rate limit — that's why the **service_role** path (pre-confirmed,
+  emailless) is used. The key lives in `.passwords/dev-service-role.txt` (git-ignored).
+- Supabase rejects `example.com`; the helper defaults to gmail plus-addressing
+  (`malcolm.olexa24+rrtesta@gmail.com` / `+rrtestb`) which is valid and self-delivering.
+- Alternatives: turn off "Confirm email" in dev and run the helper without a
+  service_role key, or create the two users by hand in the dashboard and write
+  `.passwords/test-users.json` yourself (`{ "a": {email,password}, "b": {...} }`).
+
+The runner also accepts `TEST_A_EMAIL/PASSWORD` + `TEST_B_EMAIL/PASSWORD` env vars
+instead of the json file.
 
 ## Run
 
