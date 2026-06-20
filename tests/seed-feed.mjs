@@ -28,11 +28,21 @@ import { readFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 // ---- config -----------------------------------------------------------------
-const DEV_REF = "wwzvwjhohkyudytoqvfl";
+const DEV_REF = "wwzvwjhohkyudytoqvfl";   // the ONLY project this may ever touch
+const PROD_REF = "kxiyvqpmmfbibeoygmnw";  // explicitly forbidden
 const URL = process.env.SUPABASE_URL || `https://${DEV_REF}.supabase.co`;
 let SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || null;
 if (!SERVICE_ROLE && existsSync(".passwords/dev-service-role.txt")) {
   SERVICE_ROLE = readFileSync(".passwords/dev-service-role.txt", "utf8").trim();
+}
+
+// The Supabase project a service_role key belongs to is encoded in its JWT `ref`
+// claim — so we can prove the *credential* is dev, not just the endpoint URL.
+function keyRef(jwt) {
+  try {
+    const p = JSON.parse(Buffer.from(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+    return p.ref || null;
+  } catch { return null; }
 }
 
 // The real account that should OWN the demo club and see the feed on sign-in.
@@ -49,12 +59,22 @@ if (!SERVICE_ROLE) {
   );
   process.exit(2);
 }
-// ---- SAFETY: dev only -------------------------------------------------------
-if (!URL.includes(DEV_REF)) {
-  console.error(`\nREFUSING TO RUN: ${URL} is not the dev project (${DEV_REF}).\n` +
-    "This seeder writes a lot of data and must never touch prod.\n");
+// ---- SAFETY: DEV ONLY — this seeder must NEVER touch production -------------
+// Three independent gates, all of which must pass:
+//   1. the endpoint URL is the dev project (and is not the prod project),
+//   2. the service_role credential itself belongs to the dev project,
+//   3. neither the URL nor the key references the prod project.
+// To ever hit prod you'd need to deliberately supply BOTH a prod URL and a prod
+// key — and gate 3 still refuses. Local dev seeding is the only thing allowed.
+const kref = keyRef(SERVICE_ROLE);
+function refuse(msg) {
+  console.error(`\nREFUSING TO RUN — ${msg}\n` +
+    `This seeder writes lots of fake data and may only target the DEV project (${DEV_REF}).\n`);
   process.exit(2);
 }
+if (URL.includes(PROD_REF) || kref === PROD_REF) refuse("this is the PRODUCTION project.");
+if (!URL.includes(DEV_REF)) refuse(`endpoint ${URL} is not the dev project.`);
+if (kref && kref !== DEV_REF) refuse(`the service_role key belongs to project "${kref}", not dev.`);
 
 const db = createClient(URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
