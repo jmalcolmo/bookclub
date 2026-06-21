@@ -21,10 +21,38 @@ export function colorFor(str) {
   return YARNS[h % YARNS.length];
 }
 
+// Resolve a --yarn-* accent name to its hex (for inline styles where a CSS var
+// won't do, e.g. canvas/avatar backgrounds). Mirrors the tokens in styles.css.
+const ACCENT_HEX = {
+  "yarn-ochre": "#b8a058", "yarn-sage": "#7a9068", "yarn-rust": "#a05838",
+  "yarn-slate": "#587888", "yarn-mauve": "#886878", "yarn-bark": "#483828",
+  "yarn-moss": "#607050", "yarn-clay": "#987860",
+};
+export function accentHex(accent) { return ACCENT_HEX[accent] || ACCENT_HEX["yarn-sage"]; }
+
 export function initials(name) {
   return String(name || "?")
     .trim().split(/\s+/).slice(0, 2)
     .map((w) => w[0]?.toUpperCase() || "").join("") || "?";
+}
+
+// Club initials: strip leading emoji/symbols (club names often start with one)
+// then take the first letters of the first two real words. "📚 The Tuesday
+// Pages" -> "TP".
+export function clubInitials(name) {
+  const cleaned = String(name || "").replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
+  return initials(cleaned || name);
+}
+
+// A club "granny-square" avatar: uploaded photo if present, else the club's
+// initials on its accent color. `bg` is the resolved accent hex (callers know it).
+export function clubAvatarHTML(club, size = 48, bg) {
+  const style = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.36)}px`;
+  if (club?.photo_url) {
+    return `<span class="club-avatar" style="${style};background-image:url('${esc(club.photo_url)}')"></span>`;
+  }
+  const color = bg || colorFor(club?.name || "club");
+  return `<span class="club-avatar" style="${style};background:${color}">${esc(clubInitials(club?.name))}</span>`;
 }
 
 // Renders an avatar chip: photo if available, otherwise initials on a yarn color.

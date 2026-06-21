@@ -141,6 +141,10 @@ create table if not exists clubs (
   created_at           timestamptz not null default now()
 );
 
+-- Optional club cover photo (uploaded to the 'club-images' storage bucket). When
+-- absent, the UI shows the club's initials on its accent color.
+alter table clubs add column if not exists photo_url text;
+
 alter table clubs enable row level security;
 
 -- Members (and the creator) can see their clubs. Non-members must use the

@@ -48,9 +48,16 @@ function keyRef(jwt) {
 // The real account that should OWN the demo club and see the feed on sign-in.
 const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL || "malcolm.olexa24@gmail.com";
 
-// Stable identity for the demo club (found by exact name on reseed).
-const CLUB_NAME = "📚 The Seed Society (demo)";
-const CLUB_DESC = "An auto-generated demo club full of fake readers, so the feed looks alive. Reseed with `npm run seed`.";
+// Stable identities for the demo clubs (found by exact name on reseed). Each
+// club reads a DIFFERENT set of books; only the first one has an OPEN vote.
+const CLUBS = [
+  { name: "📚 The Seed Society (demo)", accent: "yarn-mauve", vote: true,
+    desc: "An auto-generated demo club full of fake readers, so the feed looks alive. Reseed with `npm run seed`." },
+  { name: "🌙 Midnight Chapters (demo)", accent: "yarn-slate", vote: false,
+    desc: "Late-night reads, long arguments. A demo club." },
+  { name: "🌿 The Marginalia Club (demo)", accent: "yarn-moss", vote: false,
+    desc: "We annotate everything. A demo club." },
+];
 
 if (!SERVICE_ROLE) {
   console.error(
@@ -114,14 +121,21 @@ const CAST = [
 ];
 
 // ---- book pool (metadata fetched live from Open Library) --------------------
-// First entry becomes the CURRENT book; the rest become finished history.
+// Sliced 3-per-club (in order). Each club's first book is its CURRENT read; the
+// other two become that club's finished shelf. Needs CLUBS.length * 3 titles.
 const BOOKS = [
+  // club 0
   { q: "project hail mary andy weir",            title: "Project Hail Mary",            author: "Andy Weir" },
+  { q: "klara and the sun ishiguro",             title: "Klara and the Sun",            author: "Kazuo Ishiguro" },
+  { q: "circe madeline miller",                  title: "Circe",                        author: "Madeline Miller" },
+  // club 1
   { q: "the left hand of darkness le guin",      title: "The Left Hand of Darkness",    author: "Ursula K. Le Guin" },
   { q: "piranesi susanna clarke",                title: "Piranesi",                     author: "Susanna Clarke" },
-  { q: "klara and the sun ishiguro",             title: "Klara and the Sun",            author: "Kazuo Ishiguro" },
+  { q: "the fifth season nk jemisin",            title: "The Fifth Season",             author: "N. K. Jemisin" },
+  // club 2
   { q: "the house in the cerulean sea klune",    title: "The House in the Cerulean Sea", author: "TJ Klune" },
-  { q: "circe madeline miller",                  title: "Circe",                        author: "Madeline Miller" },
+  { q: "a psalm for the wild-built becky chambers", title: "A Psalm for the Wild-Built", author: "Becky Chambers" },
+  { q: "babel rf kuang",                         title: "Babel",                        author: "R. F. Kuang" },
 ];
 
 // ---- content pools ----------------------------------------------------------
@@ -215,11 +229,10 @@ async function ensureCast() {
   return { members, ownerId };
 }
 
-// ---- find or (re)create the demo club ---------------------------------------
-async function ensureClub(ownerId, fallbackOwnerId) {
-  const creator = ownerId || fallbackOwnerId;
+// ---- find or (re)create one demo club ---------------------------------------
+async function ensureClub(spec, creator) {
   const existing = unwrap("find club",
-    await db.from("clubs").select("*").eq("name", CLUB_NAME).limit(1)).at(0);
+    await db.from("clubs").select("*").eq("name", spec.name).limit(1)).at(0);
 
   let club;
   if (existing) {
@@ -227,13 +240,17 @@ async function ensureClub(ownerId, fallbackOwnerId) {
     // RESET: drop all activity but keep the club row (stable id + join code).
     unwrap("wipe books",      await db.from("books").delete().eq("club_id", club.id));
     unwrap("wipe selections", await db.from("selections").delete().eq("club_id", club.id));
-    console.log(`  ↺ reset existing demo club (${club.join_code})`);
+    if (club.accent !== spec.accent) {
+      club = unwrap("accent", await db.from("clubs").update({ accent: spec.accent })
+        .eq("id", club.id).select().single());
+    }
+    console.log(`  ↺ reset ${spec.name} (${club.join_code})`);
   } else {
     club = unwrap("create club", await db.from("clubs").insert({
-      name: CLUB_NAME, description: CLUB_DESC, accent: "yarn-mauve",
+      name: spec.name, description: spec.desc, accent: spec.accent,
       created_by: creator, deadlines_enabled: true, default_deadline_days: 21,
     }).select().single());
-    console.log(`  ✓ created demo club (${club.join_code})`);
+    console.log(`  ✓ created ${spec.name} (${club.join_code})`);
   }
   return club;
 }
@@ -246,29 +263,14 @@ async function ensureMembers(club, members, ownerId) {
     .upsert(rows, { onConflict: "club_id,user_id" }));
 }
 
-// ---- the main seed ----------------------------------------------------------
-async function main() {
-  console.log(`\nThe Reading Room — feed seeder (dev)\n`);
-
-  const { members, ownerId } = await ensureCast();
-  console.log(`  ✓ ${members.length} fake readers ready` +
-    (ownerId ? `, owner ${OWNER_EMAIL} found` : `, owner not found (sign in once on dev first)`));
-
-  const club = await ensureClub(ownerId, members[0].id);
-  await ensureMembers(club, members, ownerId);
-
-  // Everyone who can post: fakes + (optionally) the real owner.
+// ---- seed one club's books / progress / reactions / reviews -----------------
+async function seedClub(club, meta, members, ownerId, totals) {
+  // Everyone who can post in THIS club: its members + (optionally) the owner.
   const cast = ownerId ? [...members, { id: ownerId, name: "You" }] : members;
-
-  // Resolve book metadata from Open Library.
-  const meta = [];
-  for (const b of BOOKS) meta.push(await olLookup(b));
-
-  let nReactions = 0, nReviews = 0, nProgress = 0;
 
   for (let bi = 0; bi < meta.length; bi++) {
     const m = meta[bi];
-    const isCurrent = bi === 0;
+    const isCurrent = bi === 0;           // first book of the slice is the current read
     const ageDays = isCurrent ? 12 : 30 + bi * 22; // history spreads into the past
     const picker = pick(members);
 
@@ -287,10 +289,10 @@ async function main() {
     // ---- reading progress: a believable spread across the club -------------
     const progressByUser = new Map();
     for (const u of cast) {
-      let page, status, statusReading;
+      let page, status;
       if (u.id === ownerId) {
         // Make sure YOU see everything: deep on current, finished on history.
-        page = isCurrent ? pages : pages;
+        page = pages;
         status = isCurrent ? "reading" : "finished";
       } else if (isCurrent) {
         const roll = rnd();
@@ -312,11 +314,11 @@ async function main() {
         finished_at: status === "finished" ? updated : null,
         updated_at: updated,
       }, { onConflict: "book_id,user_id" }));
-      nProgress++;
+      totals.progress++;
     }
 
     // ---- reactions: page-tagged, only from people who've read that far -----
-    const count = isCurrent ? rint(18, 26) : rint(9, 14);
+    const count = isCurrent ? rint(14, 22) : rint(7, 12);
     for (let r = 0; r < count; r++) {
       // Choose a page, then an author who has actually read at least that far
       // (keeps the data internally consistent with the spoiler gate).
@@ -328,7 +330,7 @@ async function main() {
         book_id: book.id, user_id: author.id, page, body: pick(REACTIONS),
         created_at: daysAgo(isCurrent ? rint(0, 11) : ageDays - rint(14, 22)),
       }));
-      nReactions++;
+      totals.reactions++;
     }
 
     // ---- reviews: finished books only, from finishers ----------------------
@@ -339,12 +341,14 @@ async function main() {
           book_id: book.id, user_id: u.id, rating: rint(3, 5), body: pick(REVIEWS),
           created_at: daysAgo(ageDays - rint(12, 16)),
         }, { onConflict: "book_id,user_id" }));
-        nReviews++;
+        totals.reviews++;
       }
     }
   }
+}
 
-  // ---- picker history: a couple decided picks + one open vote --------------
+// ---- picker selections for a club: decided history + (maybe) an open vote ----
+async function seedSelections(club, members, ownerId, hasVote) {
   const decider = ownerId || members[0].id;
   for (const method of ["wheel", "pick"]) {
     unwrap("selection", await db.from("selections").insert({
@@ -353,6 +357,7 @@ async function main() {
       created_at: daysAgo(rint(25, 50)), decided_at: daysAgo(rint(25, 50)),
     }));
   }
+  if (!hasVote) return; // only one club gets a live vote
   const vote = unwrap("vote", await db.from("selections").insert({
     club_id: club.id, method: "vote", created_by: decider, status: "open",
     created_at: daysAgo(2),
@@ -363,24 +368,49 @@ async function main() {
       selection_id: vote.id, voter_id: voter.id, candidate_id: pick(candidates).id,
     }, { onConflict: "selection_id,voter_id" }));
   }
+}
+
+// ---- the main seed ----------------------------------------------------------
+async function main() {
+  console.log(`\nThe Reading Room — feed seeder (dev)\n`);
+
+  const { members: allMembers, ownerId } = await ensureCast();
+  console.log(`  ✓ ${allMembers.length} fake readers ready` +
+    (ownerId ? `, owner ${OWNER_EMAIL} found` : `, owner not found (sign in once on dev first)`));
+
+  // Resolve all book metadata up front, then hand each club its own 3-book slice.
+  const meta = [];
+  for (const b of BOOKS) meta.push(await olLookup(b));
+
+  const totals = { progress: 0, reactions: 0, reviews: 0 };
+  const summaries = [];
+
+  for (let ci = 0; ci < CLUBS.length; ci++) {
+    const spec = CLUBS[ci];
+    const club = await ensureClub(spec, ownerId || allMembers[0].id);
+    const members = sample(allMembers, rint(6, 8)); // overlapping subset per club
+    await ensureMembers(club, members, ownerId);
+    const books = meta.slice(ci * 3, ci * 3 + 3);
+    await seedClub(club, books, members, ownerId, totals);
+    await seedSelections(club, members, ownerId, spec.vote);
+    summaries.push({ name: spec.name, code: club.join_code, current: books[0].title,
+      shelf: books.slice(1).map((b) => b.title), vote: spec.vote });
+  }
 
   // ---- summary -------------------------------------------------------------
   console.log(`\n──────────────────────────────────────`);
-  console.log(`  Club:       ${CLUB_NAME}`);
-  console.log(`  Join code:  ${club.join_code}`);
-  console.log(`  Members:    ${members.length} fake${ownerId ? " + you (owner)" : ""}`);
-  console.log(`  Books:      1 current + ${meta.length - 1} finished`);
-  console.log(`  Progress:   ${nProgress} rows`);
-  console.log(`  Reactions:  ${nReactions}`);
-  console.log(`  Reviews:    ${nReviews}`);
-  console.log(`  Picker:     2 decided + 1 open vote`);
+  for (const s of summaries) {
+    console.log(`  ${s.name}  ·  code ${s.code}${s.vote ? "  ·  OPEN VOTE" : ""}`);
+    console.log(`      reading: ${s.current}   |  shelf: ${s.shelf.join(", ")}`);
+  }
+  console.log(`  ${CLUBS.length} clubs · ${totals.progress} progress · ${totals.reactions} reactions · ${totals.reviews} reviews`);
   if (ownerId) {
-    console.log(`\n  → Sign in as ${OWNER_EMAIL} on the dev site and open "${CLUB_NAME}".`);
-    console.log(`    Your progress is set deep, so the whole spoiler-gated feed is unlocked.`);
+    console.log(`\n  → Sign in as ${OWNER_EMAIL} on the dev site — you're a member of all ${CLUBS.length} clubs`);
+    console.log(`    with deep progress, so the whole spoiler-gated feed is unlocked.`);
   } else {
     console.log(`\n  ⚠ ${OWNER_EMAIL} has never signed in to dev, so it isn't a real user yet.`);
     console.log(`    Sign in once via Google on the dev site, then rerun: npm run seed`);
-    console.log(`    (or just join the club with the code above).`);
+    console.log(`    (or just join a club with a code above).`);
   }
   console.log(``);
 }

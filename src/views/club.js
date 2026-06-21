@@ -1,7 +1,8 @@
 import { render, navigate } from "../router.js";
-import { esc, toast, avatarHTML, fmtDate, daysUntil } from "../ui.js";
+import { esc, toast, avatarHTML, clubAvatarHTML, accentHex, fmtDate, daysUntil } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
+import { supabase } from "../supabaseClient.js";
 import { openModal, closeModal } from "./clubs.js";
 import { searchBooks } from "../openlibrary.js";
 
@@ -172,6 +173,12 @@ function clubMenu(club, isOwner) {
   openModal(`
     <h3>${esc(club.name)}</h3>
     <div class="modal-body">
+      ${isOwner ? `
+        <div class="club-photo-edit">
+          <div data-club-avatar>${clubAvatarHTML(club, 72, accentHex(club.accent))}</div>
+          <label class="avatar-upload btn-ghost small">
+            change club photo<input type="file" accept="image/*" data-club-photo hidden></label>
+        </div>` : ""}
       <p class="faint">join code: <strong>${esc(club.join_code)}</strong></p>
       <div class="menu-actions">
         ${isOwner ? `<button class="btn-ghost" data-action="change-book">Change current book</button>` : ""}
@@ -180,6 +187,20 @@ function clubMenu(club, isOwner) {
       <div class="modal-actions"><button class="btn-ghost" data-close>close</button></div>
     </div>
   `, (modal) => {
+    modal.querySelector("[data-club-photo]")?.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const path = `${club.id}/${Date.now()}-${file.name.replace(/[^\w.]/g, "_")}`;
+        const { error } = await supabase.storage.from("club-images").upload(path, file, { upsert: true });
+        if (error) throw error;
+        const { data } = supabase.storage.from("club-images").getPublicUrl(path);
+        await api.updateClub(club.id, { photo_url: data.publicUrl });
+        club.photo_url = data.publicUrl;
+        modal.querySelector("[data-club-avatar]").innerHTML = clubAvatarHTML(club, 72, accentHex(club.accent));
+        toast("Club photo updated", "success");
+      } catch (err) { toast(err.message, "error"); }
+    });
     modal.querySelector("[data-action='change-book']")?.addEventListener("click", () => {
       closeModal(); addBookModal(club);
     });
