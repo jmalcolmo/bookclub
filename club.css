@@ -477,10 +477,31 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
   /* a long unbroken string (book title, display name, pasted URL in a reaction)
      must wrap, never force the line wider than the screen */
   .book-title, .book-author, .reaction-body, .notif-text, .member-name,
-  .reading-title, .progress-club, .rail-club-book, .club-blurb, .feed-context {
-    overflow-wrap: anywhere; }
+  .reading-title, .progress-club, .rail-club-book, .club-blurb, .feed-context,
+  .club-card-name, .club-card-desc {
+    overflow-wrap: anywhere; word-break: break-word; }
+
+  /* The screen header is a flex row (back · title · action). A user-typed club
+     name in .stamp-title won't wrap unless the flex item is allowed to shrink
+     (min-width:0) — otherwise a long name pushes the row wider than the screen.
+     This is the club-creation repro: the name you enter overflows the header. */
+  .screen-header { gap: 10px; }
+  .screen-header .stamp-title, .stamp-title.small {
+    min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+
+  /* repeat(auto-fill, minmax(240px,1fr)) forces a 240px-min track, which is
+     wider than a narrow/zoomed viewport and scrolls sideways. One column on
+     mobile removes that floor entirely. */
+  .club-grid { grid-template-columns: 1fr; }
 
   /* media + the join-code chip can't exceed the viewport either */
   img, .book-cover { max-width: 100%; }
   .club-toolbar { flex-wrap: wrap; }
+
+  /* Toasts live in a position:fixed container — the one kind of element that can
+     extend the page past overflow:clip on real mobile browsers. Pin it to both
+     edges (instead of shrink-to-fit at right:20) so it can never sit off-screen
+     or exceed the viewport width. */
+  .toast-container { left: 12px; right: 12px; align-items: stretch; }
+  .toast { max-width: 100%; overflow-wrap: anywhere; }
 }
