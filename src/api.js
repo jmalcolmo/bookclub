@@ -30,8 +30,13 @@ export async function updateProfile(userId, changes) {
 // ------------------------------------------------------------------- CLUBS ---
 export async function myClubs() {
   // Clubs I'm a member of, with member counts.
+  // Must filter to MY membership rows: the RLS SELECT policy returns the full
+  // roster of every club I belong to, so without this filter a club would come
+  // back once per member and appear duplicated in "my clubs".
+  const user = (await supabase.auth.getUser()).data.user;
   const memberships = unwrap(
-    await supabase.from("club_members").select("club_id, role").order("joined_at")
+    await supabase.from("club_members").select("club_id, role")
+      .eq("user_id", user.id).order("joined_at")
   );
   const ids = memberships.map((m) => m.club_id);
   if (!ids.length) return [];
