@@ -115,7 +115,12 @@ await step("B cannot read the club before joining (RLS)", async () => {
 });
 
 await step("B joins the club", async () => {
-  const { error } = await cB.from("club_members").insert({ club_id: club.id, user_id: B.id, role: "member" });
+  // Mirror the app exactly: joinClub() inserts WITH RETURNING (.select()). This is
+  // load-bearing — a plain insert hides the members_select_same_club RLS bug where
+  // RETURNING can't see your own just-inserted membership row. Keep the .select().
+  const { error } = await cB.from("club_members")
+    .insert({ club_id: club.id, user_id: B.id, role: "member" })
+    .select().single();
   if (error) throw error;
 });
 

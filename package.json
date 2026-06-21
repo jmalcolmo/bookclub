@@ -9,6 +9,7 @@
     "seed": "node tests/seed-feed.mjs"
   },
   "devDependencies": {
-    "@supabase/supabase-js": "^2"
+    "@supabase/supabase-js": "^2",
+    "pg": "^8.22.0"
   }
 }

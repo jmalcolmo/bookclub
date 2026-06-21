@@ -204,10 +204,15 @@ update club_members set role = 'creator' where role = 'owner';
 
 alter table club_members enable row level security;
 
--- Members can see the roster of clubs they belong to.
+-- Members can see the roster of clubs they belong to. The `or user_id = auth.uid()`
+-- is essential: it lets you see your OWN membership row. Without it, joining fails —
+-- the app inserts with RETURNING (supabase-js `.select()`), which applies this SELECT
+-- policy to the new row, but `is_club_member` (a STABLE function) can't see a row the
+-- same command just inserted, so the row is invisible and the insert is rejected.
+-- Matching on user_id needs no table lookup, so your own row is always returned.
 drop policy if exists "members_select_same_club" on club_members;
 create policy "members_select_same_club" on club_members
-  for select using (is_club_member(club_id));
+  for select using (is_club_member(club_id) or user_id = auth.uid());
 
 -- A user can add themselves to a club (join). Owner row is inserted by trigger below.
 drop policy if exists "members_insert_self" on club_members;
