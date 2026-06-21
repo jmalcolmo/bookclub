@@ -3,6 +3,7 @@ import { esc, toast, avatarHTML, fmtDate } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
+import { signOut } from "../auth.js";
 
 export async function renderProfile() {
   const p = store.profile || (await api.getProfile(store.user.id));
@@ -46,6 +47,7 @@ export async function renderProfile() {
           <button type="submit" class="btn-primary">Save profile</button>
         </form>
         <p class="faint signed-as">signed in as ${esc(store.user.email || "")}</p>
+        <button type="button" class="btn-ghost signout-mobile" data-signout>sign out</button>
       </div>
 
       <section class="profile-history">
@@ -56,6 +58,7 @@ export async function renderProfile() {
       </section>
     </div>
   `, (root) => {
+    root.querySelector("[data-signout]").addEventListener("click", signOut);
     root.querySelectorAll("[data-book]").forEach((b) =>
       b.addEventListener("click", () => navigate(`/club/${b.dataset.club}/book/${b.dataset.book}`)));
     root.querySelector("[data-form]").addEventListener("submit", async (e) => {

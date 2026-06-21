@@ -43,6 +43,23 @@
     </div>
   </main>
 
+  <!-- Mobile bottom tab bar (hidden until signed in; CSS shows it only on narrow
+       screens). The feed leads; clubs + progress + profile live behind tabs. -->
+  <nav class="tabbar" data-tabbar hidden aria-label="Primary">
+    <button class="tab" data-nav="feed" data-tab="feed">
+      <span class="tab-icon" aria-hidden="true">📰</span><span class="tab-label">Feed</span>
+    </button>
+    <button class="tab" data-nav="clubs" data-tab="clubs">
+      <span class="tab-icon" aria-hidden="true">📚</span><span class="tab-label">Clubs</span>
+    </button>
+    <button class="tab" data-nav="progress" data-tab="progress">
+      <span class="tab-icon" aria-hidden="true">📖</span><span class="tab-label">Progress</span>
+    </button>
+    <button class="tab" data-nav="profile" data-tab="profile">
+      <span class="tab-icon" aria-hidden="true">👤</span><span class="tab-label">Profile</span>
+    </button>
+  </nav>
+
   <!-- Toasts -->
   <div class="toast-container" data-toast-container></div>
 

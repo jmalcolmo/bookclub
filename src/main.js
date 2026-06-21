@@ -3,11 +3,12 @@ import { supabase, ENV_NAME } from "./supabaseClient.js";
 import { getSession, onAuthChange, signOut } from "./auth.js";
 import { store, setAuth } from "./store.js";
 import * as api from "./api.js";
-import { route, setNotFound, startRouter, resolve, navigate } from "./router.js";
+import { route, setNotFound, startRouter, resolve, navigate, currentPath } from "./router.js";
 import { $, avatarHTML, esc, toast } from "./ui.js";
 
 import { renderLogin } from "./views/login.js";
 import { renderFeed } from "./views/feed.js";
+import { renderProgress } from "./views/progress.js";
 import { renderClubs } from "./views/clubs.js";
 import { renderClub } from "./views/club.js";
 import { renderBook } from "./views/book.js";
@@ -17,6 +18,7 @@ import { renderProfile } from "./views/profile.js";
 
 // ---- routes ----
 route("/feed", renderFeed);
+route("/progress", renderProgress);
 route("/clubs", renderClubs);
 route("/club/:id", renderClub);
 route("/club/:id/picker", renderPicker);
@@ -26,12 +28,29 @@ route("/profile", renderProfile);
 setNotFound(() => navigate("/feed"));
 
 // ---- nav bar ----
+// Desktop uses the top header; mobile uses the bottom tab bar. Both are gated on
+// auth and both carry [data-nav] buttons wired by wireNav().
 function paintNav() {
   const bar = $("[data-nav-bar]");
-  if (!store.user) { bar.hidden = true; return; }
+  const tabs = $("[data-tabbar]");
+  if (!store.user) { bar.hidden = true; if (tabs) tabs.hidden = true; return; }
   bar.hidden = false;
+  if (tabs) tabs.hidden = false;
   $("[data-nav-name]").textContent = store.profile?.display_name || "me";
   $("[data-nav-avatar]").innerHTML = avatarHTML(store.profile, 24);
+  paintTabs();
+}
+
+// Highlight the bottom tab matching the current route. Club/book/picker/history
+// pages all live under the Clubs tab; the OAuth landing falls through to Feed.
+function paintTabs() {
+  const path = currentPath();
+  let active = "feed";
+  if (path.startsWith("/clubs") || path.startsWith("/club/")) active = "clubs";
+  else if (path.startsWith("/progress")) active = "progress";
+  else if (path.startsWith("/profile")) active = "profile";
+  document.querySelectorAll("[data-tab]").forEach((t) =>
+    t.classList.toggle("active", t.dataset.tab === active));
 }
 
 function wireNav() {
@@ -41,13 +60,18 @@ function wireNav() {
     b.addEventListener("click", () => {
       const t = b.dataset.nav;
       if (t === "feed") navigate("/feed");
+      else if (t === "progress") navigate("/progress");
       else if (t === "clubs") navigate("/clubs");
       else if (t === "profile") navigate("/profile");
     });
   });
-  const so = document.querySelector("[data-action='signout']");
-  if (so && !so.dataset.wired) { so.dataset.wired = "1"; so.addEventListener("click", signOut); }
+  document.querySelectorAll("[data-action='signout']").forEach((so) => {
+    if (so.dataset.wired) return;
+    so.dataset.wired = "1";
+    so.addEventListener("click", signOut);
+  });
   document.addEventListener("profile-updated", paintNav);
+  window.addEventListener("hashchange", paintTabs);
 }
 
 // ---- boot ----
