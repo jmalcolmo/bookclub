@@ -130,6 +130,22 @@ await step("B can now read the club", async () => {
   assert(data.id === club.id, "member cannot read club");
 });
 
+await step("MY CLUBS: a 2-member club appears exactly once (no dupes)", async () => {
+  // Mirror api.js myClubs() exactly. The membership SELECT policy returns the FULL
+  // roster of clubs you belong to, so this MUST filter to your own user_id — without
+  // it a club comes back once per member and shows up duplicated in "my clubs".
+  // The club now has 2 members (A creator + B), which previously triggered the dupe.
+  const { data: memberships, error } = await cB.from("club_members")
+    .select("club_id, role").eq("user_id", B.id).order("joined_at");
+  if (error) throw error;
+  const ids = memberships.map((m) => m.club_id);
+  const { data: clubs } = await cB.from("clubs").select("*").in("id", ids);
+  const byId = Object.fromEntries((clubs || []).map((c) => [c.id, c]));
+  const myClubs = memberships.map((m) => byId[m.club_id]).filter(Boolean);
+  const occurrences = myClubs.filter((c) => c.id === club.id).length;
+  assert(occurrences === 1, `DUPLICATE CLUB: club appeared ${occurrences}× in my clubs (expected 1)`);
+});
+
 await step("A adds the current book", async () => {
   const { data, error } = await cA.from("books").insert({
     club_id: club.id, title: `Test Book ${tag}`, author: "Tester", page_count: 300, picked_by: A.id, status: "current",
