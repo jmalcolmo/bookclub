@@ -226,15 +226,24 @@ await step("profile update", async () => {
   if (error) throw error;
 });
 
+await step("DELETE GATE: B (member, not creator) cannot delete the club (RLS)", async () => {
+  // RLS (clubs_delete_owner) silently affects 0 rows for a non-owner — no error.
+  await cB.from("clubs").delete().eq("id", club.id);
+  const { data } = await cA.from("clubs").select("id").eq("id", club.id);
+  assert((data || []).length === 1, "DELETE LEAK: a non-creator member deleted the club");
+});
+
 await step("B can leave the club", async () => {
   const { error } = await cB.from("club_members").delete().eq("club_id", club.id).eq("user_id", B.id);
   if (error) throw error;
 });
 
 // ---- cleanup ----------------------------------------------------------------
-await step("cleanup: A deletes the club (cascades)", async () => {
+await step("cleanup: A (creator) deletes the club (cascades)", async () => {
   const { error } = await cA.from("clubs").delete().eq("id", club.id);
   if (error) throw error;
+  const { data } = await cA.from("clubs").select("id").eq("id", club.id);
+  assert((data || []).length === 0, "creator delete did not remove the club");
 });
 
 summarize();

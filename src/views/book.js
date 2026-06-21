@@ -2,20 +2,23 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
+import { openModal, closeModal } from "./clubs.js";
 
 export async function renderBook({ params }) {
   const { id: clubId, bookId } = params;
   render(`<div class="screen-pad"><p class="faint">loading book…</p></div>`);
 
   const book = await api.getBook(bookId);
-  const [mine, reviews, myRev] = await Promise.all([
+  const [mine, reviews, myRev, membership] = await Promise.all([
     api.myProgress(bookId),
     book.status === "finished" ? api.bookReviews(bookId) : Promise.resolve([]),
     api.myReview(bookId),
+    api.myMembership(clubId),
   ]);
 
   const myPage = mine?.current_page || 0;
   const finished = mine?.status === "finished";
+  const isCreator = membership?.role === "creator" || membership?.role === "owner";
 
   render(`
     <div class="book-feed">
@@ -78,7 +81,7 @@ export async function renderBook({ params }) {
           <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
           ${book.status !== "finished" ? `
             <div class="book-admin">
-              <button class="btn-ghost small" data-act="extend">＋ extend deadline 7d</button>
+              ${isCreator ? `<button class="btn-ghost small" data-act="edit-deadline">✎ edit deadline</button>` : ""}
               <button class="btn-ghost small" data-act="finish-book">mark book finished for club</button>
             </div>` : ""}
         </div>
@@ -226,16 +229,33 @@ function wire(root, { clubId, book, mine }) {
     save("finished").then(() => navigate(`/club/${clubId}/book/${book.id}`));
   });
 
-  root.querySelector("[data-act='extend']")?.addEventListener("click", async () => {
-    const base = book.deadline ? new Date(book.deadline).getTime() : Date.now();
-    try {
-      await api.updateBook(book.id, {
-        deadline: new Date(base + 7 * 86400000).toISOString(),
-        deadline_extensions: (book.deadline_extensions || 0) + 1,
+  root.querySelector("[data-act='edit-deadline']")?.addEventListener("click", () => {
+    const current = book.deadline ? new Date(book.deadline).toISOString().slice(0, 10) : "";
+    openModal(`
+      <h3>Edit deadline</h3>
+      <form data-form class="modal-body">
+        <label class="field"><span class="field-label">finish-by date</span>
+          <input name="date" type="date" value="${current}" /></label>
+        <p class="faint">leave blank and save to remove the deadline.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-close>cancel</button>
+          <button type="submit" class="btn-primary">Save deadline</button>
+        </div>
+      </form>
+    `, (modal) => {
+      modal.querySelector("[data-form]").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const val = e.target.date.value;
+        // Anchor to local noon so the saved UTC date doesn't drift across day boundaries.
+        const deadline = val ? new Date(`${val}T12:00:00`).toISOString() : null;
+        try {
+          await api.updateBook(book.id, { deadline });
+          closeModal();
+          toast(deadline ? "Deadline updated" : "Deadline removed", "success");
+          navigate(`/club/${clubId}/book/${book.id}`);
+        } catch (err) { toast(err.message, "error"); }
       });
-      toast("Deadline extended 7 days", "success");
-      navigate(`/club/${clubId}/book/${book.id}`);
-    } catch (err) { toast(err.message, "error"); }
+    });
   });
   root.querySelector("[data-act='finish-book']")?.addEventListener("click", async () => {
     if (!confirm("Mark this book finished for the whole club? It moves to history.")) return;
