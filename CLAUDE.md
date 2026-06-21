@@ -91,7 +91,12 @@ Warm parchment + crochet feel. Reuse, don't reinvent.
 
 ## Verifying changes
 
-- Serve locally: `python -m http.server 5174` → http://localhost:5174 (uses dev project).
+- Serve locally: `python devserver.py 5174` → http://localhost:5174 (uses dev project).
+  Use this, **not** `python -m http.server`: it sends `Cache-Control: no-store` so the
+  browser always pulls fresh ES modules. Plain `http.server` lets the browser heuristically
+  cache modules, which after an edit that adds an export can leave a fresh module importing a
+  name from a stale one — the import fails and the app hangs on the loading splash. If that
+  happens, hard-refresh (Ctrl+Shift+R) or use an Incognito window once.
 - Google sign-in needs a real browser session (can't be automated headless).
 - Boot/console checks and layout screenshots can be automated via the preview tools.
 
