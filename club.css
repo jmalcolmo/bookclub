@@ -52,6 +52,23 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .navlink-signout { color: var(--negative); }
 .nav-avatar .avatar { vertical-align: middle; }
 
+/* ---- MOBILE BOTTOM TAB BAR ----
+   Hidden on desktop; the @media block below reveals it on narrow screens. The
+   feed leads, with clubs / progress / profile one thumb-tap away. */
+.tabbar { display: none; }
+.tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; background: none; border: none; cursor: pointer; padding: 8px 4px 6px;
+  color: var(--text-muted); font-family: var(--font-mono); }
+.tab-icon { font-size: 1.25rem; line-height: 1; filter: grayscale(.35); opacity: .75; }
+.tab-label { font-size: .66rem; letter-spacing: .06em; text-transform: uppercase; }
+.tab.active { color: var(--yarn-bark); }
+.tab.active .tab-icon { filter: none; opacity: 1; }
+.tab.active .tab-label { font-weight: 500; }
+
+/* sign out lives in the top nav on desktop; on mobile those links are hidden, so
+   the profile screen carries a sign-out button instead (shown only on mobile). */
+.signout-mobile { display: none; color: var(--negative); margin-top: 4px; }
+
 /* ---- AVATARS ---- */
 .avatar { display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; background-size: cover; background-position: center;
@@ -320,24 +337,15 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
    triggered by the buttons in .feed-mobile-bar; center feed stays full-width. */
 .feed-drawer-backdrop { position: fixed; inset: 0; z-index: 940; background: rgba(42,37,32,.45); }
 
+/* On mobile the feed is the priority: a single, clean scrolling column. The two
+   side rails (clubs / reading) are dropped here because Clubs and Progress now
+   have their own bottom-tab destinations — no drawers, no clutter. */
 @media (max-width: 900px) {
   .feed-shell { grid-template-columns: 1fr; gap: 14px; }
-  .feed-title-desktop { display: none; }
-  .feed-mobile-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    position: sticky; top: 56px; z-index: 800; background: var(--bg);
-    padding: 8px 0; margin: -4px 0 2px; }
-  .feed-mobile-bar .feed-title { margin: 0; }
-
-  /* override the book-page rail un-stick: here rails are off-canvas drawers */
-  .feed-shell .feed-rail { position: fixed; top: 0; bottom: 0; z-index: 950;
-    width: min(86vw, 340px); max-height: none; margin: 0; gap: 12px;
-    background: var(--surface); box-shadow: var(--shadow-deep);
-    padding: 64px 16px 24px; overflow-y: auto; transition: transform .25s ease; }
-  .feed-shell .feed-rail-clubs { left: 0; transform: translateX(-105%);
-    border-right: 3px solid var(--yarn-bark); border-radius: 0 16px 16px 0; }
-  .feed-shell .feed-rail-reading { right: 0; transform: translateX(105%);
-    border-left: 3px solid var(--yarn-bark); border-radius: 16px 0 0 16px; }
-  .feed-shell .feed-rail.open { transform: none; }
+  .feed-title-desktop { display: block; }
+  .feed-mobile-bar { display: none; }
+  .feed-shell .feed-rail { display: none; }
+  .feed-drawer-backdrop { display: none; }
 }
 
 /* ---- PICKER ---- */
@@ -391,6 +399,20 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .rating-num { font-size: 1.3rem; font-weight: 700; color: var(--yarn-ochre); }
 .rating-stars { color: var(--yarn-ochre); }
 
+/* ---- MY PROGRESS (tab) ---- */
+.progress-list { display: flex; flex-direction: column; gap: 14px; }
+.progress-card { display: flex; flex-direction: row; align-items: stretch; text-align: left;
+  gap: 16px; min-height: 0; padding: 14px 16px; cursor: pointer; width: 100%; }
+.progress-card .book-cover { width: 64px; height: 96px; flex: 0 0 auto; }
+.progress-card-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.progress-card .book-title { font-size: 1.15rem; }
+.progress-club { font-family: var(--font-mono); font-size: .76rem; }
+.progress-card .progress-bar { margin-top: 6px; }
+.progress-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.progress-foot .progress-label { font-family: var(--font-mono); font-size: .78rem; }
+.progress-pct { margin-left: auto; font-family: var(--font-mono); font-weight: 700;
+  color: var(--yarn-rust); font-size: .9rem; }
+
 /* ---- PROFILE ---- */
 .profile-card { align-items: center; text-align: center; gap: 14px; min-height: 0; padding: 28px; }
 .profile-avatar-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -421,4 +443,24 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 @media (max-width: 600px) {
   .member-name { min-width: 80px; }
   .club-nav-links .navlink-user span:last-child { display: none; }
+}
+
+/* ---- MOBILE CHROME ----
+   On phones the top header becomes a slim title bar and navigation moves to a
+   fixed bottom tab bar. Content gets bottom clearance so nothing hides behind it. */
+@media (max-width: 900px) {
+  .club-nav { justify-content: center; padding: 10px 16px; }
+  .club-nav-links { display: none; }
+  .brand-text { font-size: .95rem; }
+
+  .tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 960;
+    background: var(--surface); border-top: 3px solid var(--yarn-bark);
+    box-shadow: 0 -3px 0 rgba(72,56,40,.12);
+    padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+  /* keep page content above the tab bar */
+  .club-app { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .screen-pad { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+
+  .signout-mobile { display: inline-block; }
 }
