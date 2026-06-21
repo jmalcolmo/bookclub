@@ -25,31 +25,40 @@ That's it. The script (`tests/seed-feed.mjs`) reads the dev `service_role` key f
 
 ## What it creates
 
-A fixed demo club — **"📚 The Seed Society (demo)"** — containing:
+**Three demo clubs**, each reading a **different** set of books so the feed-first
+home (and its "active clubs" rail) looks like several real clubs at once:
+
+- 📚 **The Seed Society (demo)** — mauve — *has the one open vote*
+- 🌙 **Midnight Chapters (demo)** — slate
+- 🌿 **The Marginalia Club (demo)** — moss
+
+Across all three:
 
 - **10 fake members** with names, bios, and avatars (stable plus-addressed users
   `malcolm.olexa24+seed1..10@gmail.com`, created pre-confirmed via the admin API).
-- **Your real account as the owner** (`malcolm.olexa24@gmail.com`) with **deep
-  reading progress**, so when you sign in on the dev site the whole spoiler-gated
-  feed is unlocked for you and nothing looks empty.
-- **6 books** — 1 *current* + 5 *finished* — with real covers/page counts pulled
-  live from Open Library. The current book has a deadline ~9 days out.
-- **Reading progress** spread realistically across members (not started / mid /
-  finished), backdated over the past weeks.
-- **~70+ page-tagged reactions**, each authored only by someone who has actually
-  read that far — so the data stays consistent with the spoiler gate.
+  Each club gets an overlapping subset (~6–8) of them.
+- **Your real account as a member of every club** (`malcolm.olexa24@gmail.com`)
+  with **deep reading progress**, so when you sign in the whole spoiler-gated feed
+  is unlocked and nothing looks empty.
+- **3 books per club** (9 distinct titles total) — 1 *current* + 2 *finished* —
+  with real covers/page counts from Open Library. Current books have a deadline
+  ~9 days out. The clubs show their **initials** (no uploaded photo) in the rail.
+- **Reading progress** spread realistically (not started / mid / finished),
+  backdated over the past weeks.
+- **Page-tagged reactions**, each authored only by someone who has actually read
+  that far — so the data stays consistent with the spoiler gate.
 - **Reviews** on the finished books (from members who finished them).
-- **Picker history**: two decided selections (wheel + pick) and one open vote with
-  ballots cast.
+- **Picker history**: each club has two decided selections (wheel + pick); **only
+  the first club has a live open vote** with ballots cast.
 
-After it runs it prints the club's **join code** and a reminder of how to view it.
+After it runs it prints each club's **join code** and what it's reading.
 
 ## Re-running
 
-Re-running **resets and reseeds the same club**: it keeps the club row (so the id
-and join code stay stable) and wipes its books and selections — cascades clear the
-old reactions/progress/reviews/votes — then repopulates fresh. No clutter buildup.
-A deterministic RNG keeps each reseed similar.
+Re-running **resets and reseeds the same three clubs**: it keeps each club row (so
+ids and join codes stay stable) and wipes its books and selections — cascades
+clear the old reactions/progress/reviews/votes — then repopulates fresh. No
+clutter buildup. A deterministic RNG keeps each reseed similar.
 
 ## Important notes
 

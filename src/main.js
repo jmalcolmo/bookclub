@@ -7,6 +7,7 @@ import { route, setNotFound, startRouter, resolve, navigate } from "./router.js"
 import { $, avatarHTML, esc, toast } from "./ui.js";
 
 import { renderLogin } from "./views/login.js";
+import { renderFeed } from "./views/feed.js";
 import { renderClubs } from "./views/clubs.js";
 import { renderClub } from "./views/club.js";
 import { renderBook } from "./views/book.js";
@@ -15,13 +16,14 @@ import { renderHistory } from "./views/history.js";
 import { renderProfile } from "./views/profile.js";
 
 // ---- routes ----
+route("/feed", renderFeed);
 route("/clubs", renderClubs);
 route("/club/:id", renderClub);
 route("/club/:id/picker", renderPicker);
 route("/club/:id/history", renderHistory);
 route("/club/:id/book/:bookId", renderBook);
 route("/profile", renderProfile);
-setNotFound(() => navigate("/clubs"));
+setNotFound(() => navigate("/feed"));
 
 // ---- nav bar ----
 function paintNav() {
@@ -38,7 +40,8 @@ function wireNav() {
     b.dataset.wired = "1";
     b.addEventListener("click", () => {
       const t = b.dataset.nav;
-      if (t === "clubs") navigate("/clubs");
+      if (t === "feed") navigate("/feed");
+      else if (t === "clubs") navigate("/clubs");
       else if (t === "profile") navigate("/profile");
     });
   });
@@ -60,9 +63,9 @@ async function boot() {
       setAuth(s, s.user, profile);
       paintNav();
       // After OAuth, Supabase may leave a "#access_token=..." fragment that
-      // isn't one of our routes. Anything not starting with "#/" -> clubs.
+      // isn't one of our routes. Anything not starting with "#/" -> feed (home).
       const h = window.location.hash;
-      if (!h.startsWith("#/")) navigate("/clubs");
+      if (!h.startsWith("#/")) navigate("/feed");
       else resolve();
     } else {
       setAuth(null, null, null);
