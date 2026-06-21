@@ -249,11 +249,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
   border-top: 2px dashed var(--yarn-clay); padding-top: 16px; }
 .rail-actions .btn-ghost, .rail-actions .btn-primary { width: 100%; }
 
-/* left rail · club cards */
-.rail-club-card { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+/* a club "granny square": uploaded photo or initials on the club accent */
+.club-avatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  border-radius: 14px; background-size: cover; background-position: center;
+  color: var(--surface); font-family: var(--font-display); font-weight: 800; letter-spacing: .02em;
+  border: 3px solid var(--yarn-bark); box-shadow: var(--shadow-soft); transform: rotate(-2deg); }
+
+/* left rail · club cards (a little taller, more personal) */
+.rail-club-card { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
   background: color-mix(in srgb, var(--accent, var(--yarn-sage)) 12%, var(--surface));
   border: 3px solid var(--accent, var(--yarn-sage)); border-radius: 12px;
-  padding: 10px; cursor: pointer; box-shadow: var(--shadow-soft); }
+  padding: 16px 14px; min-height: 88px; cursor: pointer; box-shadow: var(--shadow-soft); }
 .rail-club-card:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
 .rail-club-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .rail-club-name { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
@@ -296,6 +302,19 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .feed-reaction .reaction-page { margin-left: auto; }
 .feed-reaction .reaction-body { font-size: 1rem; }
 .feed-empty { text-align: center; padding: 40px 24px; }
+
+/* app-feed density: cards ~1.5x taller and double the gap between them, so the
+   stream breathes and fewer notifications crowd one screen. Scoped to the home
+   feed (.feed-shell) so the book-detail feed keeps its compact rhythm. */
+.feed-shell .feed-stream { gap: 24px; }
+.feed-shell .feed-stream .notif-card { padding: 20px 18px; min-height: 68px; }
+.feed-shell .feed-stream .notif-card .notif-text { font-size: 1.08rem; }
+.feed-shell .feed-stream .feed-reaction { padding: 18px 18px; gap: 9px; }
+
+/* profile · personal reading shelf */
+.profile-history { max-width: 920px; margin: 28px auto 0; }
+.profile-history > .stamp-title { margin-bottom: 14px; }
+.club-photo-edit { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 
 /* feed mobile drawers: on narrow screens the two rails slide in from the edges,
    triggered by the buttons in .feed-mobile-bar; center feed stays full-width. */

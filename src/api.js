@@ -194,6 +194,32 @@ export async function setProgress(bookId, currentPage, status) {
   );
 }
 
+// My personal reading history: every book I've marked finished, across all my
+// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
+// "books read" shelf but scoped to me. RLS still applies (I only see books in
+// clubs I belong to, and only my own progress/reviews).
+export async function myReadingHistory() {
+  const user = (await supabase.auth.getUser()).data.user;
+  const progress = unwrap(
+    await supabase.from("reading_progress").select("*")
+      .eq("user_id", user.id).eq("status", "finished")
+      .order("finished_at", { ascending: false })
+  );
+  const bookIds = progress.map((p) => p.book_id);
+  if (!bookIds.length) return [];
+  const [books, reviews] = await Promise.all([
+    supabase.from("books").select("*").in("id", bookIds).then(unwrap),
+    supabase.from("reviews").select("*").in("book_id", bookIds).eq("user_id", user.id).then(unwrap),
+  ]);
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+  const rById = Object.fromEntries(reviews.map((r) => [r.book_id, r]));
+  return progress.map((p) => {
+    const b = bById[p.book_id];
+    if (!b) return null; // book deleted or no longer visible
+    return { ...b, my_finished_at: p.finished_at || p.updated_at, my_rating: rById[p.book_id]?.rating || null };
+  }).filter(Boolean);
+}
+
 // ------------------------------------------------------------- REACTIONS ---
 // SELECT here only returns rows RLS lets us see (spoiler gate). So whatever
 // comes back is already safe to display.

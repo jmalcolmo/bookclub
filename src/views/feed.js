@@ -5,7 +5,7 @@
 // data (reactions are already spoiler-filtered by RLS server-side; we never
 // re-implement gating here). No notifications table, no new DB access.
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, avatarHTML, timeAgo, daysUntil } from "../ui.js";
+import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { createClubModal, joinClubModal } from "./clubs.js";
@@ -90,9 +90,7 @@ function paintClubsRail(root, data) {
 
   const cards = active.map(({ club, book }) => `
     <button class="rail-club-card" data-go="/club/${club.id}" style="--accent:${accentColor(club.accent)}">
-      ${book.cover_url
-        ? `<img class="book-cover sm" src="${esc(book.cover_url)}" alt="">`
-        : `<div class="book-cover sm book-cover-blank">📖</div>`}
+      ${clubAvatarHTML(club, 56, accentColor(club.accent))}
       <span class="rail-club-meta">
         <span class="rail-club-name">${esc(club.name)}</span>
         <span class="now-reading-tag">now reading</span>

@@ -1,5 +1,5 @@
-import { render } from "../router.js";
-import { esc, toast, avatarHTML } from "../ui.js";
+import { render, navigate } from "../router.js";
+import { esc, toast, avatarHTML, fmtDate } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
@@ -7,6 +7,25 @@ import { supabase } from "../supabaseClient.js";
 export async function renderProfile() {
   const p = store.profile || (await api.getProfile(store.user.id));
   store.profile = p;
+
+  let history = [];
+  try { history = await api.myReadingHistory(); } catch { /* show empty shelf */ }
+
+  const historyRows = history.map((b) => `
+    <button class="history-row patch" data-book="${b.id}" data-club="${b.club_id}">
+      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="">`
+                    : `<div class="book-cover sm book-cover-blank">📖</div>`}
+      <div class="history-info">
+        <strong class="book-title">${esc(b.title)}</strong>
+        <span class="book-author faint">${esc(b.author || "")}</span>
+        <span class="history-meta faint">finished ${fmtDate(b.my_finished_at)}</span>
+      </div>
+      <div class="history-rating">
+        ${b.my_rating
+          ? `<span class="rating-num">${b.my_rating}</span><span class="rating-stars">★</span>`
+          : `<span class="faint">not rated</span>`}
+      </div>
+    </button>`).join("");
 
   render(`
     <div class="screen-pad profile-screen">
@@ -28,8 +47,17 @@ export async function renderProfile() {
         </form>
         <p class="faint signed-as">signed in as ${esc(store.user.email || "")}</p>
       </div>
+
+      <section class="profile-history">
+        <h3 class="stamp-title small">MY SHELF — BOOKS I'VE READ</h3>
+        ${history.length ? `<div class="history-list">${historyRows}</div>` : `
+          <div class="empty-state"><p>no finished books yet.</p>
+            <p class="faint">books you mark finished — in any club — land on your shelf.</p></div>`}
+      </section>
     </div>
   `, (root) => {
+    root.querySelectorAll("[data-book]").forEach((b) =>
+      b.addEventListener("click", () => navigate(`/club/${b.dataset.club}/book/${b.dataset.book}`)));
     root.querySelector("[data-form]").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
