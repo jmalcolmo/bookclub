@@ -6,9 +6,19 @@
 /* `overflow-x: clip` (not `hidden`) still clips the rotated patches sideways but
    does NOT make <body> a scroll container — so position:sticky (the nav + the book
    detail's side rails) sticks to the viewport instead of scrolling away. The base
-   `html, body { overflow-x: hidden }` in styles.css would otherwise break sticky. */
-.club-body { overflow-x: clip; overflow-y: visible; }
-.club-app { display: block; min-height: 100vh; }
+   `html, body { overflow-x: hidden }` in styles.css would otherwise break sticky.
+
+   IMPORTANT (mobile): clip the <html> element too, not just <body>. Clipping body
+   alone relies on the overflow propagating up to the viewport, which mobile Safari
+   and some Android browsers do NOT do reliably — so a stray sub-pixel-wide child
+   (a rotated .patch, a long unbroken title) leaves a horizontal touch-"pan" that
+   drags the whole page sideways even though nothing is visibly cut off. Clipping
+   html removes that horizontal scroll container; overscroll-behavior-x kills the
+   rubber-band swipe. clip (not hidden) keeps position:sticky working on both. */
+html { overflow-x: clip; max-width: 100%; }
+html, .club-body { overscroll-behavior-x: none; }
+.club-body { overflow-x: clip; overflow-y: visible; max-width: 100%; }
+.club-app { display: block; min-height: 100vh; max-width: 100%; }
 .screen-pad { max-width: 920px; margin: 0 auto; padding: 28px 22px 80px; }
 .center { text-align: center; }
 .boot-splash { text-align: center; padding: 120px 20px; }
@@ -463,4 +473,14 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
   .screen-pad { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 
   .signout-mobile { display: inline-block; }
+
+  /* a long unbroken string (book title, display name, pasted URL in a reaction)
+     must wrap, never force the line wider than the screen */
+  .book-title, .book-author, .reaction-body, .notif-text, .member-name,
+  .reading-title, .progress-club, .rail-club-book, .club-blurb, .feed-context {
+    overflow-wrap: anywhere; }
+
+  /* media + the join-code chip can't exceed the viewport either */
+  img, .book-cover { max-width: 100%; }
+  .club-toolbar { flex-wrap: wrap; }
 }
