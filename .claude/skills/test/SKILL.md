@@ -55,7 +55,7 @@ find-by-code RPC · non-member cannot read club · join · read club · add book
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 progress unlocks later reactions · **review gate (hidden until finished)** · review visible
 after finishing · wheel selection · vote tally · mark finished → history · profile update ·
-leave club · cleanup.
+**delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
 ## MAINTENANCE RULE (important)
 

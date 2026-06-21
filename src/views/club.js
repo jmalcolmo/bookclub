@@ -147,6 +147,10 @@ export function addBookModal(club, onDone) {
       timer = setTimeout(async () => {
         try {
           const books = await searchBooks(term);
+          // Drop stale responses. A slow request for an earlier (e.g. misspelled)
+          // term can resolve AFTER a later one and clobber good results with an
+          // empty "no matches" — the "results flash then vanish" bug.
+          if (q.value.trim() !== term) return;
           results.innerHTML = books.length ? books.map((b, i) => `
             <button class="ol-row" data-i="${i}">
               ${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="">` : `<span class="ol-noimg">📖</span>`}
@@ -162,7 +166,10 @@ export function addBookModal(club, onDone) {
                 if (onDone) onDone(created); else navigate(`/club/${club.id}/book/${created.id}`);
               } catch (err) { toast(err.message, "error"); }
             }));
-        } catch (err) { results.innerHTML = `<p class="faint">lookup failed: ${esc(err.message)}</p>`; }
+        } catch (err) {
+          if (q.value.trim() !== term) return;
+          results.innerHTML = `<p class="faint">lookup failed: ${esc(err.message)}</p>`;
+        }
       }, 350);
     });
     q.focus();
@@ -183,6 +190,7 @@ function clubMenu(club, isOwner) {
       <div class="menu-actions">
         ${isOwner ? `<button class="btn-ghost" data-action="change-book">Change current book</button>` : ""}
         <button class="btn-ghost danger" data-action="leave">Leave club</button>
+        ${isOwner ? `<button class="btn-ghost danger" data-action="delete">Delete club</button>` : ""}
       </div>
       <div class="modal-actions"><button class="btn-ghost" data-close>close</button></div>
     </div>
@@ -207,6 +215,11 @@ function clubMenu(club, isOwner) {
     modal.querySelector("[data-action='leave']").addEventListener("click", async () => {
       if (!confirm(`Leave ${club.name}?`)) return;
       try { await api.leaveClub(club.id); closeModal(); toast("Left club", "info"); navigate("/clubs"); }
+      catch (err) { toast(err.message, "error"); }
+    });
+    modal.querySelector("[data-action='delete']")?.addEventListener("click", async () => {
+      if (!confirm(`Permanently delete ${club.name}? This removes the club and ALL its books, reactions, reviews and progress for everyone. This cannot be undone.`)) return;
+      try { await api.deleteClub(club.id); closeModal(); toast("Club deleted", "info"); navigate("/clubs"); }
       catch (err) { toast(err.message, "error"); }
     });
   });

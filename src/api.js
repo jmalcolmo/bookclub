@@ -79,6 +79,23 @@ export async function updateClub(clubId, changes) {
   );
 }
 
+export async function deleteClub(clubId) {
+  // RLS (clubs_delete_owner) only lets a creator/owner do this; the FK cascades
+  // wipe the club's members, books, reactions, reviews, progress and selections.
+  return unwrap(await supabase.from("clubs").delete().eq("id", clubId));
+}
+
+// The current user's membership row for one club (or null). Lets a view know my
+// role (creator/owner/member) without pulling the whole roster.
+export async function myMembership(clubId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = unwrap(
+    await supabase.from("club_members").select("*")
+      .eq("club_id", clubId).eq("user_id", user.id)
+  );
+  return rows[0] || null;
+}
+
 export async function joinClub(clubId) {
   const user = (await supabase.auth.getUser()).data.user;
   return unwrap(
