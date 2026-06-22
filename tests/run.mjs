@@ -114,6 +114,12 @@ await step("B cannot read the club before joining (RLS)", async () => {
   assert((data || []).length === 0, "non-member could read club row directly");
 });
 
+await step("PROFILE GATE: B cannot read A's profile before sharing a club (RLS)", async () => {
+  // profiles_select_self_or_comember: with no club in common, A's profile is invisible.
+  const { data } = await cB.from("profiles").select("id").eq("id", A.id);
+  assert((data || []).length === 0, "PROFILE LEAK: a non-co-member read another user's profile");
+});
+
 await step("B joins the club", async () => {
   // Mirror the app exactly: joinClub() inserts WITH RETURNING (.select()). This is
   // load-bearing — a plain insert hides the members_select_same_club RLS bug where
@@ -128,6 +134,13 @@ await step("B can now read the club", async () => {
   const { data, error } = await cB.from("clubs").select("*").eq("id", club.id).single();
   if (error) throw error;
   assert(data.id === club.id, "member cannot read club");
+});
+
+await step("B can read A's profile once they share a club", async () => {
+  // Positive side of PROFILE GATE: now co-members, B sees A's profile (powers rosters/avatars).
+  const { data, error } = await cB.from("profiles").select("id").eq("id", A.id).single();
+  if (error) throw error;
+  assert(data.id === A.id, "co-member should be able to read a fellow member's profile");
 });
 
 await step("MY CLUBS: a 2-member club appears exactly once (no dupes)", async () => {
@@ -234,6 +247,17 @@ await step("picker — vote: open, both cast, tally = 2", async () => {
   await cB.from("selection_votes").upsert({ selection_id: vote.id, voter_id: B.id, candidate_id: B.id }, { onConflict: "selection_id,voter_id" });
   const { data: votes } = await cA.from("selection_votes").select("*").eq("selection_id", vote.id);
   assert((votes || []).length === 2, "expected 2 votes");
+});
+
+await step("SELECTION GATE: B (not creator) cannot finalize A's selection (RLS)", async () => {
+  // selections_update_owner_or_creator: a non-creator's UPDATE matches 0 rows silently.
+  const { data: sel, error } = await cA.from("selections").insert(
+    { club_id: club.id, method: "vote", created_by: A.id, status: "open" }).select().single();
+  if (error) throw error;
+  await cB.from("selections").update({ status: "decided", result_user: B.id }).eq("id", sel.id);
+  const { data } = await cA.from("selections").select("status, result_user").eq("id", sel.id).single();
+  assert(data.status === "open" && !data.result_user,
+    "SELECTION LEAK: a non-creator member crowned the winner / closed the selection");
 });
 
 await step("BOOK GATE: B (member, not creator) cannot finish the book for the club (RLS)", async () => {
