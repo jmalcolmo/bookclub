@@ -5,6 +5,7 @@ import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
 import { openModal, closeModal } from "./clubs.js";
 import { searchBooks } from "../openlibrary.js";
+import { cropImage } from "../imageCropper.js";
 
 export async function renderClub({ params }) {
   const clubId = params.id;
@@ -197,10 +198,13 @@ function clubMenu(club, isOwner) {
   `, (modal) => {
     modal.querySelector("[data-club-photo]")?.addEventListener("change", async (e) => {
       const file = e.target.files[0];
+      e.target.value = ""; // allow re-picking the same file later
       if (!file) return;
       try {
-        const path = `${club.id}/${Date.now()}-${file.name.replace(/[^\w.]/g, "_")}`;
-        const { error } = await supabase.storage.from("club-images").upload(path, file, { upsert: true });
+        const blob = await cropImage(file, { shape: "rounded" });
+        if (!blob) return; // cancelled
+        const path = `${club.id}/${Date.now()}.jpg`;
+        const { error } = await supabase.storage.from("club-images").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
         if (error) throw error;
         const { data } = supabase.storage.from("club-images").getPublicUrl(path);
         await api.updateClub(club.id, { photo_url: data.publicUrl });
