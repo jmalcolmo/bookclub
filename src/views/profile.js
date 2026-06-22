@@ -4,6 +4,7 @@ import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
 import { signOut } from "../auth.js";
+import { cropImage } from "../imageCropper.js";
 
 export async function renderProfile() {
   const p = store.profile || (await api.getProfile(store.user.id));
@@ -76,10 +77,13 @@ export async function renderProfile() {
 
     root.querySelector("[data-avatar]").addEventListener("change", async (e) => {
       const file = e.target.files[0];
+      e.target.value = ""; // allow re-picking the same file later
       if (!file) return;
       try {
-        const path = `${store.user.id}/${Date.now()}-${file.name.replace(/[^\w.]/g, "_")}`;
-        const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+        const blob = await cropImage(file, { shape: "circle" });
+        if (!blob) return; // cancelled
+        const path = `${store.user.id}/${Date.now()}.jpg`;
+        const { error } = await supabase.storage.from("avatars").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
         if (error) throw error;
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         const updated = await api.updateProfile(store.user.id, { avatar_url: data.publicUrl });

@@ -431,6 +431,29 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .profile-form { width: 100%; max-width: 420px; text-align: left; }
 .signed-as { margin-top: 6px; }
 
+/* ---- IMAGE CROPPER (avatar / club icon framing) ---- */
+.cropper-backdrop { position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: color-mix(in srgb, var(--yarn-bark) 55%, transparent); backdrop-filter: blur(2px); }
+.cropper { background: var(--surface); border: 3px solid var(--yarn-bark); border-radius: 16px;
+  box-shadow: var(--shadow-deep); padding: 22px; max-width: 92vw;
+  display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.cropper > h3 { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
+  letter-spacing: .04em; font-size: 1.3rem; margin: 0; }
+.cropper-hint { margin: -8px 0 0; font-size: .82rem; text-align: center; }
+.cropper-stage { position: relative; touch-action: none; cursor: grab; overflow: hidden;
+  border-radius: 12px; background: var(--surface-2); }
+.cropper-stage:active { cursor: grabbing; }
+.cropper-canvas { display: block; }
+.cropper-mask { position: absolute; inset: 0; pointer-events: none;
+  box-shadow: 0 0 0 9999px color-mix(in srgb, var(--bg) 62%, transparent);
+  border: 2px solid color-mix(in srgb, var(--surface) 85%, transparent); }
+.cropper-zoom { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 280px; }
+.cropper-zoom-icon { font-family: var(--font-mono); color: var(--text-muted); font-size: 1.1rem; width: 1ch; text-align: center; }
+.cropper-zoom input[type="range"] { flex: 1; accent-color: var(--yarn-rust); }
+.cropper-actions { display: flex; gap: 10px; width: 100%; }
+.cropper-actions .btn-ghost, .cropper-actions .btn-primary { flex: 1; }
+
 /* ---- TOASTS (book club kinds) ---- */
 .toast { opacity: 0; transform: translateY(10px); transition: opacity .25s ease, transform .25s ease; }
 .toast.show { opacity: 1; transform: translateY(0); }
