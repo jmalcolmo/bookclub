@@ -277,10 +277,14 @@ drop policy if exists "books_insert_member" on books;
 create policy "books_insert_member" on books
   for insert with check (is_club_member(club_id));
 
--- Any member can update book state (mark finished, extend deadline, edit metadata).
+-- Only the club creator/owner can update book state — mark the book finished for
+-- the whole club, extend the deadline, edit metadata. (A member's own reading
+-- progress lives in reading_progress, not books, so this doesn't restrict that.)
+-- The old, looser "books_update_member" policy is dropped for parity on re-run.
 drop policy if exists "books_update_member" on books;
-create policy "books_update_member" on books
-  for update using (is_club_member(club_id)) with check (is_club_member(club_id));
+drop policy if exists "books_update_owner" on books;
+create policy "books_update_owner" on books
+  for update using (is_club_owner(club_id)) with check (is_club_owner(club_id));
 
 drop policy if exists "books_delete_owner_or_picker" on books;
 create policy "books_delete_owner_or_picker" on books
