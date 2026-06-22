@@ -54,7 +54,8 @@ sign-in (password) · Open Library lookup · create club · creator auto-members
 find-by-code RPC · non-member cannot read club · join · read club · **my clubs has no duplicates (2-member club appears once)** · add book · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 progress unlocks later reactions · **review gate (hidden until finished)** · review visible
-after finishing · wheel selection · vote tally · mark finished → history · profile update ·
+after finishing · wheel selection · vote tally · **book gate (member cannot finish the
+book for the club)** · creator marks finished → history · profile update ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
 ## MAINTENANCE RULE (important)
