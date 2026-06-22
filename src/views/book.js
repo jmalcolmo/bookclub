@@ -34,9 +34,9 @@ export async function renderBook({ params }) {
             <p class="faint">${book.page_count ? `${book.page_count} pages` : ""}</p>
             <p class="faint">status: ${esc(book.status)}</p>
             ${book.deadline ? `<p class="faint">deadline: ${fmtDate(book.deadline)}<br>${deadlineNote(book.deadline)}</p>` : ""}
-            ${book.status !== "finished" ? `
+            ${isCreator && book.status !== "finished" ? `
               <div class="book-admin">
-                ${isCreator ? `<button class="btn-ghost small" data-act="edit-deadline">✎ edit deadline</button>` : ""}
+                <button class="btn-ghost small" data-act="edit-deadline">✎ edit deadline</button>
                 <button class="btn-ghost small" data-act="finish-book">mark book finished for club</button>
               </div>` : ""}
           </div>

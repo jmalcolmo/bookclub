@@ -236,7 +236,14 @@ await step("picker — vote: open, both cast, tally = 2", async () => {
   assert((votes || []).length === 2, "expected 2 votes");
 });
 
-await step("mark book finished → appears in history", async () => {
+await step("BOOK GATE: B (member, not creator) cannot finish the book for the club (RLS)", async () => {
+  // books_update_owner: a non-owner's UPDATE matches 0 rows silently (no error).
+  await cB.from("books").update({ status: "finished", finished_at: new Date().toISOString() }).eq("id", book.id);
+  const { data } = await cA.from("books").select("status").eq("id", book.id).single();
+  assert(data.status !== "finished", "BOOK GATE LEAK: a non-creator member finished the book for the club");
+});
+
+await step("mark book finished → appears in history (creator)", async () => {
   await cA.from("books").update({ status: "finished", finished_at: new Date().toISOString() }).eq("id", book.id);
   const { data } = await cA.from("books").select("id").eq("club_id", club.id).eq("status", "finished");
   assert((data || []).some((b) => b.id === book.id), "finished book not in history");
