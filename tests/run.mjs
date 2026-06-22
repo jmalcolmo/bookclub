@@ -66,7 +66,18 @@ if (SERVICE_ROLE) {
 const cA = client();
 const cB = client();
 let A, B, club, book;
+let avatarPath, coverPath;
 const tag = Date.now();
+
+// A real (tiny 1×1) JPEG. The cropper bakes an image/jpeg blob and uploads it, so
+// the test uploads genuine JPEG bytes — the buckets restrict allowed_mime_types.
+const TINY_JPEG = Buffer.from(
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////" +
+  "////////////////////////////////////////////////8AAEQgAAQABAwEiAAIR" +
+  "AQMRAf/EABQAAQAAAAAAAAAAAAAAAAAAAAD/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QA" +
+  "FAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhED" +
+  "EQA/AL+AAf/Z", "base64");
+const blobJ = () => new Blob([TINY_JPEG], { type: "image/jpeg" });
 
 console.log(`\nThe Reading Room — action test (dev)\n`);
 
@@ -278,6 +289,47 @@ await step("profile update", async () => {
   if (error) throw error;
 });
 
+// --- avatar / club-icon uploads (the cropper bakes a square JPEG, then this path runs) ---
+await step("AVATAR UPLOAD: A uploads a cropped icon to own folder and sets avatar_url", async () => {
+  // Mirror profile.js: upload the baked jpeg under `${user.id}/...`, then save the URL.
+  avatarPath = `${A.id}/${tag}.jpg`;
+  const { error: upErr } = await cA.storage.from("avatars")
+    .upload(avatarPath, blobJ(), { upsert: true, contentType: "image/jpeg" });
+  if (upErr) throw upErr;
+  const { data: pub } = cA.storage.from("avatars").getPublicUrl(avatarPath);
+  const { data, error } = await cA.from("profiles")
+    .update({ avatar_url: pub.publicUrl }).eq("id", A.id).select().single();
+  if (error) throw error;
+  assert(data.avatar_url === pub.publicUrl, "avatar_url was not saved on the profile");
+});
+
+await step("AVATAR GATE: A cannot upload into B's avatar folder (storage RLS)", async () => {
+  // avatars_insert_own scopes writes to the uploader's own uid folder.
+  const { data, error } = await cA.storage.from("avatars")
+    .upload(`${B.id}/${tag}.jpg`, blobJ(), { upsert: false, contentType: "image/jpeg" });
+  assert(error && !data?.path, "AVATAR LEAK: a user wrote into someone else's avatar folder");
+});
+
+await step("CLUB ICON: A (creator) uploads a cropped cover and sets photo_url", async () => {
+  // Mirror club.js: upload under `${club.id}/...`, then save photo_url (creator only).
+  coverPath = `${club.id}/${tag}.jpg`;
+  const { error: upErr } = await cA.storage.from("club-images")
+    .upload(coverPath, blobJ(), { upsert: true, contentType: "image/jpeg" });
+  if (upErr) throw upErr;
+  const { data: pub } = cA.storage.from("club-images").getPublicUrl(coverPath);
+  const { data, error } = await cA.from("clubs")
+    .update({ photo_url: pub.publicUrl }).eq("id", club.id).select().single();
+  if (error) throw error;
+  assert(data.photo_url === pub.publicUrl, "photo_url was not saved on the club");
+});
+
+await step("CLUB ICON GATE: B (member, not creator) cannot upload the club's cover (storage RLS)", async () => {
+  // clubimg_insert_owner: only the club owner may write under that club's folder.
+  const { data, error } = await cB.storage.from("club-images")
+    .upload(`${club.id}/evil-${tag}.jpg`, blobJ(), { upsert: false, contentType: "image/jpeg" });
+  assert(error && !data?.path, "CLUB ICON LEAK: a non-creator member uploaded the club's cover");
+});
+
 await step("DELETE GATE: B (member, not creator) cannot delete the club (RLS)", async () => {
   // RLS (clubs_delete_owner) silently affects 0 rows for a non-owner — no error.
   await cB.from("clubs").delete().eq("id", club.id);
@@ -291,6 +343,14 @@ await step("B can leave the club", async () => {
 });
 
 // ---- cleanup ----------------------------------------------------------------
+await step("cleanup: remove uploaded storage objects", async () => {
+  // Storage objects aren't cascade-deleted with the club, so clean them up here —
+  // the club cover MUST be removed before the club (clubimg_delete_owner needs the
+  // club to still exist for is_club_owner()).
+  if (avatarPath) await cA.storage.from("avatars").remove([avatarPath]);
+  if (coverPath) await cA.storage.from("club-images").remove([coverPath]);
+});
+
 await step("cleanup: A (creator) deletes the club (cascades)", async () => {
   const { error } = await cA.from("clubs").delete().eq("id", club.id);
   if (error) throw error;
