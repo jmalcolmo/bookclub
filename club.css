@@ -226,7 +226,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .inline-field input, .react-page input { width: 84px; }
 .progress-hint { margin: 10px 0 0; }
 .book-admin { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;
-  border-top: 1px dashed var(--yarn-clay); padding-top: 12px; }
+  border-top: 1px dashed var(--yarn-clay); padding-top: 12px;
+  align-self: stretch; justify-content: center; }
 .react-form textarea { width: 100%; }
 
 /* reactions feed */
