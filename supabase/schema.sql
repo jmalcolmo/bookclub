@@ -75,6 +75,26 @@ as $$
   );
 $$;
 
+-- Does the current user share at least one club with _other? Used to scope
+-- profile visibility: you can see the profiles of people you actually club with,
+-- not every registered user. SECURITY DEFINER so it doesn't recurse on the
+-- club_members SELECT policy.
+create or replace function public.shares_club_with(_other uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from club_members me
+    join club_members them on them.club_id = me.club_id
+    where me.user_id = auth.uid()
+      and them.user_id = _other
+  );
+$$;
+
 -- ============================================================================
 -- PROFILES  (1:1 with auth.users)
 -- ============================================================================
@@ -88,9 +108,16 @@ create table if not exists profiles (
 
 alter table profiles enable row level security;
 
+-- You can see your OWN profile and the profiles of people you share a club with.
+-- (Previously any authenticated user could read every profile — a full member
+-- directory. With open Google signup at scale that's needless exposure.) Every
+-- user_id the client ever surfaces — club rosters, reaction/review/progress
+-- authors — already comes from a club you belong to, so this doesn't break any
+-- legitimate read.
 drop policy if exists "profiles_select_all" on profiles;
-create policy "profiles_select_all" on profiles
-  for select using (auth.role() = 'authenticated');
+drop policy if exists "profiles_select_self_or_comember" on profiles;
+create policy "profiles_select_self_or_comember" on profiles
+  for select using (id = auth.uid() or shares_club_with(id));
 
 drop policy if exists "profiles_update_own" on profiles;
 create policy "profiles_update_own" on profiles
@@ -181,6 +208,13 @@ as $$
   where join_code = upper(trim(_code))
   limit 1;
 $$;
+
+-- This RPC bypasses RLS (SECURITY DEFINER) to look up a club by its private join
+-- code. Only logged-in users ever need it (you join after signing in), so deny it
+-- to the anonymous role — that way an unauthenticated visitor can't sit on the
+-- endpoint guessing the 6-char code space. Logged-in users are accountable.
+revoke execute on function public.find_club_by_code(text) from public, anon;
+grant  execute on function public.find_club_by_code(text) to authenticated;
 
 -- ============================================================================
 -- CLUB MEMBERS
@@ -435,9 +469,16 @@ drop policy if exists "selections_insert_member" on selections;
 create policy "selections_insert_member" on selections
   for insert with check (is_club_member(club_id) and created_by = auth.uid());
 
+-- Only the person who opened the selection (or a club owner) can finalize it —
+-- set result_user / flip it to 'decided'. Members participate by casting votes in
+-- selection_votes, not by mutating the selection row. (Previously ANY member
+-- could crown the winner, overriding the host.) The wheel/pick/vote-close flows
+-- all run as the creator, so this matches existing behavior server-side.
 drop policy if exists "selections_update_member" on selections;
-create policy "selections_update_member" on selections
-  for update using (is_club_member(club_id)) with check (is_club_member(club_id));
+drop policy if exists "selections_update_owner_or_creator" on selections;
+create policy "selections_update_owner_or_creator" on selections
+  for update using (created_by = auth.uid() or is_club_owner(club_id))
+  with check (created_by = auth.uid() or is_club_owner(club_id));
 
 -- Votes cast within a 'vote' selection.
 create table if not exists selection_votes (
@@ -486,17 +527,73 @@ insert into storage.buckets (id, name, public)
 values ('avatars','avatars', true), ('club-images','club-images', true)
 on conflict (id) do nothing;
 
+-- Cap uploads so a single user can't fill storage (cost/abuse) and can't host
+-- arbitrary file types from our domain. `on conflict do nothing` above means
+-- these limits must be applied with an UPDATE for already-provisioned buckets.
+update storage.buckets
+   set file_size_limit = 2097152,  -- 2 MB
+       allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif']
+ where id in ('avatars','club-images');
+
+-- Reads stay public (buckets are public; URLs are unguessable enough for avatars
+-- and club covers).
 drop policy if exists "storage_read_public" on storage.objects;
 create policy "storage_read_public" on storage.objects
   for select using (bucket_id in ('avatars','club-images'));
 
+-- WRITE SCOPING. The previous policies allowed ANY authenticated user to write to
+-- ANY path in these buckets — so anyone could overwrite anyone's avatar or any
+-- club's cover. The client writes under `${user.id}/...` (avatars) and
+-- `${club.id}/...` (club-images); enforce that convention server-side via the
+-- first path segment. `upsert: true` in the client hits both INSERT and UPDATE,
+-- so both commands are scoped; DELETE lets owners clean up their own files.
 drop policy if exists "storage_write_auth" on storage.objects;
-create policy "storage_write_auth" on storage.objects
-  for insert with check (bucket_id in ('avatars','club-images') and auth.role() = 'authenticated');
-
 drop policy if exists "storage_update_auth" on storage.objects;
-create policy "storage_update_auth" on storage.objects
-  for update using (bucket_id in ('avatars','club-images') and auth.role() = 'authenticated');
+
+-- avatars: a user may only write under their own uid folder.
+drop policy if exists "avatars_insert_own" on storage.objects;
+create policy "avatars_insert_own" on storage.objects
+  for insert with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+drop policy if exists "avatars_update_own" on storage.objects;
+create policy "avatars_update_own" on storage.objects
+  for update using (
+    bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text
+  ) with check (
+    bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+drop policy if exists "avatars_delete_own" on storage.objects;
+create policy "avatars_delete_own" on storage.objects
+  for delete using (
+    bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- club-images: only a club owner may write under that club's folder. Mirrors
+-- clubs_update_owner (only owners can set photo_url anyway). A malformed,
+-- non-uuid first segment makes is_club_owner() return false → denied.
+drop policy if exists "clubimg_insert_owner" on storage.objects;
+create policy "clubimg_insert_owner" on storage.objects
+  for insert with check (
+    bucket_id = 'club-images'
+    and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "clubimg_update_owner" on storage.objects;
+create policy "clubimg_update_owner" on storage.objects
+  for update using (
+    bucket_id = 'club-images'
+    and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  ) with check (
+    bucket_id = 'club-images'
+    and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "clubimg_delete_owner" on storage.objects;
+create policy "clubimg_delete_owner" on storage.objects
+  for delete using (
+    bucket_id = 'club-images'
+    and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  );
 
 -- ============================================================================
 -- DONE
