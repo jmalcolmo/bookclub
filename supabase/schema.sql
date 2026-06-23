@@ -95,6 +95,96 @@ as $$
   );
 $$;
 
+-- Is the current user the app admin? (the is_admin flag on their profile). Gates
+-- global announcement broadcasts. SECURITY DEFINER so it doesn't depend on the
+-- caller being able to SELECT their own profile row under RLS.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select coalesce((select is_admin from profiles where id = auth.uid()), false);
+$$;
+
+-- Can the current user SEE a given reaction? Mirrors the spoiler gate in the
+-- reactions SELECT policy exactly. Replies and engagements on a reaction inherit
+-- this — a reply/like/emoji on a reaction is visible iff the reaction itself is,
+-- so they can never leak the existence of a spoiler-gated reaction.
+create or replace function public.reaction_visible(_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from reactions r
+    where r.id = _id
+      and is_club_member(book_club(r.book_id))
+      and (r.user_id = auth.uid() or has_read_to(r.book_id, r.page))
+  );
+$$;
+
+-- Can the current user SEE a given reaction reply? It inherits the parent
+-- reaction's spoiler gate.
+create or replace function public.reply_visible(_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select public.reaction_visible((select reaction_id from reaction_replies where id = _id));
+$$;
+
+-- Can the current user SEE a given review? Mirrors the reviews SELECT gate:
+-- the author, or a member whose progress on that book is 'finished'.
+create or replace function public.review_visible(_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from reviews rv
+    where rv.id = _id
+      and is_club_member(book_club(rv.book_id))
+      and (
+        rv.user_id = auth.uid()
+        or exists (
+          select 1 from reading_progress rp
+          where rp.book_id = rv.book_id and rp.user_id = auth.uid() and rp.status = 'finished'
+        )
+      )
+  );
+$$;
+
+-- Polymorphic visibility check for engagements (likes / emoji tapbacks). An
+-- engagement is permitted only on a target the user can already see, so it can
+-- never reveal a hidden reaction/review. Each target type routes back to the
+-- gate that protects its underlying row.
+create or replace function public.can_engage_target(_type text, _id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select case _type
+    when 'reaction'     then public.reaction_visible(_id)
+    when 'reply'        then public.reply_visible(_id)
+    when 'review'       then public.review_visible(_id)
+    when 'book'         then public.is_club_member(public.book_club(_id))
+    when 'progress'     then public.is_club_member(public.book_club((select book_id from reading_progress where id = _id)))
+    when 'selection'    then public.is_club_member((select club_id from selections where id = _id))
+    when 'announcement' then (auth.uid() is not null)
+    else false
+  end;
+$$;
+
 -- ============================================================================
 -- PROFILES  (1:1 with auth.users)
 -- ============================================================================
@@ -105,6 +195,10 @@ create table if not exists profiles (
   bio          text,
   created_at   timestamptz not null default now()
 );
+
+-- App-admin flag. Lets one (or a few) accounts broadcast global announcements to
+-- every user. Defaults false; granted explicitly below.
+alter table profiles add column if not exists is_admin boolean not null default false;
 
 alter table profiles enable row level security;
 
@@ -150,6 +244,12 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Grant admin to the app creator. Idempotent and safe to run in both projects;
+-- only flips the flag once the account has signed in at least once (profile row
+-- exists). Add more emails here if co-admins are ever needed.
+update profiles set is_admin = true
+where id in (select id from auth.users where email = 'malcolm.olexa24@gmail.com');
 
 -- ============================================================================
 -- CLUBS
@@ -444,6 +544,120 @@ create policy "reviews_delete_own" on reviews
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
+-- REACTION REPLIES  (X-style threaded comments under a reaction)
+-- ============================================================================
+create table if not exists reaction_replies (
+  id          uuid primary key default gen_random_uuid(),
+  reaction_id uuid not null references reactions(id) on delete cascade,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  body        text not null,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists reaction_replies_reaction_idx on reaction_replies(reaction_id);
+
+alter table reaction_replies enable row level security;
+
+-- A reply inherits its parent reaction's spoiler gate: you can read or post one
+-- only if you can see the reaction it hangs off. (reaction_visible() is the same
+-- gate as the reactions SELECT policy.)
+drop policy if exists "replies_select_visible" on reaction_replies;
+create policy "replies_select_visible" on reaction_replies
+  for select using (reaction_visible(reaction_id));
+
+drop policy if exists "replies_insert_visible" on reaction_replies;
+create policy "replies_insert_visible" on reaction_replies
+  for insert with check (user_id = auth.uid() and reaction_visible(reaction_id));
+
+drop policy if exists "replies_delete_own" on reaction_replies;
+create policy "replies_delete_own" on reaction_replies
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
+-- ENGAGEMENTS  (likes + emoji tapbacks on ANY feed item)
+-- ============================================================================
+-- Polymorphic: (target_type, target_id) points at a reaction, reply, review,
+-- book, reading_progress row, selection, or announcement. `kind` is 'like' or a
+-- palette emoji. The unique constraint means one like + one of each emoji per
+-- user per target, so a tap toggles the row on/off.
+create table if not exists engagements (
+  id          uuid primary key default gen_random_uuid(),
+  target_type text not null check (target_type in
+                ('reaction','reply','review','book','progress','selection','announcement')),
+  target_id   uuid not null,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  kind        text not null check (kind in ('like','❤️','😂','😮','😢','🔥')),
+  created_at  timestamptz not null default now(),
+  unique (target_type, target_id, user_id, kind)
+);
+
+create index if not exists engagements_target_idx on engagements(target_type, target_id);
+create index if not exists engagements_user_idx on engagements(user_id);
+
+alter table engagements enable row level security;
+
+-- You may read or add an engagement ONLY on a target you can already see. This
+-- routes every target type back through its own gate (esp. the reaction spoiler
+-- gate), so an engagement can never reveal a hidden reaction or review.
+drop policy if exists "engagements_select_visible" on engagements;
+create policy "engagements_select_visible" on engagements
+  for select using (can_engage_target(target_type, target_id));
+
+drop policy if exists "engagements_insert_visible" on engagements;
+create policy "engagements_insert_visible" on engagements
+  for insert with check (user_id = auth.uid() and can_engage_target(target_type, target_id));
+
+drop policy if exists "engagements_delete_own" on engagements;
+create policy "engagements_delete_own" on engagements
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
+-- ANNOUNCEMENTS  (global broadcasts the app admin pushes to every user)
+-- ============================================================================
+create table if not exists announcements (
+  id         uuid primary key default gen_random_uuid(),
+  body       text not null,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists announcements_created_idx on announcements(created_at desc);
+
+alter table announcements enable row level security;
+
+-- Everyone signed in sees every announcement (global by design).
+drop policy if exists "announcements_select_all" on announcements;
+create policy "announcements_select_all" on announcements
+  for select using (auth.uid() is not null);
+
+-- Only the app admin can broadcast (or remove) an announcement.
+drop policy if exists "announcements_insert_admin" on announcements;
+create policy "announcements_insert_admin" on announcements
+  for insert with check (is_admin() and created_by = auth.uid());
+
+drop policy if exists "announcements_delete_admin" on announcements;
+create policy "announcements_delete_admin" on announcements
+  for delete using (is_admin());
+
+-- Per-user dismissal of an announcement, so "seen" persists across devices.
+create table if not exists announcement_reads (
+  announcement_id uuid not null references announcements(id) on delete cascade,
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  created_at      timestamptz not null default now(),
+  primary key (announcement_id, user_id)
+);
+
+alter table announcement_reads enable row level security;
+
+drop policy if exists "annreads_select_own" on announcement_reads;
+create policy "annreads_select_own" on announcement_reads
+  for select using (user_id = auth.uid());
+
+drop policy if exists "annreads_insert_own" on announcement_reads;
+create policy "annreads_insert_own" on announcement_reads
+  for insert with check (user_id = auth.uid());
+
+-- ============================================================================
 -- SELECTIONS  (how the next picker was chosen — wheel / vote / pick / race)
 -- ============================================================================
 create table if not exists selections (
@@ -518,6 +732,9 @@ begin
   begin execute 'alter publication supabase_realtime add table reading_progress'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table selection_votes'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table books'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table engagements'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table reaction_replies'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table announcements'; exception when others then null; end;
 end $$;
 
 -- ============================================================================
