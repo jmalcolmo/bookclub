@@ -66,6 +66,8 @@ if (SERVICE_ROLE) {
 const cA = client();
 const cB = client();
 let A, B, club, book;
+let r30, r200;            // reaction ids (page 30 visible to B early; page 200 gated)
+let replyId, lateReplyId; // reaction reply ids
 let avatarPath, coverPath;
 const tag = Date.now();
 
@@ -185,12 +187,16 @@ await step("A logs reading progress (page 50)", async () => {
 });
 
 await step("A posts a reaction at page 30", async () => {
-  const { error } = await cA.from("reactions").insert({ book_id: book.id, user_id: A.id, page: 30, body: "early thought" });
+  const { data, error } = await cA.from("reactions")
+    .insert({ book_id: book.id, user_id: A.id, page: 30, body: "early thought" }).select().single();
   if (error) throw error;
+  r30 = data.id;
 });
 await step("A posts a reaction at page 200", async () => {
-  const { error } = await cA.from("reactions").insert({ book_id: book.id, user_id: A.id, page: 200, body: "late twist!" });
+  const { data, error } = await cA.from("reactions")
+    .insert({ book_id: book.id, user_id: A.id, page: 200, body: "late twist!" }).select().single();
   if (error) throw error;
+  r200 = data.id;
 });
 
 await step("B logs progress (page 40)", async () => {
@@ -211,6 +217,75 @@ await step("author sees all own reactions (A sees p.30 and p.200)", async () => 
   const { data } = await cA.from("reactions").select("page").eq("book_id", book.id);
   const pages = (data || []).map((r) => r.page);
   assert(pages.includes(30) && pages.includes(200), "author cannot see own reactions");
+});
+
+// ---- reaction replies (threads) + engagements (likes / emoji) -------------
+// B is still at p.40 here: sees the p.30 reaction, NOT the p.200 one. Replies and
+// engagements INHERIT the reaction's spoiler gate, so the same boundary applies.
+
+await step("REPLY: B replies to A's visible (p.30) reaction", async () => {
+  const { data, error } = await cB.from("reaction_replies")
+    .insert({ reaction_id: r30, user_id: B.id, body: "ha, same" }).select().single();
+  if (error) throw error;
+  replyId = data.id;
+});
+
+await step("REPLY: A can read B's reply on the p.30 reaction", async () => {
+  const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
+  assert((data || []).length === 1, "author of the reaction couldn't see a reply on it");
+});
+
+await step("A replies to its own (p.200) gated reaction", async () => {
+  const { data, error } = await cA.from("reaction_replies")
+    .insert({ reaction_id: r200, user_id: A.id, body: "spoiler-y reply" }).select().single();
+  if (error) throw error;
+  lateReplyId = data.id;
+});
+
+await step("REPLY SPOILER GATE: B (p.40) cannot see a reply on the p.200 reaction", async () => {
+  const { data } = await cB.from("reaction_replies").select("id").eq("id", lateReplyId);
+  assert((data || []).length === 0, "REPLY LEAK: B saw a reply on a reaction past their progress");
+});
+
+await step("REPLY SPOILER GATE: B (p.40) cannot post a reply on the p.200 reaction", async () => {
+  const { data, error } = await cB.from("reaction_replies")
+    .insert({ reaction_id: r200, user_id: B.id, body: "should be blocked" }).select().single();
+  assert(error && !data, "REPLY LEAK: B replied to a reaction it can't see");
+});
+
+await step("LIKE: B likes A's visible (p.30) reaction", async () => {
+  const { error } = await cB.from("engagements")
+    .insert({ target_type: "reaction", target_id: r30, user_id: B.id, kind: "like" });
+  if (error) throw error;
+  const { data } = await cA.from("engagements").select("id").eq("target_id", r30).eq("kind", "like");
+  assert((data || []).length === 1, "like on a visible reaction wasn't recorded/visible");
+});
+
+await step("EMOJI: B adds an emoji tapback to the p.30 reaction", async () => {
+  const { error } = await cB.from("engagements")
+    .insert({ target_type: "reaction", target_id: r30, user_id: B.id, kind: "❤️" });
+  if (error) throw error;
+});
+
+await step("ENGAGE GATE: B (p.40) cannot like the gated p.200 reaction", async () => {
+  const { data, error } = await cB.from("engagements")
+    .insert({ target_type: "reaction", target_id: r200, user_id: B.id, kind: "like" }).select().single();
+  assert(error && !data, "ENGAGE LEAK: B liked a reaction it can't see");
+});
+
+await step("LIKE: B likes the book (a club-activity item any member can like)", async () => {
+  const { error } = await cB.from("engagements")
+    .insert({ target_type: "book", target_id: book.id, user_id: B.id, kind: "like" });
+  if (error) throw error;
+});
+
+await step("ENGAGE: B un-likes the p.30 reaction (toggle off)", async () => {
+  const { error } = await cB.from("engagements").delete()
+    .eq("target_type", "reaction").eq("target_id", r30).eq("user_id", B.id).eq("kind", "like");
+  if (error) throw error;
+  const { data } = await cB.from("engagements").select("id")
+    .eq("target_id", r30).eq("kind", "like").eq("user_id", B.id);
+  assert((data || []).length === 0, "un-like did not remove the engagement");
 });
 
 await step("B advances to p.250 and now sees p.200", async () => {
@@ -240,6 +315,17 @@ await step("B finishes and now sees A's review", async () => {
     { book_id: book.id, user_id: B.id, current_page: 300, status: "finished" }, { onConflict: "book_id,user_id" });
   const { data } = await cB.from("reviews").select("id").eq("book_id", book.id);
   assert((data || []).length >= 1, "B should see reviews after finishing");
+});
+
+await step("REPLY GATE OPENS: B (now past p.200) sees the previously-hidden reply", async () => {
+  const { data } = await cB.from("reaction_replies").select("id").eq("id", lateReplyId);
+  assert((data || []).length === 1, "B should see the p.200 reply once read past it");
+});
+
+await step("ENGAGE GATE OPENS: B can now like the p.200 reaction", async () => {
+  const { error } = await cB.from("engagements")
+    .insert({ target_type: "reaction", target_id: r200, user_id: B.id, kind: "like" });
+  if (error) throw error;
 });
 
 await step("picker — wheel selection records a result", async () => {
@@ -341,6 +427,48 @@ await step("B can leave the club", async () => {
   const { error } = await cB.from("club_members").delete().eq("club_id", club.id).eq("user_id", B.id);
   if (error) throw error;
 });
+
+// ---- global announcements (admin broadcast) --------------------------------
+await step("ANNOUNCEMENT GATE: a non-admin cannot broadcast (RLS)", async () => {
+  // announcements_insert_admin: with check is_admin() — A is not an admin.
+  const { data, error } = await cA.from("announcements")
+    .insert({ body: `should be blocked ${tag}`, created_by: A.id }).select().single();
+  assert(error && !data, "ANNOUNCEMENT LEAK: a non-admin user broadcast to everyone");
+});
+
+if (SERVICE_ROLE) {
+  const admin = createClient(URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  let annId;
+  await step("ADMIN: an admin can broadcast; everyone sees it; a user can dismiss it", async () => {
+    // Temporarily make A an admin (service role bypasses RLS), then drive the real
+    // admin flow through A's normal publishable-key client.
+    await admin.from("profiles").update({ is_admin: true }).eq("id", A.id);
+    try {
+      const { data: ann, error: insErr } = await cA.from("announcements")
+        .insert({ body: `You can now respond to reactions! ${tag}`, created_by: A.id }).select().single();
+      if (insErr) throw new Error("admin INSERT failed: " + insErr.message);
+      annId = ann.id;
+
+      // Everyone signed in sees it (announcements_select_all).
+      const { data: seen } = await cB.from("announcements").select("id").eq("id", annId);
+      assert((seen || []).length === 1, "a member could not see a global announcement");
+
+      // B dismisses it server-side; the dismissal is recorded for B only.
+      const { error: rdErr } = await cB.from("announcement_reads")
+        .upsert({ announcement_id: annId, user_id: B.id }, { onConflict: "announcement_id,user_id" });
+      if (rdErr) throw new Error("dismiss failed: " + rdErr.message);
+      const { data: reads } = await cB.from("announcement_reads").select("user_id").eq("announcement_id", annId);
+      assert((reads || []).some((r) => r.user_id === B.id), "dismissal was not recorded for the user");
+    } finally {
+      // Always undo the temporary admin grant and remove the test announcement.
+      await admin.from("profiles").update({ is_admin: false }).eq("id", A.id);
+      if (annId) await admin.from("announcements").delete().eq("id", annId);
+    }
+  });
+} else {
+  results.push([true, "ADMIN broadcast path (skipped — no SERVICE_ROLE)"]);
+  console.log("  ⚠ ADMIN broadcast path skipped (set SUPABASE_SERVICE_ROLE to exercise it)");
+}
 
 // ---- cleanup ----------------------------------------------------------------
 await step("cleanup: remove uploaded storage objects", async () => {
