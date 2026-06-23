@@ -352,6 +352,102 @@ export async function clubSelections(clubId) {
   );
 }
 
+// --------------------------------------------------------- REACTION REPLIES ---
+// X-style threaded comments under a reaction. RLS makes a reply visible only when
+// its parent reaction is (it inherits the spoiler gate), so whatever comes back
+// is safe to show. Fetched in bulk for a set of reactions to avoid N+1.
+export async function reactionReplies(reactionIds) {
+  if (!reactionIds.length) return [];
+  const rows = unwrap(
+    await supabase.from("reaction_replies").select("*")
+      .in("reaction_id", reactionIds)
+      .order("created_at", { ascending: true })
+  );
+  const profiles = await getProfiles(rows.map((r) => r.user_id));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
+}
+
+export async function addReply(reactionId, body) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("reaction_replies")
+      .insert({ reaction_id: reactionId, user_id: user.id, body })
+      .select().single()
+  );
+}
+
+export async function deleteReply(id) {
+  return unwrap(await supabase.from("reaction_replies").delete().eq("id", id));
+}
+
+// ------------------------------------------------------------- ENGAGEMENTS ---
+// Likes + emoji tapbacks on ANY feed item (reaction, reply, review, book,
+// progress milestone, selection, announcement). Polymorphic (target_type,
+// target_id); RLS only returns engagements on targets the reader can see.
+//
+// target_id values are uuids, globally unique across tables, so we can fetch all
+// engagements for a screen's worth of items with a single IN query and group
+// them client-side by target_id.
+export async function engagementsFor(targetIds) {
+  if (!targetIds.length) return [];
+  return unwrap(
+    await supabase.from("engagements").select("*").in("target_id", targetIds)
+  );
+}
+
+// Toggle a like/emoji for the current user: remove it if present, else add it.
+// Returns true if the engagement is now ON, false if it was removed.
+export async function toggleEngagement(targetType, targetId, kind) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const existing = unwrap(
+    await supabase.from("engagements").select("id")
+      .eq("target_type", targetType).eq("target_id", targetId)
+      .eq("user_id", user.id).eq("kind", kind)
+  );
+  if (existing.length) {
+    await supabase.from("engagements").delete().eq("id", existing[0].id);
+    return false;
+  }
+  unwrap(
+    await supabase.from("engagements")
+      .insert({ target_type: targetType, target_id: targetId, user_id: user.id, kind })
+  );
+  return true;
+}
+
+// ------------------------------------------------------------ ANNOUNCEMENTS ---
+// Global broadcasts the app admin pushes to every user. Everyone can read them;
+// only an admin can post. Per-user dismissal is tracked server-side so "seen"
+// persists across devices. Returns announcements I haven't dismissed, newest first.
+export async function activeAnnouncements() {
+  const user = (await supabase.auth.getUser()).data.user;
+  const [anns, reads] = await Promise.all([
+    supabase.from("announcements").select("*").order("created_at", { ascending: false }).then(unwrap),
+    supabase.from("announcement_reads").select("announcement_id").eq("user_id", user.id).then(unwrap),
+  ]);
+  const dismissed = new Set(reads.map((r) => r.announcement_id));
+  return anns.filter((a) => !dismissed.has(a.id));
+}
+
+export async function dismissAnnouncement(announcementId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("announcement_reads")
+      .upsert({ announcement_id: announcementId, user_id: user.id },
+              { onConflict: "announcement_id,user_id" })
+  );
+}
+
+export async function postAnnouncement(body) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("announcements")
+      .insert({ body, created_by: user.id })
+      .select().single()
+  );
+}
+
 // ------------------------------------------------------------- REALTIME ---
 export function subscribe(channelName, table, filter, onChange) {
   const ch = supabase

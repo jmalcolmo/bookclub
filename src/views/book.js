@@ -3,6 +3,7 @@ import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
+import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
 
 export async function renderBook({ params }) {
   const { id: clubId, bookId } = params;
@@ -120,7 +121,8 @@ function renderReviews(reviews) {
     </div>`).join("");
 }
 
-function reactionCardHTML(r, mineId) {
+function reactionCardHTML(r, ctx) {
+  const { myId, engOf, repliesByReaction, nameOf } = ctx;
   return `
     <div class="feed-item reaction-card" data-id="${r.id}">
       <div class="reaction-head">
@@ -128,19 +130,30 @@ function reactionCardHTML(r, mineId) {
         <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
         <span class="reaction-page">p.${r.page}</span>
         <span class="reaction-time faint">${timeAgo(r.created_at)}</span>
-        ${r.user_id === mineId ? `<button class="reaction-del" data-del="${r.id}" title="delete">×</button>` : ""}
+        ${r.user_id === myId ? `<button class="reaction-del" data-del="${r.id}" title="delete">×</button>` : ""}
       </div>
       <p class="reaction-body">${esc(r.body)}</p>
+      <div class="card-foot">
+        ${engagementBarHTML("reaction", r.id, engOf(r.id), nameOf, myId)}
+        ${replyThreadHTML(r.id, repliesByReaction[r.id] || [], engOf, nameOf, myId)}
+      </div>
     </div>`;
 }
 
-function notifCardHTML(n) {
+function notifCardHTML(n, ctx) {
+  const { myId, engOf, nameOf } = ctx;
+  // Only milestones backed by a real row (a reading_progress id) are likeable;
+  // the aggregate "everyone finished" card has no single row, so it has no bar.
+  const bar = n.targetId
+    ? `<div class="card-foot">${engagementBarHTML(n.targetType, n.targetId, engOf(n.targetId), nameOf, myId)}</div>`
+    : "";
   return `
     <div class="feed-item notif-card ${n.highlight ? "notif-highlight" : ""}">
       <span class="notif-icon" aria-hidden="true">${n.icon}</span>
       <div class="notif-main">
         <p class="notif-text">${esc(n.text)}</p>
         <span class="notif-time faint">${timeAgo(n.ts)}</span>
+        ${bar}
       </div>
     </div>`;
 }
@@ -153,15 +166,17 @@ function buildNotifications(progress, memberCount, book) {
   const me = store.user?.id;
   for (const p of progress) {
     const name = (p.user_id === me ? "You" : (p.profile?.display_name || "A reader"));
+    // Each progress milestone is backed by p.id, so members can like it.
+    const t = { targetType: "progress", targetId: p.id };
     if (p.status === "finished") {
-      items.push({ ts: p.finished_at || p.updated_at, icon: "🎉",
+      items.push({ ...t, ts: p.finished_at || p.updated_at, icon: "🎉",
         text: `${name} finished the book` });
     } else if (p.status === "reading" && p.current_page > 0) {
       const of = book.page_count ? ` of ${book.page_count}` : "";
-      items.push({ ts: p.updated_at, icon: "📖",
+      items.push({ ...t, ts: p.updated_at, icon: "📖",
         text: `${name} read to page ${p.current_page}${of}` });
     } else if (p.status === "reading" || p.started_at) {
-      items.push({ ts: p.started_at || p.updated_at, icon: "🔖",
+      items.push({ ...t, ts: p.started_at || p.updated_at, icon: "🔖",
         text: `${name} started reading` });
     }
   }
@@ -186,6 +201,29 @@ async function loadFeed(root, clubId, book) {
   ]);
 
   const notifs = buildNotifications(progress, members.length, book);
+
+  // Pull the replies (reactions only) and ALL engagements for everything on this
+  // screen in two bulk queries — reactions, their replies, and progress cards.
+  const reactionIds = reactions.map((r) => r.id);
+  const replies = await api.reactionReplies(reactionIds);
+  const repliesByReaction = groupBy(replies, "reaction_id");
+
+  const targetIds = [
+    ...reactionIds,
+    ...replies.map((r) => r.id),
+    ...notifs.filter((n) => n.targetId).map((n) => n.targetId),
+  ];
+  const engagements = await api.engagementsFor(targetIds);
+  const engByTarget = groupBy(engagements, "target_id");
+  const engOf = (id) => engByTarget[id] || [];
+
+  // Names for like/emoji hover tooltips: members + reply authors.
+  const pById = {};
+  for (const m of members) if (m.profile) pById[m.user_id] = m.profile;
+  for (const r of replies) if (r.profile) pById[r.user_id] = r.profile;
+  for (const r of reactions) if (r.profile) pById[r.user_id] = r.profile;
+  const ctx = { myId: store.user.id, engOf, repliesByReaction, nameOf: makeNameResolver(pById) };
+
   const feed = [
     ...reactions.map((r) => ({ kind: "reaction", ts: r.created_at, data: r })),
     ...notifs.map((n) => ({ kind: "notif", ts: n.ts, data: n })),
@@ -197,14 +235,23 @@ async function loadFeed(root, clubId, book) {
 
   host.innerHTML = feed.length
     ? feed.map((item) => item.kind === "reaction"
-        ? reactionCardHTML(item.data, store.user.id)
-        : notifCardHTML(item.data)).join("")
+        ? reactionCardHTML(item.data, ctx)
+        : notifCardHTML(item.data, ctx)).join("")
     : `<p class="faint">nothing here yet — be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
 
   host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
     try { await api.deleteReaction(b.dataset.del); loadFeed(root, clubId, book); }
     catch (err) { toast(err.message, "error"); }
   }));
+
+  // Likes, emoji tapbacks, and reply threads — refresh the feed on any change.
+  wireEngagementUI(host, () => loadFeed(root, clubId, book));
+}
+
+function groupBy(rows, key) {
+  const out = {};
+  for (const r of rows) (out[r[key]] ||= []).push(r);
+  return out;
 }
 
 function wire(root, { clubId, book, mine }) {
@@ -300,10 +347,14 @@ function wire(root, { clubId, book, mine }) {
 
   // initial feed load + live updates (reactions AND member progress feed activity)
   loadFeed(root, clubId, book);
-  const unsubReactions = api.subscribe(`reactions-${book.id}`, "reactions", `book_id=eq.${book.id}`,
-    () => loadFeed(root, clubId, book));
-  const unsubProgress = api.subscribe(`progress-${book.id}`, "reading_progress", `book_id=eq.${book.id}`,
-    () => loadFeed(root, clubId, book));
-  onCleanup(unsubReactions); // router tears these down before the next (re)render
-  onCleanup(unsubProgress);
+  const reload = () => loadFeed(root, clubId, book);
+  const subs = [
+    api.subscribe(`reactions-${book.id}`, "reactions", `book_id=eq.${book.id}`, reload),
+    api.subscribe(`progress-${book.id}`, "reading_progress", `book_id=eq.${book.id}`, reload),
+    // Engagements + replies aren't book-scoped columns, so subscribe broadly and
+    // let the debounce-free reload re-pull this book's feed. Cheap at our scale.
+    api.subscribe(`book-engagements-${book.id}`, "engagements", undefined, reload),
+    api.subscribe(`book-replies-${book.id}`, "reaction_replies", undefined, reload),
+  ];
+  subs.forEach(onCleanup); // router tears these down before the next (re)render
 }
