@@ -172,12 +172,42 @@ await step("MY CLUBS: a 2-member club appears exactly once (no dupes)", async ()
   assert(occurrences === 1, `DUPLICATE CLUB: club appeared ${occurrences}× in my clubs (expected 1)`);
 });
 
+await step("A (creator) edits club settings (updateClub)", async () => {
+  const { data, error } = await cA.from("clubs")
+    .update({ description: "renamed by creator", accent: "yarn-rust" })
+    .eq("id", club.id).select().single();
+  if (error) throw error;
+  assert(data.description === "renamed by creator" && data.accent === "yarn-rust", "club settings did not update");
+});
+
+await step("CLUB UPDATE GATE: B (member, not creator) cannot edit club settings (RLS)", async () => {
+  // clubs_update_owner: a non-owner UPDATE matches 0 rows silently (no error).
+  await cB.from("clubs").update({ description: "hijacked" }).eq("id", club.id);
+  const { data } = await cA.from("clubs").select("description").eq("id", club.id).single();
+  assert(data.description !== "hijacked", "CLUB UPDATE LEAK: a non-creator member edited club settings");
+});
+
 await step("A adds the current book", async () => {
   const { data, error } = await cA.from("books").insert({
     club_id: club.id, title: `Test Book ${tag}`, author: "Tester", page_count: 300, picked_by: A.id, status: "current",
   }).select().single();
   if (error) throw error;
   book = data;
+});
+
+await step("A (creator) edits the book deadline (updateBook)", async () => {
+  const dl = new Date(Date.now() + 7 * 86400000).toISOString();
+  const { data, error } = await cA.from("books").update({ deadline: dl }).eq("id", book.id).select().single();
+  if (error) throw error;
+  assert(data.deadline, "deadline was not saved on the book");
+});
+
+await step("A reads the club's current book + books list (currentBook / clubBooks)", async () => {
+  const { data: cur } = await cA.from("books").select("*").eq("club_id", club.id)
+    .eq("status", "current").order("created_at", { ascending: false }).limit(1);
+  assert((cur || [])[0]?.id === book.id, "current-book read did not return the book");
+  const { data: all } = await cA.from("books").select("id").eq("club_id", club.id);
+  assert((all || []).some((b) => b.id === book.id), "books-list read did not include the book");
 });
 
 await step("A logs reading progress (page 50)", async () => {
@@ -219,6 +249,23 @@ await step("author sees all own reactions (A sees p.30 and p.200)", async () => 
   assert(pages.includes(30) && pages.includes(200), "author cannot see own reactions");
 });
 
+await step("DELETE REACTION: A posts then deletes a throwaway reaction", async () => {
+  const { data: tmp, error } = await cA.from("reactions")
+    .insert({ book_id: book.id, user_id: A.id, page: 5, body: "oops, delete me" }).select().single();
+  if (error) throw error;
+  const { error: delErr } = await cA.from("reactions").delete().eq("id", tmp.id);
+  if (delErr) throw delErr;
+  const { data } = await cA.from("reactions").select("id").eq("id", tmp.id);
+  assert((data || []).length === 0, "author could not delete their own reaction");
+});
+
+await step("REACTION DELETE GATE: B cannot delete A's reaction (RLS)", async () => {
+  // reactions_delete_own: only the author may delete; a non-author affects 0 rows.
+  await cB.from("reactions").delete().eq("id", r30);
+  const { data } = await cA.from("reactions").select("id").eq("id", r30);
+  assert((data || []).length === 1, "REACTION DELETE LEAK: a non-author deleted someone else's reaction");
+});
+
 // ---- reaction replies (threads) + engagements (likes / emoji) -------------
 // B is still at p.40 here: sees the p.30 reaction, NOT the p.200 one. Replies and
 // engagements INHERIT the reaction's spoiler gate, so the same boundary applies.
@@ -233,6 +280,13 @@ await step("REPLY: B replies to A's visible (p.30) reaction", async () => {
 await step("REPLY: A can read B's reply on the p.30 reaction", async () => {
   const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
   assert((data || []).length === 1, "author of the reaction couldn't see a reply on it");
+});
+
+await step("REPLY DELETE GATE: A cannot delete B's reply (RLS)", async () => {
+  // replies_delete_own: only the reply's author may delete it; others affect 0 rows.
+  await cA.from("reaction_replies").delete().eq("id", replyId);
+  const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
+  assert((data || []).length === 1, "REPLY DELETE LEAK: a non-author deleted someone else's reply");
 });
 
 await step("A replies to its own (p.200) gated reaction", async () => {
@@ -303,6 +357,16 @@ await step("A finishes the book and writes a review", async () => {
   if (error) throw error;
 });
 
+await step("A's personal reading history includes the finished book (myReadingHistory)", async () => {
+  // Mirror api.myReadingHistory(): my finished progress rows -> their books.
+  const { data: prog } = await cA.from("reading_progress").select("book_id")
+    .eq("user_id", A.id).eq("status", "finished");
+  const ids = (prog || []).map((p) => p.book_id);
+  assert(ids.includes(book.id), "finished book missing from A's reading_progress");
+  const { data: books } = await cA.from("books").select("id").in("id", ids);
+  assert((books || []).some((b) => b.id === book.id), "reading history did not resolve the finished book");
+});
+
 await step("REVIEW GATE: B (not finished) cannot see A's review", async () => {
   await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: 250, status: "reading" }, { onConflict: "book_id,user_id" });
@@ -328,6 +392,13 @@ await step("ENGAGE GATE OPENS: B can now like the p.200 reaction", async () => {
   if (error) throw error;
 });
 
+await step("DELETE REPLY: B deletes their own reply", async () => {
+  const { error } = await cB.from("reaction_replies").delete().eq("id", replyId);
+  if (error) throw error;
+  const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
+  assert((data || []).length === 0, "author's own reply was not deleted");
+});
+
 await step("picker — wheel selection records a result", async () => {
   const { data: sel, error } = await cA.from("selections").insert(
     { club_id: club.id, method: "wheel", created_by: A.id, status: "decided", result_user: B.id, decided_at: new Date().toISOString() }
@@ -344,6 +415,17 @@ await step("picker — vote: open, both cast, tally = 2", async () => {
   await cB.from("selection_votes").upsert({ selection_id: vote.id, voter_id: B.id, candidate_id: B.id }, { onConflict: "selection_id,voter_id" });
   const { data: votes } = await cA.from("selection_votes").select("*").eq("selection_id", vote.id);
   assert((votes || []).length === 2, "expected 2 votes");
+});
+
+await step("picker — creator finalizes a selection (decideSelection)", async () => {
+  const { data: sel, error } = await cA.from("selections")
+    .insert({ club_id: club.id, method: "vote", created_by: A.id, status: "open" }).select().single();
+  if (error) throw error;
+  const { data: decided, error: decErr } = await cA.from("selections")
+    .update({ result_user: B.id, status: "decided", decided_at: new Date().toISOString() })
+    .eq("id", sel.id).select().single();
+  if (decErr) throw decErr;
+  assert(decided.status === "decided" && decided.result_user === B.id, "creator could not finalize the selection");
 });
 
 await step("SELECTION GATE: B (not creator) cannot finalize A's selection (RLS)", async () => {
@@ -421,6 +503,30 @@ await step("DELETE GATE: B (member, not creator) cannot delete the club (RLS)", 
   await cB.from("clubs").delete().eq("id", club.id);
   const { data } = await cA.from("clubs").select("id").eq("id", club.id);
   assert((data || []).length === 1, "DELETE LEAK: a non-creator member deleted the club");
+});
+
+// ---- book deletion (owner / picker), while B is still a member -------------
+let book2;
+await step("A adds a throwaway book (to exercise deletion)", async () => {
+  const { data, error } = await cA.from("books").insert({
+    club_id: club.id, title: `Throwaway ${tag}`, author: "x", page_count: 10, picked_by: A.id, status: "current",
+  }).select().single();
+  if (error) throw error;
+  book2 = data;
+});
+
+await step("BOOK DELETE GATE: B (member, not owner/picker) cannot delete a book (RLS)", async () => {
+  // books_delete_owner_or_picker: B is a member but neither owner nor picker → 0 rows.
+  await cB.from("books").delete().eq("id", book2.id);
+  const { data } = await cA.from("books").select("id").eq("id", book2.id);
+  assert((data || []).length === 1, "BOOK DELETE LEAK: a non-owner/non-picker deleted a book");
+});
+
+await step("A (creator/picker) deletes the throwaway book (deleteBook)", async () => {
+  const { error } = await cA.from("books").delete().eq("id", book2.id);
+  if (error) throw error;
+  const { data } = await cA.from("books").select("id").eq("id", book2.id);
+  assert((data || []).length === 0, "book was not deleted by its owner/picker");
 });
 
 await step("B can leave the club", async () => {
