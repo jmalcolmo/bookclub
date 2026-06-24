@@ -52,16 +52,23 @@ npm test
 
 sign-in (password) · Open Library lookup · create club · creator auto-membership (role 'creator') ·
 find-by-code RPC · non-member cannot read club · **profile gate (non-co-member cannot read a
-profile; co-member can)** · join · read club · **my clubs has no duplicates (2-member club appears once)** · add book · log
+profile; co-member can)** · join · read club · **my clubs has no duplicates (2-member club appears once)** ·
+edit club settings · **club-update gate (member cannot edit settings)** · add book · edit book
+deadline · read current book + books list · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
-post reaction reply · author reads reply · **reply spoiler gate (reply inherits the parent
+delete own reaction · **reaction-delete gate (non-author cannot delete)** ·
+post reaction reply · author reads reply · **reply-delete gate (non-author cannot delete)** ·
+**reply spoiler gate (reply inherits the parent
 reaction's page gate — B can't see/post on a gated reaction)** · like a reaction · emoji
 tapback · **engagement spoiler gate (can't like a gated reaction)** · like a club-activity item
 (book) · un-like (toggle off) · **reply + engagement gates OPEN once read past the page** ·
-progress unlocks later reactions · **review gate (hidden until finished)** · review visible
-after finishing · wheel selection · vote tally · **selection gate (non-creator cannot finalize a
+delete own reply · progress unlocks later reactions · finish + write review ·
+personal reading history includes finished book · **review gate (hidden until finished)** · review visible
+after finishing · wheel selection · vote tally · finalize selection (decide winner) ·
+**selection gate (non-creator cannot finalize a
 selection)** · **book gate (member cannot finish the
 book for the club)** · creator marks finished → history · profile update ·
+**book-delete gate (member, not owner/picker, cannot delete)** · owner deletes a book ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
@@ -72,6 +79,13 @@ sees it, a user dismisses it)** ·
 the `new-screen` skill, its checklist points back to this. If you add gated data, add both
 a positive case (allowed sees it) and a negative case (not-allowed does NOT). Keep the
 runner's step list and the "What it covers" line above in sync.
+
+**Source of truth = `src/api.js`.** Every user action flows through one exported function
+there (the views never touch the DB directly), so an exhaustive audit is: list the exports
+(`grep '^export .*function' src/api.js`) and confirm each has at least one step. Non-api
+actions to also cover: Open Library lookup, and the avatar/club-icon storage uploads. Pure
+reads/realtime helpers (`getProfiles`, `clubMembers`, `bookProgress`, `subscribe`, …) are
+exercised transitively by the membership/gate steps and don't each need a dedicated step.
 
 ## Notes
 
