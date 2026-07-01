@@ -19,6 +19,9 @@ export async function renderBook({ params }) {
 
   const myPage = mine?.current_page || 0;
   const finished = mine?.status === "finished";
+  // "started" once any progress is logged — a reading/finished row, or any page > 0.
+  // Drives whether the redundant "mark started" button shows.
+  const hasStarted = !!mine && (mine.status === "reading" || finished || myPage > 0);
   const isCreator = membership?.role === "creator" || membership?.role === "owner";
 
   render(`
@@ -80,7 +83,7 @@ export async function renderBook({ params }) {
               <input name="page" type="number" min="0" max="${book.page_count || 100000}"
                 value="${myPage}" /></label>
             ${book.page_count ? `<span class="faint">/ ${book.page_count}</span>` : ""}
-            <button type="button" class="btn-ghost small" data-act="started">mark started</button>
+            ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
             <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
             <button type="submit" class="btn-primary small">save</button>
           </form>
@@ -259,18 +262,68 @@ function wire(root, { clubId, book, mine }) {
 
   // progress save
   const pForm = root.querySelector("[data-progress]");
+  const startedBtn = pForm.querySelector("[data-act='started']");
+
+  // Persist progress, update local state + the panel UI, and refresh the feed.
+  // Shared by the progress form, the started/finished shortcuts, and the
+  // reaction→progress popup. `silent` skips the toast (popup shows its own flow).
+  const applyProgress = async (page, status, { silent } = {}) => {
+    const st = status || (page > 0 ? "reading" : "not_started");
+    await api.setProgress(book.id, page, st);
+    mine = { current_page: page, status: st };
+    pForm.page.value = page;
+    // First progress logged makes "mark started" redundant — drop it for good.
+    if (st === "reading" || st === "finished" || page > 0) startedBtn?.remove();
+    if (!silent) toast("Progress saved", "success");
+    loadFeed(root, clubId, book); // newly unlocked reactions + updated activity
+  };
+
   const save = async (status) => {
     const page = Number(pForm.page.value) || 0;
-    const st = status || (page > 0 ? "reading" : "not_started");
-    try {
-      await api.setProgress(book.id, page, st);
-      mine = { current_page: page, status: st };
-      toast("Progress saved", "success");
-      loadFeed(root, clubId, book); // newly unlocked reactions + updated activity
-    } catch (err) { toast(err.message, "error"); }
+    try { await applyProgress(page, status); }
+    catch (err) { toast(err.message, "error"); }
   };
   pForm.addEventListener("submit", (e) => { e.preventDefault(); save(); });
-  pForm.querySelector("[data-act='started']").addEventListener("click", () => save("reading"));
+  startedBtn?.addEventListener("click", () => save("reading"));
+
+  // Reaction→progress popup: when you react past your logged page, offer to bump
+  // "My progress". Dismissing (button, backdrop) still sets you to the reaction's
+  // page, so you can never sit below a reaction you posted.
+  function promptProgress(reactionPage) {
+    let handled = false;
+    const done = async (page) => {
+      if (handled) return;
+      handled = true;
+      try { await applyProgress(page, "reading", { silent: true }); }
+      catch (err) { toast(err.message, "error"); }
+    };
+    const loggedNow = mine?.current_page || 0;
+    const modal = openModal(`
+      <h3>My progress</h3>
+      <form data-form class="modal-body">
+        <p class="faint">You reacted at page ${reactionPage}, but you're logged at page ${loggedNow}. Update how far you've read?</p>
+        <label class="field"><span class="field-label">page read to</span>
+          <input name="page" type="number" min="${reactionPage}" max="${book.page_count || 100000}" value="${reactionPage}" /></label>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-dismiss>not now</button>
+          <button type="submit" class="btn-primary">Save progress</button>
+        </div>
+      </form>
+    `, (m) => {
+      m.querySelector("[data-form]").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const val = Math.max(reactionPage, Number(e.target.page.value) || reactionPage);
+        await done(val);
+        closeModal();
+      });
+      m.querySelector("[data-dismiss]").addEventListener("click", async () => {
+        await done(reactionPage); // auto-set to the (now highest) reaction page
+        closeModal();
+      });
+    });
+    // Backdrop click also counts as dismiss → still bump to the reaction page.
+    modal.addEventListener("click", (e) => { if (e.target === modal) done(reactionPage); });
+  }
   pForm.querySelector("[data-act='finished']").addEventListener("click", () => {
     if (book.page_count) pForm.page.value = book.page_count;
     save("finished").then(() => navigate(`/club/${clubId}/book/${book.id}`));
@@ -321,6 +374,9 @@ function wire(root, { clubId, book, mine }) {
       e.target.body.value = "";
       toast("Reaction posted", "success");
       loadFeed(root, clubId, book);
+      // Reacted past what you've logged? Offer to update My Progress so the group
+      // doesn't see you flagged behind a page you've clearly read.
+      if (page > (mine?.current_page || 0)) promptProgress(page);
     } catch (err) { toast(err.message, "error"); }
   });
 

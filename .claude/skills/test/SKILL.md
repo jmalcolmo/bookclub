@@ -56,6 +56,7 @@ profile; co-member can)** · join · read club · **my clubs has no duplicates (
 edit club settings · **club-update gate (member cannot edit settings)** · add book · edit book
 deadline · read current book + books list · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
+**reaction→progress sync (logged page can never sit below a reaction you posted)** ·
 delete own reaction · **reaction-delete gate (non-author cannot delete)** ·
 post reaction reply · author reads reply · **reply-delete gate (non-author cannot delete)** ·
 **reply spoiler gate (reply inherits the parent
