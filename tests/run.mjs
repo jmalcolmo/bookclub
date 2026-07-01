@@ -229,6 +229,27 @@ await step("A posts a reaction at page 200", async () => {
   r200 = data.id;
 });
 
+await step("REACTION→PROGRESS SYNC: A's logged page can't stay below a reaction A posted", async () => {
+  // New client behavior (book.js): posting a reaction past your logged page opens the
+  // "My progress" popup; saving OR dismissing it bumps current_page to at least the
+  // reaction's page. Mirror that sync here and assert the end-goal invariant holds.
+  const { data: reacts } = await cA.from("reactions").select("page").eq("book_id", book.id).eq("user_id", A.id);
+  const maxReaction = Math.max(...(reacts || []).map((r) => r.page));
+  const { data: before } = await cA.from("reading_progress").select("current_page")
+    .eq("book_id", book.id).eq("user_id", A.id).single();
+  // A is logged at p.50 but posted a p.200 reaction — the popup (or its dismissal) syncs.
+  if (maxReaction > before.current_page) {
+    const { error } = await cA.from("reading_progress").upsert(
+      { book_id: book.id, user_id: A.id, current_page: maxReaction, status: "reading" },
+      { onConflict: "book_id,user_id" });
+    if (error) throw error;
+  }
+  const { data: after } = await cA.from("reading_progress").select("current_page")
+    .eq("book_id", book.id).eq("user_id", A.id).single();
+  assert(after.current_page >= maxReaction,
+    `PROGRESS BEHIND REACTION: logged p.${after.current_page} but posted a reaction at p.${maxReaction}`);
+});
+
 await step("B logs progress (page 40)", async () => {
   const { error } = await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: 40, status: "reading" }, { onConflict: "book_id,user_id" });
