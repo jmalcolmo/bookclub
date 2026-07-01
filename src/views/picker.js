@@ -72,34 +72,99 @@ function resultBanner(profile) {
   </div>`;
 }
 
+// Geometry for the SVG wheel. viewBox is 200×200, centered at (100,100).
+const WHEEL = { cx: 100, cy: 100, r: 94, labelR: 58 };
+
+// Point on a circle at an angle measured CLOCKWISE from the top (12 o'clock),
+// which is where the pointer sits. Shared by slice paths and label placement so
+// they can never drift apart.
+function wheelPoint(r, deg) {
+  const a = (deg * Math.PI) / 180;
+  return [WHEEL.cx + r * Math.sin(a), WHEEL.cy - r * Math.cos(a)];
+}
+
+function wheelName(m) {
+  const first = (m.profile?.display_name || "Reader").trim().split(/\s+/)[0];
+  return first.length > 11 ? first.slice(0, 10) + "…" : first;
+}
+
+// Draw the whole wheel as one SVG so slices and labels live in the same
+// coordinate system — the old bug was slices and labels using separate layouts.
+// The <svg data-wheel> element is what we later spin.
+function wheelSVG(members) {
+  const n = members.length;
+  const seg = 360 / n;
+  const { cx, cy, r, labelR } = WHEEL;
+
+  const slices = members.map((m, i) => {
+    const fill = colorFor(m.profile?.display_name || m.user_id);
+    const mid = i * seg + seg / 2;
+    // Single member: a full circle can't be drawn as one arc — use a disc.
+    let shape;
+    if (n === 1) {
+      shape = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
+    } else {
+      const [x0, y0] = wheelPoint(r, i * seg);
+      const [x1, y1] = wheelPoint(r, (i + 1) * seg);
+      const large = seg > 180 ? 1 : 0;
+      shape = `<path d="M${cx},${cy} L${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${large} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z" fill="${fill}"/>`;
+    }
+    // Label sits on the slice's mid radius. Rotate it to read outward; flip the
+    // bottom-half labels 180° (in place) so they stay upright, not upside-down.
+    const flip = mid > 90 && mid < 270;
+    const rot = flip ? mid + 180 : mid;
+    const [lx, ly] = wheelPoint(labelR, mid);
+    const label = `<text x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" class="wheel-label"
+      text-anchor="middle" dominant-baseline="central"
+      transform="rotate(${rot.toFixed(2)} ${lx.toFixed(2)} ${ly.toFixed(2)})">${esc(wheelName(m))}</text>`;
+    return shape + label;
+  }).join("");
+
+  // We spin the whole <svg> element (a replaced element that transitions
+  // reliably); CSS transforms on inner <g> nodes don't animate in some browsers.
+  return `
+    <div class="wheel-wrap">
+      <div class="wheel-pointer">▼</div>
+      <svg class="wheel-svg" data-wheel viewBox="0 0 200 200" aria-hidden="true">
+        ${slices}
+        <circle cx="${cx}" cy="${cy}" r="${r}" class="wheel-rim"/>
+        <circle cx="${cx}" cy="${cy}" r="13" class="wheel-hub"/>
+      </svg>
+    </div>`;
+}
+
 function wheelStage(stage, { clubId, members }) {
   const n = members.length;
   const seg = 360 / n;
-  const grad = members.map((m, i) =>
-    `${colorFor(m.profile?.display_name || m.user_id)} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
-  const labels = members.map((m, i) =>
-    `<span class="wheel-label" style="transform:rotate(${i * seg + seg / 2}deg)">
-       <span style="transform:rotate(90deg)">${esc((m.profile?.display_name || "?").split(" ")[0])}</span></span>`).join("");
 
   stage.innerHTML = `
-    <div class="wheel-wrap">
-      <div class="wheel-pointer">▼</div>
-      <div class="wheel" data-wheel style="background:conic-gradient(${grad})">${labels}</div>
-    </div>
+    ${wheelSVG(members)}
     <button class="btn-primary big" data-spin>Spin</button>
     <div data-out></div>`;
 
   const wheel = stage.querySelector("[data-wheel]");
-  stage.querySelector("[data-spin]").addEventListener("click", async (e) => {
+  stage.querySelector("[data-spin]").addEventListener("click", (e) => {
     e.currentTarget.disabled = true;
-    const winIdx = Math.floor(Math.random() * n);
-    const turns = 5 + Math.random() * 2;
-    // pointer at top (0deg). Land middle of winning segment under pointer.
-    const target = turns * 360 + (360 - (winIdx * seg + seg / 2));
-    wheel.style.transition = "transform 4.5s cubic-bezier(.17,.67,.12,.99)";
-    wheel.style.transform = `rotate(${target}deg)`;
+
+    // Pick a random resting rotation with several full turns of drama, landing a
+    // slice CENTER exactly under the pointer at the top.
+    const target = Math.floor(Math.random() * n);
+    const turns = 5 + Math.floor(Math.random() * 3);
+    const rotation = turns * 360 + (360 - (target * seg + seg / 2));
+
+    // The winner is whatever slice ends up under the pointer — derived straight
+    // from the final rotation so the announced name always matches the marker.
+    const localAtTop = ((-rotation) % 360 + 360) % 360;
+    const winIdx = Math.floor(localAtTop / seg) % n;
+    const winner = members[winIdx];
+
+    const SPIN_MS = 4800;
+    wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(.17,.67,.12,.99)`;
+    wheel.style.transform = `rotate(${rotation}deg)`;
+
+    // Fire on a timer matching the animation — transitionend is unreliable for
+    // SVG transforms across browsers, so don't depend on it.
     setTimeout(async () => {
-      const winner = members[winIdx];
       try {
         const sel = await api.createSelection(clubId, "wheel");
         await api.decideSelection(sel.id, winner.user_id);
@@ -107,7 +172,7 @@ function wheelStage(stage, { clubId, members }) {
       const out = stage.querySelector("[data-out]");
       out.innerHTML = resultBanner(winner.profile);
       out.querySelector("[data-result-done]").addEventListener("click", () => navigate(`/club/${clubId}`));
-    }, 4700);
+    }, SPIN_MS + 150);
   });
 }
 
