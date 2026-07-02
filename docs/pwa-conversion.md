@@ -1,20 +1,30 @@
 # Backlog: Turn The Reading Room into a PWA
 
-**Status:** Not started — backlogged.
-**Scoped:** 2026-06-24.
-**Goal:** Make the existing web app installable to a phone home screen and fast on
-cold boot, without a rewrite and without introducing a build step. Keep it vanilla
-static files on the current GitHub Pages deploy.
+> **DECISION (2026-07-01): the mobile/App-Store strategy here is SUPERSEDED.**
+> We chose a **native Swift iOS app as the main product** (see
+> `docs/native-ios-app.md`). The **Capacitor wrapper path is dropped** - we are NOT
+> shipping a wrapped web app to the App Store. The web app remains a supported
+> **secondary** client (readers who don't want the app), so the *pure-web polish* parts
+> of this doc - the manifest/installability niceties and especially the
+> **mobile-responsive audit (item 5)** - are still worth doing to keep the web version
+> lovely. Ignore the "path to the App Store" framing below; that job now belongs to
+> native. Kept for reference and for the reusable web-polish scope.
+
+**Status:** Superseded as a mobile strategy — web-polish items still optional/backlogged.
+**Scoped:** 2026-06-24. **Superseded:** 2026-07-01.
+**Goal (original):** Make the existing web app installable to a phone home screen and
+fast on cold boot, without a rewrite and without introducing a build step. Keep it
+vanilla static files on the current GitHub Pages deploy.
 
 ## Why this path
 
 The backend (Supabase: Postgres + Auth + Realtime + Storage) is already mobile-ready
 and unchanged by any of this. Going mobile is a frontend + distribution question.
 
-Of the options considered (PWA / Capacitor wrapper / native rewrite), **PWA is the
-recommended starting point**: ~90% of the "it's an app on my phone" value for a
-fraction of the cost, and nothing done for the PWA is wasted if we later wrap it in
-Capacitor for App Store presence.
+Of the options considered (PWA / Capacitor wrapper / native rewrite), this doc
+originally recommended PWA-then-Capacitor as the cheap path. **That recommendation no
+longer holds** - see the decision banner above. Native Swift is the chosen mobile
+product; this section is retained only to explain the earlier reasoning.
 
 We are *further along than a typical web app*:
 - `index.html` already ships a **mobile bottom tab bar** (`[data-tabbar]`) with
