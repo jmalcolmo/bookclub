@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Ship the current working changes through this repo's git flow — pre-check, commit, push a feature branch, and open a PR into develop; or release develop into main (prod). Use when the user says "ship", "ship it", "commit and PR", "open a pull request", "push these changes", "make a PR", or "release to prod".
+description: Ship the current working changes through this repo's git flow — pre-check, commit, push a feature branch, and open a PR into develop; or release develop into main (prod); or PUBLISH all the way to prod in one shot. Use when the user says "ship", "ship it", "commit and PR", "open a pull request", "push these changes", "make a PR", "release to prod", or "publish".
 ---
 
 # Ship
@@ -13,6 +13,14 @@ Move the current changes through The Reading Room's branch workflow safely.
 - `main` = prod (protected, Pages deploys it). Changes land only via PR.
 - `develop` = integration branch (unprotected).
 - `feature/*` → PR into `develop`. Release = PR `develop` → `main`.
+
+## Which mode?
+
+- **"ship" / "PR" / "commit and push"** → **Mode A** (feature → develop). Stops at develop; offer to merge.
+- **"release" / "deploy to prod" / "promote develop"** → **Mode B** (develop → main).
+- **"publish"** → **Mode P** (all the way to prod, one shot). See below — this is the
+  user's standing instruction: **"publish" means push it ALL the way so every branch
+  and environment is synced. They should never have to say it twice.**
 
 ## Mode A — Ship a feature (default)
 
@@ -66,14 +74,59 @@ Use when the user says "release", "deploy to prod", or "promote develop".
    be self-merged: `gh pr merge <num> --merge` (use a merge commit for releases so
    history shows the release point; squash for feature PRs).
 4. After merge, prod rebuilds automatically (~1–2 min) at
-   https://jmalcolmo.github.io/bookclub/ . Confirm with:
-   `gh api repos/jmalcolmo/bookclub/pages/builds/latest --jq '.status'` → `built`,
-   then a quick `curl -s -o /dev/null -w "%{http_code}"` on the prod URL.
+   https://jmalcolmo.github.io/bookclub/ . Confirm the deploy **actually shipped the
+   change**, not just that a build ran:
+   - `gh api repos/jmalcolmo/bookclub/pages/builds/latest --jq '.status'` → wait for
+     `built` (poll; it starts as `building`), and check its `.commit` is the release commit.
+   - **Grep the served file, not just the HTTP code.** `curl` a changed file with a
+     cache-buster and confirm the new code is present and the old code is gone, e.g.
+     `curl -s "https://jmalcolmo.github.io/bookclub/src/views/picker.js?cb=$(date +%s)" | grep -c wheelSVG`.
+     A 200 only means the site is up; it does not prove the new bundle deployed.
+5. Tell the user to **hard-refresh (Ctrl+Shift+R)** or use Incognito — a cached ES
+   module can otherwise keep showing the old behavior even after a correct deploy.
+
+## Mode P — Publish (all the way to prod, one shot)
+
+Use when the user says **"publish"**. This is a standing instruction: carry the change
+end to end so **every branch (feature, develop, main) and every environment (prod)
+is synced** — without stopping to ask again between stages. The word "publish" IS the
+confirmation for both merges. Do not merge feature→develop and then stop; keep going.
+
+Run the whole pipeline:
+
+1. **Mode A steps 1–6** — branch, pre-flight, commit, push, open the feature PR into
+   `develop`. (Do all the pre-flight safety checks; those still apply.)
+2. **Merge into develop:** `gh pr merge <num> --squash --delete-branch`.
+3. **Mode B** — open the release PR `develop` → `main` and merge it
+   (`gh pr merge <num> --merge`).
+4. **Verify prod** per Mode B step 4 (poll build to `built`, grep the served file).
+5. **Sync everything locally too**, so no branch is left behind:
+   ```
+   git switch develop && git pull --ff-only
+   git fetch --prune                 # drop deleted remote feature branches
+   git branch -d <feature-branch>    # if a local copy lingers
+   ```
+   Then confirm: local `develop` == `origin/develop`, and `git log origin/main..origin/develop`
+   is **empty** (nothing left unreleased).
+6. **Report once**, at the end: feature merged, released, prod verified serving the
+   change, all branches synced. One "publish" → done.
+
+If any stage hits a **hard safety stop** (below), pause and surface it — but that's the
+only reason to interrupt a publish.
 
 ## Guardrails
 
-- Stop and ask before merging if the user hasn't confirmed.
-- If a schema change is part of this work, it must already be applied to BOTH
-  Supabase projects and reflected in `supabase/schema.sql` (see CLAUDE.md). Flag it
-  if not — a merged frontend that expects new columns will break prod.
+- **Confirmation:** for **Mode A** ("ship"), offer the merge and let the user confirm.
+  For **Mode B** ("release") and **Mode P** ("publish"), the user's word IS the
+  confirmation — proceed through to prod without asking again. "Publish" specifically
+  means *don't make them say it twice.*
+- **Hard safety stops** (pause and surface even during a publish):
+  - A staged secret: `git status --short` shows anything under `.passwords/`, a `.env`,
+    or a `*secret*`/`service_role` key.
+  - A pre-flight failure: `node --check` errors, or the browser-verify step shows a
+    broken screen/console error.
+  - A schema change not yet applied to BOTH Supabase projects and reflected in
+    `supabase/schema.sql` (see CLAUDE.md) — a merged frontend expecting new columns
+    will break prod.
+  - A merge conflict / non-CLEAN PR mergeStateStatus.
 - Don't bypass branch protection or use `--no-verify`.
