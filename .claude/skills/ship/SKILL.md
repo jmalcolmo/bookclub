@@ -18,9 +18,10 @@ Move the current changes through The Reading Room's branch workflow safely.
 
 - **"ship" / "PR" / "commit and push"** → **Mode A** (feature → develop). Stops at develop; offer to merge.
 - **"release" / "deploy to prod" / "promote develop"** → **Mode B** (develop → main).
-- **"publish"** → **Mode P** (all the way to prod, one shot). See below — this is the
-  user's standing instruction: **"publish" means push it ALL the way so every branch
-  and environment is synced. They should never have to say it twice.**
+- **"publish"** → **Mode P** (EVERYTHING to prod, one shot). "Publish" means every change
+  reaches prod and **nothing is left on `develop` ahead of `main`**. The ONLY thing that
+  may hold a change back is a **security concern** — never docs, skills, config, or "it
+  doesn't need deploying". They should never have to say it twice.
 
 ## Mode A — Ship a feature (default)
 
@@ -85,48 +86,69 @@ Use when the user says "release", "deploy to prod", or "promote develop".
 5. Tell the user to **hard-refresh (Ctrl+Shift+R)** or use Incognito — a cached ES
    module can otherwise keep showing the old behavior even after a correct deploy.
 
-## Mode P — Publish (all the way to prod, one shot)
+## Mode P — Publish (EVERYTHING to prod, one shot)
 
-Use when the user says **"publish"**. This is a standing instruction: carry the change
-end to end so **every branch (feature, develop, main) and every environment (prod)
-is synced** — without stopping to ask again between stages. The word "publish" IS the
-confirmation for both merges. Do not merge feature→develop and then stop; keep going.
+Use when the user says **"publish"**. Publish is absolute: **get everything to prod and
+leave NOTHING behind.** When you finish, `develop` and `main` are identical, prod serves
+it, and there are no open PRs waiting (except ones git physically can't merge). "Publish"
+is the standing confirmation for **every** merge in the pipeline — never stop to ask
+again, never narrow the scope to "just this change", and never decide something "doesn't
+need" to ship. Docs, skills, and config all ship. The user removes anything they didn't
+want; your only job is to get it all out.
 
-Run the whole pipeline:
+Sweep all of it in one pass:
 
-1. **Mode A steps 1–6** — branch, pre-flight, commit, push, open the feature PR into
-   `develop`. (Do all the pre-flight safety checks; those still apply.)
-2. **Merge into develop:** `gh pr merge <num> --squash --delete-branch`.
-3. **Mode B** — open the release PR `develop` → `main` and merge it
-   (`gh pr merge <num> --merge`).
-4. **Verify prod** per Mode B step 4 (poll build to `built`, grep the served file).
-5. **Sync everything locally too**, so no branch is left behind:
+1. **The working change**, if any — Mode A steps 1–6 (branch, commit, push, PR into
+   `develop`), then merge it: `gh pr merge <num> --squash --delete-branch`.
+2. **Every OTHER open PR into `develop`** — merge each one too, not just yours. List them
+   first (`gh pr list --state open --base develop --json number,title,mergeStateStatus`)
+   and merge each CLEAN one: `gh pr merge <num> --squash --delete-branch`. Leave a PR
+   only if git blocks it (see Guardrails) — never by choice.
+3. **Drain `develop` → `main`** — open ONE release PR `develop` → `main` and merge it with
+   a merge commit (`gh pr merge <num> --merge`). This releases EVERYTHING on develop,
+   including work merged there before this publish. Do not cherry-pick; release all of it.
+4. **Verify prod** per Mode B step 4 — poll the Pages build to `built` and confirm its
+   `.commit` is the release commit, then `curl` a changed file with a cache-buster and
+   confirm the new code is served.
+5. **Sync + PROVE nothing is left.** Run:
    ```
    git switch develop && git pull --ff-only
-   git fetch --prune                 # drop deleted remote feature branches
-   git branch -d <feature-branch>    # if a local copy lingers
+   git switch main && git pull --ff-only
+   git fetch --prune
    ```
-   Then confirm: local `develop` == `origin/develop`, and `git log origin/main..origin/develop`
-   is **empty** (nothing left unreleased).
-6. **Report once**, at the end: feature merged, released, prod verified serving the
-   change, all branches synced. One "publish" → done.
+   Then assert ALL of these — if any fails, you are NOT done, go finish:
+   - `git log origin/main..origin/develop` is **empty** (develop is not ahead of main).
+   - `origin/develop` and `origin/main` point at the same tree.
+   - `gh pr list --state open` shows **0** (or only PRs git physically can't merge).
+6. **Report once**, at the end: what shipped, prod verified serving it, `develop == main`,
+   zero open PRs. Then remind the user to hard-refresh (Ctrl+Shift+R) for anything
+   browser-observable.
 
-If any stage hits a **hard safety stop** (below), pause and surface it — but that's the
-only reason to interrupt a publish.
+**Never** end a publish with a note that something was left behind. If you are about to
+write *"one thing to note: X wasn't released"*, the publish is NOT finished — go release
+X. A finished publish has nothing to note, because nothing is behind.
 
 ## Guardrails
 
-- **Confirmation:** for **Mode A** ("ship"), offer the merge and let the user confirm.
-  For **Mode B** ("release") and **Mode P** ("publish"), the user's word IS the
-  confirmation — proceed through to prod without asking again. "Publish" specifically
-  means *don't make them say it twice.*
-- **Hard safety stops** (pause and surface even during a publish):
-  - A staged secret: `git status --short` shows anything under `.passwords/`, a `.env`,
-    or a `*secret*`/`service_role` key.
-  - A pre-flight failure: `node --check` errors, or the browser-verify step shows a
-    broken screen/console error.
-  - A schema change not yet applied to BOTH Supabase projects and reflected in
-    `supabase/schema.sql` (see CLAUDE.md) — a merged frontend expecting new columns
-    will break prod.
-  - A merge conflict / non-CLEAN PR mergeStateStatus.
+- **The ONLY reason to hold anything back from a publish is a SECURITY concern.** Nothing
+  else — not docs, not a skill/config change, not "low value", not "doesn't need
+  deploying", not a failing check — is grounds to leave work on `develop`. Publish means
+  publish.
+  - **Security stop (the one hard stop):** a staged or committed secret — anything under
+    `.passwords/`, a `.env`, or a `*secret*`/`service_role` key showing in the diff or
+    `git status --short`. Pause, surface it, and do NOT push it to prod.
+- **Confirmation:** the word "publish" IS the confirmation for every merge in the
+  pipeline — do not ask again between stages. (Mode A "ship" still offers the single merge
+  and waits; Mode B "release" proceeds on the user's word.)
+- **Pre-flight is report-only during a publish.** Run `node --check` on changed JS (and
+  the browser verify if relevant) and REPORT any failure — but a failing check does NOT
+  halt a publish. The user owns that tradeoff and will revert if needed. Only a security
+  stop halts.
+- **Schema changes: report, don't block.** If a release includes a schema change not yet
+  applied to BOTH Supabase projects (CLAUDE.md rule 5), flag it in the final report — but
+  still publish.
+- **Physically blocked ≠ left behind by choice.** The only work that may remain after a
+  publish is a PR git literally cannot merge (a merge conflict / non-CLEAN
+  mergeStateStatus). Surface it clearly and publish everything else. Never *choose* to
+  leave anything.
 - Don't bypass branch protection or use `--no-verify`.
