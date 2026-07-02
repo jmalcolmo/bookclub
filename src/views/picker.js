@@ -2,6 +2,7 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, toast, avatarHTML, colorFor } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
+import { spinRotation, winnerIndex } from "../wheel.js";
 
 export async function renderPicker({ params }) {
   const clubId = params.id;
@@ -135,7 +136,6 @@ function wheelSVG(members) {
 
 function wheelStage(stage, { clubId, members }) {
   const n = members.length;
-  const seg = 360 / n;
 
   stage.innerHTML = `
     ${wheelSVG(members)}
@@ -150,13 +150,12 @@ function wheelStage(stage, { clubId, members }) {
     // slice CENTER exactly under the pointer at the top.
     const target = Math.floor(Math.random() * n);
     const turns = 5 + Math.floor(Math.random() * 3);
-    const rotation = turns * 360 + (360 - (target * seg + seg / 2));
+    const rotation = spinRotation(target, n, turns);
 
-    // The winner is whatever slice ends up under the pointer — derived straight
-    // from the final rotation so the announced name always matches the marker.
-    const localAtTop = ((-rotation) % 360 + 360) % 360;
-    const winIdx = Math.floor(localAtTop / seg) % n;
-    const winner = members[winIdx];
+    // The winner is whatever slice ends up under the pointer — read back from the
+    // final rotation via the SAME shared wheel.js math (see src/wheel.js), so the
+    // announced name can never disagree with where the marker points.
+    const winner = members[winnerIndex(rotation, n)];
 
     const SPIN_MS = 4800;
     wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(.17,.67,.12,.99)`;

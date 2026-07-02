@@ -10,6 +10,7 @@
 // ============================================================================
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, existsSync } from "node:fs";
+import { spinRotation, winnerIndex } from "../src/wheel.js";
 
 // ---- config (dev project; publishable key + URL are public-safe) ------------
 const URL = process.env.SUPABASE_URL || "https://wwzvwjhohkyudytoqvfl.supabase.co";
@@ -418,6 +419,22 @@ await step("DELETE REPLY: B deletes their own reply", async () => {
   if (error) throw error;
   const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
   assert((data || []).length === 0, "author's own reply was not deleted");
+});
+
+await step("picker — wheel geometry: marker always matches the winner", async () => {
+  // Pure-math invariant, exercised through the SAME src/wheel.js the view imports:
+  // whatever slice CENTER we spin under the top pointer is exactly the slice
+  // winnerIndex() reads back. This is the guarantee the picker redesign makes, so
+  // it must be covered against the shared code, not a hardcoded row.
+  for (let n = 2; n <= 12; n++) {
+    for (let target = 0; target < n; target++) {
+      for (const turns of [5, 6, 7]) {
+        const rot = spinRotation(target, n, turns);
+        assert(winnerIndex(rot, n) === target,
+          `n=${n} target=${target} turns=${turns} → winnerIndex=${winnerIndex(rot, n)}`);
+      }
+    }
+  }
 });
 
 await step("picker — wheel selection records a result", async () => {
