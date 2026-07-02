@@ -65,6 +65,9 @@ Use this for ordinary changes.
 Use when the user says "release", "deploy to prod", or "promote develop".
 
 1. Make sure `develop` is pushed and green.
+   - **Schema check (report-only):** if `git diff --name-only origin/main...origin/develop`
+     includes `supabase/schema.sql`, flag in your summary that it must be applied to BOTH
+     Supabase projects (see Mode P step 3). Never blocks.
 2. Open the release PR:
    ```
    gh pr create --base main --head develop \
@@ -104,13 +107,28 @@ Sweep all of it in one pass:
    first (`gh pr list --state open --base develop --json number,title,mergeStateStatus`)
    and merge each CLEAN one: `gh pr merge <num> --squash --delete-branch`. Leave a PR
    only if git blocks it (see Guardrails) — never by choice.
-3. **Drain `develop` → `main`** — open ONE release PR `develop` → `main` and merge it with
+3. **Schema-awareness scan (REPORT-ONLY — never blocks a publish).** Prod has its own
+   Supabase project; a schema change applied to dev but not prod will break the released
+   frontend (CLAUDE.md rule 5), and no test catches it because tests run on dev. Detect it:
+   ```
+   git fetch -q
+   git diff --name-only origin/main...origin/develop | grep -qx supabase/schema.sql && echo "SCHEMA CHANGED" || echo "no schema changes"
+   ```
+   - If it says **no schema changes**, note that and move on.
+   - If **SCHEMA CHANGED**, capture what changed
+     (`git diff origin/main...origin/develop -- supabase/schema.sql`). If a prod
+     service_role key exists (`.passwords/prod-service-role.txt`), optionally spot-check
+     that the changed tables/columns/policies already exist in prod (see the
+     `supabase-change` skill) — read-only, never a migration from here. Either way, do NOT
+     halt: carry a **loud reminder** into the final report — *"This release changes
+     schema.sql; apply it to BOTH dev and prod, or prod will break."*
+4. **Drain `develop` → `main`** — open ONE release PR `develop` → `main` and merge it with
    a merge commit (`gh pr merge <num> --merge`). This releases EVERYTHING on develop,
    including work merged there before this publish. Do not cherry-pick; release all of it.
-4. **Verify prod** per Mode B step 4 — poll the Pages build to `built` and confirm its
+5. **Verify prod** per Mode B step 4 — poll the Pages build to `built` and confirm its
    `.commit` is the release commit, then `curl` a changed file with a cache-buster and
    confirm the new code is served.
-5. **Sync + PROVE nothing is left.** Run:
+6. **Sync + PROVE nothing is left.** Run:
    ```
    git switch develop && git pull --ff-only
    git switch main && git pull --ff-only
@@ -120,13 +138,54 @@ Sweep all of it in one pass:
    - `git log origin/main..origin/develop` is **empty** (develop is not ahead of main).
    - `origin/develop` and `origin/main` point at the same tree.
    - `gh pr list --state open` shows **0** (or only PRs git physically can't merge).
-6. **Report once**, at the end: what shipped, prod verified serving it, `develop == main`,
-   zero open PRs. Then remind the user to hard-refresh (Ctrl+Shift+R) for anything
-   browser-observable.
+7. **Report once**, at the end: what shipped, prod verified serving it, `develop == main`,
+   zero open PRs, and the **schema-scan result** (the loud reminder if schema.sql changed).
+   Then remind the user to hard-refresh (Ctrl+Shift+R) for anything browser-observable.
 
 **Never** end a publish with a note that something was left behind. If you are about to
 write *"one thing to note: X wasn't released"*, the publish is NOT finished — go release
 X. A finished publish has nothing to note, because nothing is behind.
+
+## Mode R — Roll back prod (undo a bad release)
+
+Use when a release broke prod and the user says "roll back", "revert prod", "undo the
+release". Goal: make prod good again FAST, then keep `develop == main` so the bad change
+doesn't sail right back out on the next publish.
+
+1. **Find what to undo.** The latest release on `main`:
+   ```
+   git fetch -q
+   git log --merges --oneline origin/main -5    # top "Merge pull request #NN" is usually the release
+   ```
+   Note the SHA. Revert the **merge** to back out the whole release, or revert a specific
+   commit to back out just that.
+2. **Revert on a hotfix branch** (`main` is PR-only, so no direct push):
+   ```
+   git switch main && git pull --ff-only
+   git switch -c hotfix/rollback-<slug>
+   git revert -m 1 <release-merge-sha>          # -m 1 keeps main's prior state, drops what the merge added
+   #   or: git revert <bad-commit-sha>          # targeted single-commit undo
+   git push -u origin hotfix/rollback-<slug>
+   ```
+3. **PR into main and merge** (a revert is a normal change; 0 approvals needed):
+   ```
+   gh pr create --base main --head hotfix/rollback-<slug> --title "Rollback: <what>" --body "Reverts <sha> — <why>"
+   gh pr merge <num> --merge
+   ```
+4. **Verify prod recovered** per Mode B step 4 — poll the build to `built` on the revert
+   commit, then `curl` a changed file and confirm the BAD code is gone.
+5. **Re-sync develop, or the bad change comes right back.** The revert landed on `main`,
+   but `develop` still has the bad commits — the next publish would re-ship them. Pull the
+   revert into develop:
+   ```
+   git switch develop && git pull --ff-only
+   git merge origin/main
+   git push
+   ```
+   Confirm `git log origin/main..origin/develop` is empty (develop == main again).
+6. **Report:** what was rolled back, prod verified recovered, develop re-synced. If the
+   change should return once fixed, note that a revert can itself be reverted to bring it
+   back.
 
 ## Guardrails
 
