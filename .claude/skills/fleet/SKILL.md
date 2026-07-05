@@ -30,6 +30,11 @@ contract so the two skills can never drift.
    in the same wave.
 5. **Feature work goes worker → PR → `develop`.** You merge into `develop` (unprotected) via
    `gh pr merge --squash --delete-branch` — which also deletes the branch, so no manual cleanup.
+6. **Workers never build, launch a simulator, run the app, or run test suites.** Verification is
+   the human's job. Workers self-review their diff and write **clean, manual test steps** into
+   the audit trail; they must not run `xcodebuild`, boot an iOS simulator, run `ReadingRoomTests`,
+   the `test` skill, or otherwise execute the app. Running builds/sims wastes tokens and is
+   explicitly unwanted.
 
 ## Input
 
@@ -72,9 +77,10 @@ For each wave, in order:
 3. **On each worker success:** open its PR into `develop` and merge:
    `gh pr merge <n> --squash --delete-branch` (or invoke the `ship` skill's Mode A). Then
    `git worktree remove` its worktree if the Agent didn't auto-clean it. Log it.
-4. **On each worker failure / failed verification:** do **not** merge. Quarantine it — leave the
+4. **On each worker error / unclean self-review:** do **not** merge. Quarantine it — leave the
    branch, log the reason, and **skip any workstream that depends on it**. Continue with
-   independent streams.
+   independent streams. (Workers do not run builds/tests; a "pass" means a clean diff + self-review
+   + written manual test steps, not an executed test.)
 5. Before starting the next wave: `git switch develop && git pull` so the next wave branches off
    everything merged so far.
 
@@ -91,20 +97,26 @@ Hand each worker exactly this shape (fill the braces from the plan):
 > **Stay strictly within these files — touch nothing else:** {file_boundaries}
 >
 > **Branch:** create/commit on `{branch}` (off `develop`).
-> **When done:** (1) verify — web: `python devserver.py <free-port>` boots clean + run the
-> `test` skill; iOS: build the xcodeproj + run `ReadingRoomTests`. (2) If your change touches the
-> database, apply it to the **dev** Supabase project only and update `supabase/schema.sql`; never
-> touch prod. (3) Commit and push `{branch}`. (4) Report back: what you changed, the verification
-> result, and anything a human must check by hand (e.g. Google OAuth, a real-device push).
-> Do NOT open a PR or merge — the orchestrator does that.
+> **Do NOT build, launch a simulator, run the app, or run any test suite** (`xcodebuild`, iOS
+> simulators, `ReadingRoomTests`, the `test` skill, `devserver`). Verification is done manually
+> by the human — your job is to make that easy, not to run it.
+> **When done:** (1) Self-review your diff for correctness against the task and `CLAUDE.md`
+> invariants. (2) Write **precise manual test steps** into your report and `scratchpad/fleet-log.md`
+> — for iOS: the scheme/target to build and the exact in-app actions + expected results; for web:
+> the route/page, the exact clicks, and expected results, plus any dev-Supabase data setup needed.
+> (3) If your change touches the database, apply it to the **dev** Supabase project only and update
+> `supabase/schema.sql`; never touch prod. (4) Commit and push `{branch}`. (5) Report what you
+> changed, the manual test steps, and anything else a human must check (e.g. Google OAuth, a
+> real-device push). Do NOT open a PR or merge — the orchestrator does that.
 
 ## Human seams (flag, don't fake)
 
-Some things can't be verified headless. When a worker reports one, **log it as
-`NEEDS-HUMAN`** and still merge the code if it otherwise passed:
+All verification here is manual — workers write the steps, the human runs them. Everything the
+human must check goes into the log as a **`NEEDS-HUMAN`** item with its exact test steps; still
+merge the code on a clean diff + self-review. Especially call out:
+- iOS build/run of any kind (the whole target — workers never build it).
 - Google OAuth sign-in (needs a real browser session).
-- Real-device push delivery (WS-style push/APNs tasks) — you can confirm it builds and registers,
-  not that a notification landed on a phone.
+- Real-device push delivery (APNs).
 - Anything requiring the prod database or an Apple Developer signing asset.
 
 ## Finish

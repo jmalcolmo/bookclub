@@ -82,9 +82,13 @@ silently guess.
   `seed` + `file_boundaries` (cold, scoped context).
 - Success path: worker → PR → **squash-merge into `integration_branch`** with branch delete.
 - **Never merges or pushes to `release_target` (`main`). Never applies schema to prod.**
+- **Workers never build, launch simulators, run the app, or run test suites** (`xcodebuild`,
+  iOS simulators, `ReadingRoomTests`, the `test` skill, `devserver`). Verification is manual:
+  workers self-review the diff and write **precise manual test steps** into the audit trail for
+  the human to run. A "pass" is a clean diff + self-review, not an executed test.
 - Failure path: quarantine the branch, **skip its dependents**, keep going.
-- Human seams (Google OAuth, real-device push, prod schema, signing assets) are **flagged as
-  `NEEDS-HUMAN`**, never faked.
+- Human seams (iOS build/run, Google OAuth, real-device push, prod schema, signing assets) are
+  **flagged as `NEEDS-HUMAN`** with their test steps, never faked.
 - Everything is logged to `scratchpad/fleet-log.md` (the audit trail).
 - The run ends at an **open `develop → main` PR** for your one batch review.
 
