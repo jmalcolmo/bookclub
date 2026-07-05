@@ -10,7 +10,11 @@ little human involvement as possible. You (this session) are the **orchestrator*
 the plan and a running log; the actual coding happens in **background sub-agents, each in its
 own git worktree**, that you hand a single scoped task. You never write feature code yourself.
 
-**Read `CLAUDE.md` first** for the branch model and invariants.
+**Read `CLAUDE.md` first** for the branch model and invariants, then **read
+`docs/fleet-contract.md`** — it is the single source of truth for the plan format and the
+safety invariants. You are the *consumer* side of that contract; `/plan-compile` is the
+producer. Do not keep a private copy of the invariant rules here; enforce the ones in the
+contract so the two skills can never drift.
 
 ## Golden rules (never break these)
 
@@ -29,17 +33,20 @@ own git worktree**, that you hand a single scoped task. You never write feature 
 
 ## Input
 
-One argument: a path to a plan file (default: ask). The plan must contain, for each workstream:
-`branch`, `worktree`, `file_boundaries`, `depends_on`, and a `task_prompt_seed`. It should also
-contain a **wave/schedule** (which streams run together vs solo). If no explicit schedule is
-present, derive one:
-- Group by `depends_on` (topological order).
-- Flag any stream whose boundaries include `supabase/schema.sql` as **DB-migrating**; never put
-  two of those in the same wave.
-- Never co-schedule streams that share any file in their `file_boundaries`.
-- Prefer isolation over parallelism when in doubt.
+One argument: a path to a plan file (default: ask). Expect it to contain a **compiled
+`fleet-plan` block** conforming to `docs/fleet-contract.md`.
 
-Echo the derived wave plan back and **pause for one confirmation** before the first dispatch.
+1. **Check `contract_version`** against the contract file. On mismatch, stop and tell the user
+   to re-run `/plan-compile`.
+2. **Re-validate every invariant** in the contract against the block (belt-and-suspenders — you
+   never assume a plan was compiled): no shared files within a wave, one DB migration per wave,
+   acyclic dependencies with correct wave ordering, complete boundaries + seeds, no forbidden
+   targets. If any fails, **refuse to dispatch** and report the violation.
+3. If the file has **no `fleet-plan` block** (raw/uncompiled plan), stop and tell the user to run
+   `/plan-compile <plan>` first. Do not improvise a schedule from prose — that's the compiler's
+   job and its validation is the safety net.
+
+Echo the validated wave plan back and **pause for one confirmation** before the first dispatch.
 After that, run unattended.
 
 ## Setup (once, before wave 1)
