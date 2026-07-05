@@ -1,0 +1,416 @@
+// End-to-end service-layer test against the DEV Supabase project - the Swift
+// mirror of tests/run.mjs. It signs two real DEV users in by password and
+// drives the actual database through the same RLS the app relies on,
+// including the spoiler gate.
+//
+// User A drives the app's own API layer (the code under test); user B is a
+// second raw client used to probe visibility and authz from the other side,
+// exactly like run.mjs's two clients.
+//
+// Creds come from scheme environment variables TEST_A_EMAIL / TEST_A_PASSWORD /
+// TEST_B_EMAIL / TEST_B_PASSWORD (same users as .passwords/test-users.json on
+// the web side). Without creds the whole suite skips. It refuses to run
+// against prod.
+
+import XCTest
+import Supabase
+@testable import ReadingRoom
+
+final class ServiceLayerTests: XCTestCase {
+    struct Creds {
+        let aEmail: String, aPassword: String
+        let bEmail: String, bPassword: String
+    }
+
+    // A real (tiny 1x1) JPEG: the buckets restrict allowed_mime_types, so the
+    // test uploads genuine JPEG bytes just like the cropper output.
+    static let tinyJPEG = Data(base64Encoded:
+        "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////" +
+        "////////////////////////////////////////////////8AAEQgAAQABAwEiAAIR" +
+        "AQMRAf/EABQAAQAAAAAAAAAAAAAAAAAAAAD/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QA" +
+        "FAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhED" +
+        "EQA/AL+AAf/Z")!
+
+    private static func loadCreds() -> Creds? {
+        let env = ProcessInfo.processInfo.environment
+        guard let ae = env["TEST_A_EMAIL"], !ae.isEmpty,
+              let ap = env["TEST_A_PASSWORD"], !ap.isEmpty,
+              let be = env["TEST_B_EMAIL"], !be.isEmpty,
+              let bp = env["TEST_B_PASSWORD"], !bp.isEmpty else { return nil }
+        return Creds(aEmail: ae, aPassword: ap, bEmail: be, bPassword: bp)
+    }
+
+    // Secondary raw client for user B (separate auth storage key so it never
+    // collides with the app client's Keychain entry).
+    private static func makeClientB() -> SupabaseClient {
+        SupabaseClient(
+            supabaseURL: AppConfig.supabaseURL,
+            supabaseKey: AppConfig.supabaseAnonKey,
+            options: SupabaseClientOptions(
+                db: .init(encoder: PostgresCoding.encoder, decoder: PostgresCoding.decoder),
+                auth: .init(storageKey: "reading-room-test-user-b")
+            )
+        )
+    }
+
+    func testFullActionFlow() async throws {
+        guard AppConfig.isDev else {
+            throw XCTSkip("Refusing to run service tests against a non-dev Supabase project.")
+        }
+        guard let creds = Self.loadCreds() else {
+            throw XCTSkip("""
+            No test users configured. Create two confirmed email/password users in the \
+            DEV Supabase project and pass TEST_A_EMAIL/TEST_A_PASSWORD/TEST_B_EMAIL/\
+            TEST_B_PASSWORD via the scheme (same creds as .passwords/test-users.json).
+            """)
+        }
+
+        let cB = Self.makeClientB()
+
+        // ---- sign both users in --------------------------------------------
+        let sessionA = try await supabase.auth.signIn(email: creds.aEmail, password: creds.aPassword)
+        let a = sessionA.user.id
+        let sessionB = try await cB.auth.signIn(email: creds.bEmail, password: creds.bPassword)
+        let b = sessionB.user.id
+
+        let tag = Int(Date().timeIntervalSince1970 * 1000)
+
+        // ---- Open Library lookup -------------------------------------------
+        let hits = try await OpenLibraryAPI.searchBooks(query: "project hail mary")
+        XCTAssertFalse(hits.isEmpty, "no results from Open Library")
+
+        // ---- club lifecycle -------------------------------------------------
+        let club = try await API.createClub(API.NewClub(
+            name: "iOS Test Club \(tag)", description: "automated test",
+            accent: "yarn-sage", deadlinesEnabled: false, defaultDeadlineDays: nil))
+        XCTAssertEqual(club.joinCode.count, 6, "join code not generated")
+
+        // Cleanup no matter how the test ends: storage objects then the club
+        // (covers cascade like run.mjs).
+        var avatarPath: String?
+        var coverPath: String?
+        defer {
+            let clubId = club.id
+            let paths = (avatarPath, coverPath)
+            Task {
+                if let p = paths.0 { try? await supabase.storage.from("avatars").remove(paths: [p]) }
+                if let p = paths.1 { try? await supabase.storage.from("club-images").remove(paths: [p]) }
+                try? await API.deleteClub(clubId)
+            }
+        }
+
+        // creator auto-membership trigger
+        let myMembership = try await API.myMembership(clubId: club.id)
+        XCTAssertEqual(myMembership?.role, .creator, "creator should have role 'creator'")
+
+        // B finds by code (RPC), cannot read the row directly pre-join
+        let found: [FoundClub] = try await cB
+            .rpc("find_club_by_code", params: ["_code": club.joinCode])
+            .execute().value
+        XCTAssertEqual(found.first?.id, club.id, "RPC did not return the club")
+
+        let preJoin: [Club] = try await cB.from("clubs").select()
+            .eq("id", value: club.id.uuidString).execute().value
+        XCTAssertTrue(preJoin.isEmpty, "non-member could read club row directly")
+
+        // PROFILE GATE: B cannot read A's profile before sharing a club
+        let preProfiles: [Profile] = try await cB.from("profiles").select()
+            .eq("id", value: a.uuidString).execute().value
+        XCTAssertTrue(preProfiles.isEmpty, "PROFILE LEAK: non-co-member read another profile")
+
+        // B joins WITH RETURNING (load-bearing: exercises the SELECT policy on
+        // the fresh row, like the web's .select().single())
+        struct NewMembership: Encodable { let clubId: UUID; let userId: UUID; let role: String }
+        let joined: ClubMember = try await cB.from("club_members")
+            .insert(NewMembership(clubId: club.id, userId: b, role: "member"))
+            .select().single().execute().value
+        XCTAssertEqual(joined.userId, b)
+
+        let postJoin: Club = try await cB.from("clubs").select()
+            .eq("id", value: club.id.uuidString).single().execute().value
+        XCTAssertEqual(postJoin.id, club.id, "member cannot read club")
+
+        let postProfiles: [Profile] = try await cB.from("profiles").select()
+            .eq("id", value: a.uuidString).execute().value
+        XCTAssertEqual(postProfiles.count, 1, "co-member should read a fellow member's profile")
+
+        // MY CLUBS: a 2-member club appears exactly once (the de-dupe fix)
+        let mine = try await API.myClubs()
+        XCTAssertEqual(mine.filter { $0.id == club.id }.count, 1,
+                       "DUPLICATE CLUB: club appeared more than once in my clubs")
+        XCTAssertEqual(mine.first { $0.id == club.id }?.memberCount, 2)
+
+        // CLUB UPDATE: creator can, member cannot
+        let updated = try await API.updateClub(club.id, changes: API.ClubChanges(
+            description: "renamed by creator", accent: "yarn-rust"))
+        XCTAssertEqual(updated.description, "renamed by creator")
+
+        struct Hijack: Encodable { let description: String }
+        _ = try? await cB.from("clubs").update(Hijack(description: "hijacked"))
+            .eq("id", value: club.id.uuidString).execute()
+        let afterHijack = try await API.getClub(club.id)
+        XCTAssertNotEqual(afterHijack.description, "hijacked",
+                          "CLUB UPDATE LEAK: a non-creator member edited club settings")
+
+        // ---- book -----------------------------------------------------------
+        let book = try await API.addBook(clubId: club.id, book: API.NewBook(
+            title: "iOS Test Book \(tag)", author: "Tester", pageCount: 300))
+        XCTAssertEqual(book.status, .current)
+
+        // deadline set + explicit clear (the double-optional encoding)
+        let withDeadline = try await API.updateBook(book.id, changes: API.BookChanges(
+            deadline: .some(Date().addingTimeInterval(7 * 86400))))
+        XCTAssertNotNil(withDeadline.deadline, "deadline was not saved")
+        let cleared = try await API.updateBook(book.id, changes: API.BookChanges(deadline: .some(nil)))
+        XCTAssertNil(cleared.deadline, "explicit-null deadline removal failed")
+
+        let current = try await API.currentBook(club.id)
+        XCTAssertEqual(current?.id, book.id, "currentBook did not return the book")
+        let books = try await API.clubBooks(club.id)
+        XCTAssertTrue(books.contains { $0.id == book.id }, "clubBooks missing the book")
+
+        // ---- progress + reactions + THE SPOILER GATE ------------------------
+        _ = try await API.setProgress(bookId: book.id, currentPage: 50, status: .reading)
+        let r30 = try await API.addReaction(bookId: book.id, page: 30, body: "early thought")
+        let r200 = try await API.addReaction(bookId: book.id, page: 200, body: "late twist!")
+
+        // reaction -> progress sync invariant (the app's prompt enforces this)
+        let myReactions = try await API.bookReactions(book.id)
+            .filter { $0.reaction.userId == a }
+        let maxPage = myReactions.map(\.reaction.page).max() ?? 0
+        if let mineNow = try await API.myProgress(bookId: book.id), mineNow.currentPage < maxPage {
+            _ = try await API.setProgress(bookId: book.id, currentPage: maxPage, status: .reading)
+        }
+        let synced = try await API.myProgress(bookId: book.id)
+        XCTAssertGreaterThanOrEqual(synced?.currentPage ?? 0, maxPage,
+                                    "PROGRESS BEHIND REACTION")
+
+        // B logs page 40 and must see p.30 but NOT p.200
+        struct ProgressUpsert: Encodable {
+            let bookId: UUID; let userId: UUID; let currentPage: Int; let status: String
+        }
+        _ = try await cB.from("reading_progress")
+            .upsert(ProgressUpsert(bookId: book.id, userId: b, currentPage: 40, status: "reading"),
+                    onConflict: "book_id,user_id").execute()
+        let bSees: [Reaction] = try await cB.from("reactions").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        let bPages = bSees.map(\.page)
+        XCTAssertTrue(bPages.contains(30), "B should see the page-30 reaction")
+        XCTAssertFalse(bPages.contains(200), "SPOILER LEAK: B saw the page-200 reaction")
+
+        // author sees all own reactions
+        let aPages = try await API.bookReactions(book.id).map(\.reaction.page)
+        XCTAssertTrue(aPages.contains(30) && aPages.contains(200), "author cannot see own reactions")
+
+        // delete own; non-author cannot delete
+        let tmp = try await API.addReaction(bookId: book.id, page: 5, body: "oops, delete me")
+        try await API.deleteReaction(tmp.id)
+        let afterDelete = try await API.bookReactions(book.id)
+        XCTAssertFalse(afterDelete.contains { $0.id == tmp.id }, "own delete failed")
+
+        _ = try? await cB.from("reactions").delete().eq("id", value: r30.id.uuidString).execute()
+        let r30Still = try await API.bookReactions(book.id)
+        XCTAssertTrue(r30Still.contains { $0.id == r30.id },
+                      "REACTION DELETE LEAK: non-author deleted someone else's reaction")
+
+        // ---- replies inherit the gate ---------------------------------------
+        struct NewReply: Encodable { let reactionId: UUID; let userId: UUID; let body: String }
+        let bReply: ReactionReply = try await cB.from("reaction_replies")
+            .insert(NewReply(reactionId: r30.id, userId: b, body: "ha, same"))
+            .select().single().execute().value
+
+        let visibleReplies = try await API.reactionReplies(reactionIds: [r30.id])
+        XCTAssertTrue(visibleReplies.contains { $0.id == bReply.id },
+                      "reaction author couldn't see a reply on it")
+
+        // A cannot delete B's reply
+        try await API.deleteReply(bReply.id)
+        let replyStill: [ReactionReply] = try await cB.from("reaction_replies").select()
+            .eq("id", value: bReply.id.uuidString).execute().value
+        XCTAssertEqual(replyStill.count, 1, "REPLY DELETE LEAK: non-author deleted a reply")
+
+        // A replies to own gated p.200 reaction; B can't see or post there
+        let lateReply = try await API.addReply(reactionId: r200.id, body: "spoiler-y reply")
+        let bLate: [ReactionReply] = try await cB.from("reaction_replies").select()
+            .eq("id", value: lateReply.id.uuidString).execute().value
+        XCTAssertTrue(bLate.isEmpty, "REPLY LEAK: B saw a reply past their progress")
+
+        var bBlockedReply = false
+        do {
+            let _: ReactionReply = try await cB.from("reaction_replies")
+                .insert(NewReply(reactionId: r200.id, userId: b, body: "should be blocked"))
+                .select().single().execute().value
+        } catch { bBlockedReply = true }
+        XCTAssertTrue(bBlockedReply, "REPLY LEAK: B replied to a reaction it can't see")
+
+        // ---- engagements inherit every gate ----------------------------------
+        // toggle on -> on, toggle again -> off (the API's toggle semantics)
+        let onNow = try await API.toggleEngagement(targetType: .reaction, targetId: r30.id, kind: "like")
+        XCTAssertTrue(onNow, "first toggle should turn the like ON")
+        let offNow = try await API.toggleEngagement(targetType: .reaction, targetId: r30.id, kind: "like")
+        XCTAssertFalse(offNow, "second toggle should remove the like")
+
+        struct NewEngagement: Encodable {
+            let targetType: String; let targetId: UUID; let userId: UUID; let kind: String
+        }
+        // B can like the visible reaction + the book
+        _ = try await cB.from("engagements")
+            .insert(NewEngagement(targetType: "reaction", targetId: r30.id, userId: b, kind: "like"))
+            .execute()
+        _ = try await cB.from("engagements")
+            .insert(NewEngagement(targetType: "book", targetId: book.id, userId: b, kind: "like"))
+            .execute()
+        // ...but not the gated p.200 reaction
+        var bBlockedLike = false
+        do {
+            let _: Engagement = try await cB.from("engagements")
+                .insert(NewEngagement(targetType: "reaction", targetId: r200.id, userId: b, kind: "like"))
+                .select().single().execute().value
+        } catch { bBlockedLike = true }
+        XCTAssertTrue(bBlockedLike, "ENGAGE LEAK: B liked a reaction it can't see")
+
+        // ---- gates open as B reads on ----------------------------------------
+        _ = try await cB.from("reading_progress")
+            .upsert(ProgressUpsert(bookId: book.id, userId: b, currentPage: 250, status: "reading"),
+                    onConflict: "book_id,user_id").execute()
+        let bSees250: [Reaction] = try await cB.from("reactions").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        XCTAssertTrue(bSees250.map(\.page).contains(200), "B should see p.200 after reading past it")
+
+        // ---- reviews unlock on finish -----------------------------------------
+        _ = try await API.setProgress(bookId: book.id, currentPage: 300, status: .finished)
+        _ = try await API.saveReview(bookId: book.id, rating: 4, body: "solid read")
+
+        let history = try await API.myReadingHistory()
+        XCTAssertTrue(history.contains { $0.book.id == book.id },
+                      "finished book missing from myReadingHistory")
+        XCTAssertEqual(history.first { $0.book.id == book.id }?.myRating, 4)
+
+        // REVIEW GATE: B (reading, not finished) sees nothing
+        let bReviewsBefore: [Review] = try await cB.from("reviews").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        XCTAssertTrue(bReviewsBefore.isEmpty, "REVIEW LEAK: B saw a review before finishing")
+
+        struct FinishUpsert: Encodable {
+            let bookId: UUID; let userId: UUID; let currentPage: Int; let status: String
+        }
+        _ = try await cB.from("reading_progress")
+            .upsert(FinishUpsert(bookId: book.id, userId: b, currentPage: 300, status: "finished"),
+                    onConflict: "book_id,user_id").execute()
+        let bReviewsAfter: [Review] = try await cB.from("reviews").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        XCTAssertGreaterThanOrEqual(bReviewsAfter.count, 1, "B should see reviews after finishing")
+
+        // reply gate opened too
+        let bLateNow: [ReactionReply] = try await cB.from("reaction_replies").select()
+            .eq("id", value: lateReply.id.uuidString).execute().value
+        XCTAssertEqual(bLateNow.count, 1, "B should see the p.200 reply once read past it")
+
+        // ---- selections: wheel result, vote flow, authz ------------------------
+        let wheelSel = try await API.createSelection(clubId: club.id, method: .wheel)
+        let decided = try await API.decideSelection(wheelSel.id, resultUserId: b)
+        XCTAssertEqual(decided.resultUser, b, "selection result not stored")
+
+        let vote = try await API.openVote(clubId: club.id)
+        _ = try await API.castVote(selectionId: vote.id, candidateId: b)
+        struct VoteUpsert: Encodable { let selectionId: UUID; let voterId: UUID; let candidateId: UUID }
+        _ = try await cB.from("selection_votes")
+            .upsert(VoteUpsert(selectionId: vote.id, voterId: b, candidateId: b),
+                    onConflict: "selection_id,voter_id").execute()
+        let votes = try await API.selectionVotes(vote.id)
+        XCTAssertEqual(votes.count, 2, "expected 2 votes")
+        _ = try await API.decideSelection(vote.id, resultUserId: b)
+
+        // SELECTION GATE: B (not creator) cannot finalize A's open selection
+        let sel2 = try await API.createSelection(clubId: club.id, method: .vote)
+        struct Crown: Encodable { let status: String; let resultUser: UUID }
+        _ = try? await cB.from("selections").update(Crown(status: "decided", resultUser: b))
+            .eq("id", value: sel2.id.uuidString).execute()
+        let sel2Now = try await API.clubSelections(club.id).first { $0.id == sel2.id }
+        XCTAssertEqual(sel2Now?.status, .open,
+                       "SELECTION LEAK: a non-creator crowned the winner")
+        XCTAssertNil(sel2Now?.resultUser)
+
+        // BOOK GATE: B cannot finish the book for the club; A can
+        struct FinishBook: Encodable { let status: String }
+        _ = try? await cB.from("books").update(FinishBook(status: "finished"))
+            .eq("id", value: book.id.uuidString).execute()
+        let bookAfterHijack = try await API.getBook(book.id)
+        XCTAssertNotEqual(bookAfterHijack.status, .finished,
+                          "BOOK GATE LEAK: a non-creator finished the club's book")
+        _ = try await API.finishBook(book.id)
+        let finishedBooks = try await API.clubBooks(club.id).filter { $0.status == .finished }
+        XCTAssertTrue(finishedBooks.contains { $0.id == book.id }, "finished book not in history")
+
+        // ---- profile update -----------------------------------------------------
+        let renamed = try await API.updateProfile(a, changes: API.ProfileChanges(
+            displayName: "iOS Tester A \(tag)"))
+        XCTAssertEqual(renamed.displayName, "iOS Tester A \(tag)")
+
+        // ---- storage: paths + folder scoping ------------------------------------
+        let avatarUrl = try await API.uploadAvatar(jpegData: Self.tinyJPEG)
+        avatarPath = String(avatarUrl.split(separator: "/").suffix(2).joined(separator: "/"))
+        let withAvatar = try await API.updateProfile(a, changes: API.ProfileChanges(avatarUrl: avatarUrl))
+        XCTAssertEqual(withAvatar.avatarUrl, avatarUrl, "avatar_url was not saved")
+
+        // AVATAR GATE: A cannot write into B's folder
+        var avatarBlocked = false
+        do {
+            try await supabase.storage.from("avatars")
+                .upload("\(b.uuidString.lowercased())/\(tag).jpg", data: Self.tinyJPEG,
+                        options: FileOptions(contentType: "image/jpeg", upsert: false))
+        } catch { avatarBlocked = true }
+        XCTAssertTrue(avatarBlocked, "AVATAR LEAK: wrote into someone else's folder")
+
+        // CLUB ICON: creator uploads; member cannot
+        let coverUrl = try await API.uploadClubImage(clubId: club.id, jpegData: Self.tinyJPEG)
+        coverPath = String(coverUrl.split(separator: "/").suffix(2).joined(separator: "/"))
+        let withCover = try await API.updateClub(club.id, changes: API.ClubChanges(photoUrl: coverUrl))
+        XCTAssertEqual(withCover.photoUrl, coverUrl, "photo_url was not saved")
+
+        var coverBlocked = false
+        do {
+            try await cB.storage.from("club-images")
+                .upload("\(club.id.uuidString.lowercased())/evil-\(tag).jpg", data: Self.tinyJPEG,
+                        options: FileOptions(contentType: "image/jpeg", upsert: false))
+        } catch { coverBlocked = true }
+        XCTAssertTrue(coverBlocked, "CLUB ICON LEAK: a non-creator uploaded the club's cover")
+
+        // ---- deletion gates ------------------------------------------------------
+        _ = try? await cB.from("clubs").delete().eq("id", value: club.id.uuidString).execute()
+        let clubStill = try await API.getClub(club.id)
+        XCTAssertEqual(clubStill.id, club.id, "DELETE LEAK: a non-creator deleted the club")
+
+        let book2 = try await API.addBook(clubId: club.id, book: API.NewBook(
+            title: "Throwaway \(tag)", author: "x", pageCount: 10))
+        _ = try? await cB.from("books").delete().eq("id", value: book2.id.uuidString).execute()
+        let booksAfterBDelete = try await API.clubBooks(club.id)
+        XCTAssertTrue(booksAfterBDelete.contains { $0.id == book2.id },
+                      "BOOK DELETE LEAK: a non-owner/non-picker deleted a book")
+        try await API.deleteBook(book2.id)
+        let booksAfterADelete = try await API.clubBooks(club.id)
+        XCTAssertFalse(booksAfterADelete.contains { $0.id == book2.id },
+                       "owner/picker book delete failed")
+
+        // B leaves
+        _ = try await cB.from("club_members").delete()
+            .eq("club_id", value: club.id.uuidString)
+            .eq("user_id", value: b.uuidString).execute()
+
+        // ---- announcements: non-admin cannot broadcast ----------------------------
+        var broadcastBlocked = false
+        do { _ = try await API.postAnnouncement(body: "should be blocked \(tag)") }
+        catch { broadcastBlocked = true }
+        XCTAssertTrue(broadcastBlocked, "ANNOUNCEMENT LEAK: a non-admin broadcast to everyone")
+
+        // ---- explicit cleanup (the deferred Task is only a safety net) -----------
+        if let p = avatarPath { _ = try? await supabase.storage.from("avatars").remove(paths: [p]) }
+        if let p = coverPath { _ = try? await supabase.storage.from("club-images").remove(paths: [p]) }
+        avatarPath = nil
+        coverPath = nil
+        try await API.deleteClub(club.id)
+        var clubGone = false
+        do { _ = try await API.getClub(club.id) } catch { clubGone = true }
+        XCTAssertTrue(clubGone, "creator delete did not remove the club")
+    }
+}
