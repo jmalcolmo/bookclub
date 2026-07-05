@@ -240,8 +240,15 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .reaction-page { font-family: var(--font-mono); font-size: .72rem; background: var(--yarn-slate);
   color: var(--surface); border-radius: 5px; padding: 1px 7px; }
 .reaction-time { margin-left: auto; }
+.reaction-controls { display: flex; gap: 4px; align-items: center; }
+.reaction-edit { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: .95rem; line-height: 1; }
+.reaction-edit:hover { color: var(--yarn-slate); }
 .reaction-del { background: none; border: none; cursor: pointer; color: var(--negative); font-size: 1.1rem; }
 .reaction-body { margin: 0; font-size: 1.02rem; line-height: 1.45; }
+/* inline edit form (reactions) — reuses the composer look */
+.reaction-edit-form { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.reaction-edit-form textarea { width: 100%; }
+.reaction-edit-form .edit-actions { display: flex; gap: 8px; }
 
 /* reviews */
 .locked-note { background: var(--surface-2); border: 2px dashed var(--yarn-clay); border-radius: 8px;
@@ -255,7 +262,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .review-head { display: flex; align-items: center; gap: 8px; }
 .review-name { font-family: var(--font-display); font-weight: 600; }
 .review-stars { color: var(--yarn-ochre); margin-left: auto; font-size: .95rem; }
+.review-del { background: none; border: none; cursor: pointer; color: var(--negative); font-size: 1.05rem; line-height: 1; }
 .review-body { margin: 6px 0 0; line-height: 1.45; }
+/* reset-progress: subtle destructive-ish ghost in the progress panel */
+.progress-reset { color: var(--negative); }
 
 /* ---- APP FEED · home (clubs rail · activity feed · reading rail) ----
    Reuses the book-detail feed primitives (.feed-rail, .feed-column, .feed-stream,
@@ -382,9 +392,13 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .reply-head { display: flex; align-items: center; gap: 7px; }
 .reply-name { font-family: var(--font-display); font-weight: 600; font-size: .92rem; }
 .reply-time { font-size: .7rem; }
-.reply-del { margin-left: auto; background: none; border: none; cursor: pointer;
+.reply-controls { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+.reply-edit { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: .85rem; line-height: 1; }
+.reply-edit:hover { color: var(--yarn-slate); }
+.reply-del { background: none; border: none; cursor: pointer;
   color: var(--negative); font-size: 1rem; line-height: 1; }
 .reply-body { margin: 0; font-size: .94rem; line-height: 1.4; }
+.reply-edit-form { display: flex; gap: 6px; align-items: center; }
 .reply-main .card-foot { margin-top: 4px; padding-top: 5px; border-top: none; }
 .reply-form { display: flex; gap: 6px; align-items: center; }
 .reply-input { flex: 1; min-width: 0; font-family: var(--font-display); font-size: .92rem;

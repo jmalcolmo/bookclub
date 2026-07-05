@@ -213,6 +213,18 @@ final class ServiceLayerTests: XCTestCase {
         XCTAssertTrue(r30Still.contains { $0.id == r30.id },
                       "REACTION DELETE LEAK: non-author deleted someone else's reaction")
 
+        // EDIT own reaction (body + page); non-author cannot
+        let editedR30 = try await API.updateReaction(r30.id, page: 35, body: "edited early thought")
+        XCTAssertEqual(editedR30.body, "edited early thought", "own reaction edit failed")
+        XCTAssertEqual(editedR30.page, 35, "own reaction page edit failed")
+
+        struct ReactionHijack: Encodable { let body: String }
+        _ = try? await cB.from("reactions").update(ReactionHijack(body: "hijacked reaction"))
+            .eq("id", value: r30.id.uuidString).execute()
+        let r30AfterHijack = try await API.bookReactions(book.id).first { $0.id == r30.id }
+        XCTAssertEqual(r30AfterHijack?.reaction.body, "edited early thought",
+                       "REACTION UPDATE LEAK: a non-author edited someone else's reaction")
+
         // ---- replies inherit the gate ---------------------------------------
         struct NewReply: Encodable { let reactionId: UUID; let userId: UUID; let body: String }
         let bReply: ReactionReply = try await cB.from("reaction_replies")
@@ -228,6 +240,19 @@ final class ServiceLayerTests: XCTestCase {
         let replyStill: [ReactionReply] = try await cB.from("reaction_replies").select()
             .eq("id", value: bReply.id.uuidString).execute().value
         XCTAssertEqual(replyStill.count, 1, "REPLY DELETE LEAK: non-author deleted a reply")
+
+        // EDIT own reply; non-author cannot edit someone else's
+        let aReply = try await API.addReply(reactionId: r30.id, body: "my own reply")
+        let editedReply = try await API.updateReply(aReply.id, body: "my edited reply")
+        XCTAssertEqual(editedReply.body, "my edited reply", "own reply edit failed")
+
+        struct ReplyHijack: Encodable { let body: String }
+        _ = try? await cB.from("reaction_replies").update(ReplyHijack(body: "hijacked reply"))
+            .eq("id", value: aReply.id.uuidString).execute()
+        let aReplyAfter: [ReactionReply] = try await cB.from("reaction_replies").select()
+            .eq("id", value: aReply.id.uuidString).execute().value
+        XCTAssertEqual(aReplyAfter.first?.body, "my edited reply",
+                       "REPLY UPDATE LEAK: a non-author edited someone else's reply")
 
         // A replies to own gated p.200 reaction; B can't see or post there
         let lateReply = try await API.addReply(reactionId: r200.id, body: "spoiler-y reply")
@@ -300,6 +325,20 @@ final class ServiceLayerTests: XCTestCase {
         let bReviewsAfter: [Review] = try await cB.from("reviews").select()
             .eq("book_id", value: book.id.uuidString).execute().value
         XCTAssertGreaterThanOrEqual(bReviewsAfter.count, 1, "B should see reviews after finishing")
+
+        // REVIEW DELETE: non-author cannot delete A's review; author can
+        let aReview = try await API.myReview(bookId: book.id)
+        XCTAssertNotNil(aReview, "A's review missing before delete test")
+        if let rev = aReview {
+            _ = try? await cB.from("reviews").delete().eq("id", value: rev.id.uuidString).execute()
+            let stillThere = try await API.myReview(bookId: book.id)
+            XCTAssertNotNil(stillThere, "REVIEW DELETE LEAK: a non-author deleted someone else's review")
+            try await API.deleteReview(rev.id)
+            let afterOwnDelete = try await API.myReview(bookId: book.id)
+            XCTAssertNil(afterOwnDelete, "own review delete failed")
+            // restore for downstream history assertions that expect the rating
+            _ = try await API.saveReview(bookId: book.id, rating: 4, body: "solid read")
+        }
 
         // reply gate opened too
         let bLateNow: [ReactionReply] = try await cB.from("reaction_replies").select()
@@ -391,6 +430,33 @@ final class ServiceLayerTests: XCTestCase {
         let booksAfterADelete = try await API.clubBooks(club.id)
         XCTAssertFalse(booksAfterADelete.contains { $0.id == book2.id },
                        "owner/picker book delete failed")
+
+        // PROGRESS DELETE (reset): a non-owner cannot delete B's progress; the
+        // owner can delete their own, which re-locks reactions past that page.
+        _ = try? await supabase.from("reading_progress")
+            .delete().eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).execute()   // A trying to wipe B's row
+        let bProgressStill: [ReadingProgress] = try await cB.from("reading_progress").select()
+            .eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).execute().value
+        XCTAssertEqual(bProgressStill.count, 1,
+                       "PROGRESS DELETE LEAK: a non-owner wiped another reader's progress")
+
+        // B deletes B's OWN progress via the app API path (owner-only) and then
+        // can no longer see the gated p.200 reaction (spoiler gate re-locks live).
+        let bDeleteOwn: [ReadingProgress] = try await cB.from("reading_progress").delete()
+            .eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).select().execute().value
+        XCTAssertEqual(bDeleteOwn.count, 1, "owner progress delete failed")
+        let bSeesAfterReset: [Reaction] = try await cB.from("reactions").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        XCTAssertFalse(bSeesAfterReset.map(\.page).contains(200),
+                       "SPOILER LEAK: p.200 still visible after B reset progress")
+
+        // A resets A's own progress through the API under test (owner-only path)
+        try await API.deleteProgress(bookId: book.id)
+        let aProgressGone = try await API.myProgress(bookId: book.id)
+        XCTAssertNil(aProgressGone, "own deleteProgress did not clear the row")
 
         // B leaves
         _ = try await cB.from("club_members").delete()

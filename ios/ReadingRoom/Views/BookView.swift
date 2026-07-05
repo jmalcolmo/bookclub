@@ -215,6 +215,10 @@ struct BookView: View {
     @State private var showDeadlineEditor = false
     @State private var confirmFinishBook = false
 
+    // reset-progress + review-delete confirmations
+    @State private var confirmResetProgress = false
+    @State private var reviewToDelete: ReviewItem?
+
     init(clubId: UUID, bookId: UUID) {
         self.clubId = clubId
         self.bookId = bookId
@@ -269,6 +273,23 @@ struct BookView: View {
             isPresented: $confirmFinishBook, titleVisibility: .visible
         ) {
             Button("Mark finished", role: .destructive) { finishBookForClub() }
+        }
+        .confirmationDialog(
+            "Reset your reading progress for this book? This re-locks reactions past your current page.",
+            isPresented: $confirmResetProgress, titleVisibility: .visible
+        ) {
+            Button("Reset progress", role: .destructive) { resetProgress() }
+        }
+        .confirmationDialog(
+            "Delete your review?",
+            isPresented: Binding(get: { reviewToDelete != nil },
+                                 set: { if !$0 { reviewToDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let item = reviewToDelete { deleteReview(item.id) }
+                reviewToDelete = nil
+            }
         }
     }
 
@@ -401,6 +422,12 @@ struct BookView: View {
                 }
                 Button("mark finished \u{2713}") { markFinished(book) }
                     .buttonStyle(.ghostSmall)
+                // Reset only shows when there's a progress row to clear (web parity).
+                if model.mine != nil {
+                    Button("reset progress") { confirmResetProgress = true }
+                        .buttonStyle(.ghostSmall)
+                        .tint(Theme.negative)
+                }
             }
             Text("reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.")
                 .font(Theme.monoFont(11))
@@ -447,45 +474,11 @@ struct BookView: View {
     private func feedCard(_ entry: FeedEvent) -> some View {
         switch entry.kind {
         case .reaction(let item, _):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    AvatarView(profile: item.profile, size: 30)
-                    Text(item.profile?.displayName ?? "Reader")
-                        .font(Theme.monoMedium(13))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("p.\(item.reaction.page)")
-                        .font(Theme.monoMedium(11))
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 6)
-                        .background(Capsule().fill(Theme.yarnSlate))
-                    Text(Format.timeAgo(item.reaction.createdAt))
-                        .font(Theme.monoFont(11))
-                        .foregroundStyle(Theme.textMuted)
-                    Spacer()
-                    if item.reaction.userId == session.userId {
-                        Button {
-                            deleteReaction(item.id)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(Theme.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Delete reaction")
-                    }
-                }
-                Text(item.reaction.body)
-                    .font(Theme.displayFont(16))
-                    .foregroundStyle(Theme.textPrimary)
-                EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
-                    await model.loadFeed()
-                }
-                ReplyThreadView(reactionId: item.id, context: model.context) {
-                    await model.loadFeed()
-                }
-            }
-            .patch(seed: entry.id)
+            ReactionCard(item: item,
+                         context: model.context,
+                         isMine: item.reaction.userId == session.userId,
+                         onChange: { await model.loadFeed() })
+                .patch(seed: entry.id)
         case .notif(let icon, let text, let highlight):
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 10) {
@@ -560,6 +553,17 @@ struct BookView: View {
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
                 StarRatingView(rating: item.review.rating ?? 0)
+                if item.review.userId == session.userId {
+                    Button {
+                        reviewToDelete = item
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete review")
+                }
             }
             if let body = item.review.body, !body.isEmpty {
                 Text(body)
@@ -696,11 +700,35 @@ struct BookView: View {
         }
     }
 
-    private func deleteReaction(_ id: UUID) {
+    // Reset my progress: delete my reading_progress row (RLS owner-only). This
+    // re-locks any reactions I'd unlocked by reading past them - the spoiler gate
+    // reads live from progress - so reload to reflect the relocked state.
+    private func resetProgress() {
         Task {
             do {
-                try await API.deleteReaction(id)
-                await model.loadFeed()
+                try await API.deleteProgress(bookId: bookId)
+                model.mine = nil
+                progressPage = 0
+                seededReview = false
+                await model.load()
+                toasts.show("Progress reset", .success)
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+
+    private func deleteReview(_ id: UUID) {
+        Task {
+            do {
+                try await API.deleteReview(id)
+                toasts.show("Review deleted", .success)
+                model.reviews = (try? await API.bookReviews(bookId)) ?? model.reviews
+                model.myReview = try? await API.myReview(bookId: bookId)
+                if model.myReview == nil {
+                    reviewRating = 0
+                    reviewBody = ""
+                }
             } catch {
                 toasts.error(error)
             }
@@ -729,6 +757,132 @@ struct BookView: View {
                 try await API.finishBook(bookId)
                 toasts.show("Book finished", .success)
                 dismiss()
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+}
+
+// MARK: - reaction card (feed item with author edit/delete)
+
+// One reaction in the feed. The author gets edit (pencil) + delete (x). Tapping
+// edit swaps the body for an inline page + text editor; save patches both
+// (author-only per RLS reactions_update_own), cancel restores. Port of the web's
+// reactionCardHTML inline-edit form.
+private struct ReactionCard: View {
+    let item: ReactionItem
+    let context: EngageContext
+    let isMine: Bool
+    let onChange: () async -> Void
+
+    @Environment(ToastCenter.self) private var toasts
+    @State private var editing = false
+    @State private var editPage = 0
+    @State private var editBody = ""
+    @State private var saving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                AvatarView(profile: item.profile, size: 30)
+                Text(item.profile?.displayName ?? "Reader")
+                    .font(Theme.monoMedium(13))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("p.\(item.reaction.page)")
+                    .font(Theme.monoMedium(11))
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 2)
+                    .padding(.horizontal, 6)
+                    .background(Capsule().fill(Theme.yarnSlate))
+                Text(Format.timeAgo(item.reaction.createdAt))
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+                Spacer()
+                if isMine {
+                    Button {
+                        editPage = item.reaction.page
+                        editBody = item.reaction.body
+                        editing = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit reaction")
+                    Button {
+                        deleteReaction(item.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete reaction")
+                }
+            }
+            if editing {
+                HStack(spacing: 8) {
+                    Text("at page")
+                        .font(Theme.monoFont(13))
+                        .foregroundStyle(Theme.textMuted)
+                    TextField("0", value: $editPage, format: .number)
+                        .keyboardType(.numberPad)
+                        .font(Theme.monoMedium(15))
+                        .frame(width: 70)
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.surface2))
+                        .multilineTextAlignment(.center)
+                }
+                TextField("what happened?", text: $editBody, axis: .vertical)
+                    .font(Theme.displayFont(15))
+                    .lineLimit(2...5)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.surface2))
+                HStack(spacing: 8) {
+                    Button("save") { saveEdit() }
+                        .buttonStyle(.primarySmall)
+                        .disabled(saving || editBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("cancel") { editing = false }
+                        .buttonStyle(.ghostSmall)
+                }
+            } else {
+                Text(item.reaction.body)
+                    .font(Theme.displayFont(16))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            EngagementBar(targetType: .reaction, targetId: item.id, context: context) {
+                await onChange()
+            }
+            ReplyThreadView(reactionId: item.id, context: context) {
+                await onChange()
+            }
+        }
+    }
+
+    private func saveEdit() {
+        let body = editBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty, !saving else { return }
+        saving = true
+        Task {
+            defer { saving = false }
+            do {
+                try await API.updateReaction(item.id, page: max(0, editPage), body: body)
+                editing = false
+                toasts.show("Reaction updated", .success)
+                await onChange()
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+
+    private func deleteReaction(_ id: UUID) {
+        Task {
+            do {
+                try await API.deleteReaction(id)
+                await onChange()
             } catch {
                 toasts.error(error)
             }

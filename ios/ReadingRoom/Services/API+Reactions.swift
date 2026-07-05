@@ -35,6 +35,23 @@ extension API {
             .execute().value
     }
 
+    private struct ReactionEdit: Encodable {
+        let page: Int
+        let body: String
+    }
+
+    // Edit my own reaction (body + page). RLS (reactions_update_own) only lets the
+    // author update; the spoiler gate is a SELECT concern and stays intact.
+    @discardableResult
+    static func updateReaction(_ id: UUID, page: Int, body: String) async throws -> Reaction {
+        try await supabase.from("reactions")
+            .update(ReactionEdit(page: page, body: body))
+            .eq("id", value: id.uuidString)
+            .select()
+            .single()
+            .execute().value
+    }
+
     static func deleteReaction(_ id: UUID) async throws {
         try await supabase.from("reactions")
             .delete()
@@ -67,6 +84,22 @@ extension API {
         let uid = try await currentUserId()
         return try await supabase.from("reaction_replies")
             .insert(NewReply(reactionId: reactionId, userId: uid, body: body))
+            .select()
+            .single()
+            .execute().value
+    }
+
+    private struct ReplyEdit: Encodable {
+        let body: String
+    }
+
+    // Edit my own reply. RLS (replies_update_own) only lets the author update; the
+    // reply keeps inheriting its parent reaction's spoiler gate.
+    @discardableResult
+    static func updateReply(_ id: UUID, body: String) async throws -> ReactionReply {
+        try await supabase.from("reaction_replies")
+            .update(ReplyEdit(body: body))
+            .eq("id", value: id.uuidString)
             .select()
             .single()
             .execute().value
