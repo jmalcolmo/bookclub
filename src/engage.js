@@ -67,8 +67,10 @@ export function engagementBarHTML(targetType, targetId, engs = [], nameOf = () =
     </div>`;
 }
 
-// A single reply inside a thread, with its own (small) engagement bar.
+// A single reply inside a thread, with its own (small) engagement bar. The author
+// gets edit (✎) + delete (×) controls; edit swaps the body for an inline form.
 function replyHTML(reply, engForReply, nameOf, myId) {
+  const mine = reply.user_id === myId;
   return `
     <div class="reply-item" data-reply="${reply.id}">
       ${avatarHTML(reply.profile, 22)}
@@ -76,9 +78,17 @@ function replyHTML(reply, engForReply, nameOf, myId) {
         <div class="reply-head">
           <span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>
           <span class="reply-time faint">${timeAgo(reply.created_at)}</span>
-          ${reply.user_id === myId ? `<button type="button" class="reply-del" data-del-reply="${reply.id}" title="delete">×</button>` : ""}
+          ${mine ? `<span class="reply-controls">
+            <button type="button" class="reply-edit" data-edit-reply="${reply.id}" title="edit">✎</button>
+            <button type="button" class="reply-del" data-del-reply="${reply.id}" title="delete">×</button>
+          </span>` : ""}
         </div>
-        <p class="reply-body">${esc(reply.body)}</p>
+        <p class="reply-body" data-reply-body="${reply.id}">${esc(reply.body)}</p>
+        ${mine ? `<form class="reply-edit-form" data-edit-reply-form="${reply.id}" hidden>
+          <input class="reply-input" name="body" maxlength="500" value="${esc(reply.body)}" autocomplete="off" required>
+          <button type="submit" class="btn-ghost small">save</button>
+          <button type="button" class="btn-ghost small" data-cancel-edit>cancel</button>
+        </form>` : ""}
         ${engagementBarHTML("reply", reply.id, engForReply, nameOf, myId)}
       </div>
     </div>`;
@@ -161,7 +171,38 @@ export function wireReplies(scope, onChange) {
     b.dataset.wired = "1";
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (!confirm("Delete this reply?")) return;
       try { await api.deleteReply(b.dataset.delReply); onChange?.(); }
+      catch (err) { toast(err.message, "error"); }
+    });
+  });
+
+  // Edit a reply in place: the ✎ swaps the body for the inline form; save patches
+  // it (author-only per RLS), cancel restores. The thread stays open across reload.
+  scope.querySelectorAll("[data-edit-reply]").forEach((b) => {
+    if (b.dataset.wired) return;
+    b.dataset.wired = "1";
+    const id = b.dataset.editReply;
+    const item = b.closest(".reply-item");
+    const body = item.querySelector(`[data-reply-body="${id}"]`);
+    const form = item.querySelector(`[data-edit-reply-form="${id}"]`);
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      body.hidden = true; form.hidden = false; form.body.focus();
+    });
+    form.addEventListener("click", (e) => e.stopPropagation());
+    form.querySelector("[data-cancel-edit]").addEventListener("click", (e) => {
+      e.stopPropagation();
+      form.hidden = true; body.hidden = false;
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const val = form.body.value.trim();
+      if (!val) return;
+      const thread = item.closest("[data-thread]");
+      if (thread) openThreads.add(thread.dataset.thread); // survive the reload
+      try { await api.updateReply(id, val); onChange?.(); }
       catch (err) { toast(err.message, "error"); }
     });
   });

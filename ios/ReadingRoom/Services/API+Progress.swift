@@ -51,6 +51,19 @@ extension API {
             .execute().value
     }
 
+    // Reset my progress on a book (delete the row). RLS (progress_delete_own)
+    // restricts this to the reader themself. Removing the row re-locks any
+    // reactions unlocked by reading past them - the spoiler gate reads live from
+    // reading_progress, so it stays correct.
+    static func deleteProgress(bookId: UUID) async throws {
+        let uid = try await currentUserId()
+        try await supabase.from("reading_progress")
+            .delete()
+            .eq("book_id", value: bookId.uuidString)
+            .eq("user_id", value: uid.uuidString)
+            .execute()
+    }
+
     // My personal reading history: every book I've marked finished, across all
     // my clubs, newest first - with my own rating if I reviewed it. RLS still
     // applies (only books in clubs I belong to, only my progress/reviews).

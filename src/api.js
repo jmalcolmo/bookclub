@@ -216,6 +216,18 @@ export async function setProgress(bookId, currentPage, status) {
   );
 }
 
+// Reset my own progress on a book (delete the row). RLS (progress_delete_own)
+// restricts this to the reader themself. Removing the row re-locks any reactions
+// they'd unlocked by reading past them — the spoiler gate reads live from
+// reading_progress, so it stays correct.
+export async function deleteProgress(bookId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("reading_progress").delete()
+      .eq("book_id", bookId).eq("user_id", user.id)
+  );
+}
+
 // My personal reading history: every book I've marked finished, across all my
 // clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
 // "books read" shelf but scoped to me. RLS still applies (I only see books in
@@ -264,6 +276,14 @@ export async function addReaction(bookId, page, body) {
   );
 }
 
+// Edit my own reaction (body and/or page). RLS (reactions_update_own) only lets
+// the author update; the spoiler gate is a SELECT concern and stays intact.
+export async function updateReaction(id, changes) {
+  return unwrap(
+    await supabase.from("reactions").update(changes).eq("id", id).select().single()
+  );
+}
+
 export async function deleteReaction(id) {
   return unwrap(await supabase.from("reactions").delete().eq("id", id));
 }
@@ -294,6 +314,11 @@ export async function saveReview(bookId, rating, body) {
       .upsert({ book_id: bookId, user_id: user.id, rating, body }, { onConflict: "book_id,user_id" })
       .select().single()
   );
+}
+
+// Delete my own review. RLS (reviews_delete_own) restricts this to the author.
+export async function deleteReview(id) {
+  return unwrap(await supabase.from("reviews").delete().eq("id", id));
 }
 
 // ------------------------------------------------------------ SELECTIONS ---
@@ -374,6 +399,14 @@ export async function addReply(reactionId, body) {
     await supabase.from("reaction_replies")
       .insert({ reaction_id: reactionId, user_id: user.id, body })
       .select().single()
+  );
+}
+
+// Edit my own reply. RLS (replies_update_own) only lets the author update; the
+// reply keeps inheriting its parent reaction's spoiler gate.
+export async function updateReply(id, body) {
+  return unwrap(
+    await supabase.from("reaction_replies").update({ body }).eq("id", id).select().single()
   );
 }
 

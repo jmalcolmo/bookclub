@@ -457,6 +457,14 @@ drop policy if exists "progress_update_own" on reading_progress;
 create policy "progress_update_own" on reading_progress
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- A reader may remove their OWN progress row (e.g. reset "I haven't started this
+-- after all"). Owner-only: another member can never wipe your progress. Deleting
+-- your row re-locks any reactions you'd unlocked by reading past them, so the
+-- spoiler gate stays intact — it reads live from reading_progress via has_read_to.
+drop policy if exists "progress_delete_own" on reading_progress;
+create policy "progress_delete_own" on reading_progress
+  for delete using (user_id = auth.uid());
+
 -- ============================================================================
 -- REACTIONS  (page-tagged; SPOILER-GATED in the SELECT policy)
 -- ============================================================================
@@ -492,6 +500,15 @@ create policy "reactions_insert_member" on reactions
   for insert with check (
     user_id = auth.uid() and is_club_member(book_club(book_id))
   );
+
+-- The author may edit their own reaction (body / page). Owner-only: WITH CHECK
+-- re-asserts ownership + club membership so an edit can never reassign the row to
+-- someone else or move it into a club you don't belong to. The spoiler gate is a
+-- SELECT concern and is unaffected — the author can always see their own reaction.
+drop policy if exists "reactions_update_own" on reactions;
+create policy "reactions_update_own" on reactions
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
 drop policy if exists "reactions_delete_own" on reactions;
 create policy "reactions_delete_own" on reactions
@@ -568,6 +585,14 @@ create policy "replies_select_visible" on reaction_replies
 drop policy if exists "replies_insert_visible" on reaction_replies;
 create policy "replies_insert_visible" on reaction_replies
   for insert with check (user_id = auth.uid() and reaction_visible(reaction_id));
+
+-- The author may edit their own reply. Owner-only, and WITH CHECK re-asserts the
+-- parent reaction is still visible to them (reaction_visible) so an edit can never
+-- reattach a reply to a spoiler-gated reaction they can't see.
+drop policy if exists "replies_update_own" on reaction_replies;
+create policy "replies_update_own" on reaction_replies
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and reaction_visible(reaction_id));
 
 drop policy if exists "replies_delete_own" on reaction_replies;
 create policy "replies_delete_own" on reaction_replies

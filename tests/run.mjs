@@ -288,6 +288,20 @@ await step("REACTION DELETE GATE: B cannot delete A's reaction (RLS)", async () 
   assert((data || []).length === 1, "REACTION DELETE LEAK: a non-author deleted someone else's reaction");
 });
 
+await step("UPDATE REACTION: A edits its own reaction body + page (updateReaction)", async () => {
+  const { data, error } = await cA.from("reactions")
+    .update({ page: 35, body: "edited early thought" }).eq("id", r30).select().single();
+  if (error) throw error;
+  assert(data.body === "edited early thought" && data.page === 35, "own reaction edit did not persist");
+});
+
+await step("REACTION UPDATE GATE: B cannot edit A's reaction (RLS)", async () => {
+  // reactions_update_own: only the author may update; a non-author affects 0 rows.
+  await cB.from("reactions").update({ body: "hijacked reaction" }).eq("id", r30);
+  const { data } = await cA.from("reactions").select("body").eq("id", r30).single();
+  assert(data.body === "edited early thought", "REACTION UPDATE LEAK: a non-author edited someone else's reaction");
+});
+
 // ---- reaction replies (threads) + engagements (likes / emoji) -------------
 // B is still at p.40 here: sees the p.30 reaction, NOT the p.200 one. Replies and
 // engagements INHERIT the reaction's spoiler gate, so the same boundary applies.
@@ -309,6 +323,25 @@ await step("REPLY DELETE GATE: A cannot delete B's reply (RLS)", async () => {
   await cA.from("reaction_replies").delete().eq("id", replyId);
   const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
   assert((data || []).length === 1, "REPLY DELETE LEAK: a non-author deleted someone else's reply");
+});
+
+let aReplyId;
+await step("UPDATE REPLY: A edits its own reply (updateReply)", async () => {
+  const { data: mk, error: mkErr } = await cA.from("reaction_replies")
+    .insert({ reaction_id: r30, user_id: A.id, body: "my own reply" }).select().single();
+  if (mkErr) throw mkErr;
+  aReplyId = mk.id;
+  const { data, error } = await cA.from("reaction_replies")
+    .update({ body: "my edited reply" }).eq("id", aReplyId).select().single();
+  if (error) throw error;
+  assert(data.body === "my edited reply", "own reply edit did not persist");
+});
+
+await step("REPLY UPDATE GATE: B cannot edit A's reply (RLS)", async () => {
+  // replies_update_own: only the author may update; a non-author affects 0 rows.
+  await cB.from("reaction_replies").update({ body: "hijacked reply" }).eq("id", aReplyId);
+  const { data } = await cA.from("reaction_replies").select("body").eq("id", aReplyId).single();
+  assert(data.body === "my edited reply", "REPLY UPDATE LEAK: a non-author edited someone else's reply");
 });
 
 await step("A replies to its own (p.200) gated reaction", async () => {
@@ -403,6 +436,26 @@ await step("B finishes and now sees A's review", async () => {
   assert((data || []).length >= 1, "B should see reviews after finishing");
 });
 
+await step("REVIEW DELETE GATE: B cannot delete A's review (RLS)", async () => {
+  // reviews_delete_own: only the author may delete; a non-author affects 0 rows.
+  const { data: rev } = await cA.from("reviews").select("id").eq("book_id", book.id).eq("user_id", A.id).single();
+  await cB.from("reviews").delete().eq("id", rev.id);
+  const { data } = await cA.from("reviews").select("id").eq("id", rev.id);
+  assert((data || []).length === 1, "REVIEW DELETE LEAK: a non-author deleted someone else's review");
+});
+
+await step("DELETE REVIEW: A deletes its own review, then restores it (deleteReview)", async () => {
+  const { data: rev } = await cA.from("reviews").select("id").eq("book_id", book.id).eq("user_id", A.id).single();
+  const { error: delErr } = await cA.from("reviews").delete().eq("id", rev.id);
+  if (delErr) throw delErr;
+  const { data: gone } = await cA.from("reviews").select("id").eq("id", rev.id);
+  assert((gone || []).length === 0, "own review delete did not remove the row");
+  // restore so downstream history / gate steps still have a review to read
+  const { error: reErr } = await cA.from("reviews").upsert(
+    { book_id: book.id, user_id: A.id, rating: 4, body: "solid read" }, { onConflict: "book_id,user_id" });
+  if (reErr) throw reErr;
+});
+
 await step("REPLY GATE OPENS: B (now past p.200) sees the previously-hidden reply", async () => {
   const { data } = await cB.from("reaction_replies").select("id").eq("id", lateReplyId);
   assert((data || []).length === 1, "B should see the p.200 reply once read past it");
@@ -419,6 +472,24 @@ await step("DELETE REPLY: B deletes their own reply", async () => {
   if (error) throw error;
   const { data } = await cA.from("reaction_replies").select("id").eq("id", replyId);
   assert((data || []).length === 0, "author's own reply was not deleted");
+});
+
+await step("PROGRESS DELETE GATE: A cannot delete B's progress row (RLS)", async () => {
+  // progress_delete_own: only the reader may remove their own row; others affect 0 rows.
+  await cA.from("reading_progress").delete().eq("book_id", book.id).eq("user_id", B.id);
+  const { data } = await cB.from("reading_progress").select("id").eq("book_id", book.id).eq("user_id", B.id);
+  assert((data || []).length === 1, "PROGRESS DELETE LEAK: a non-owner wiped another reader's progress");
+});
+
+await step("RESET PROGRESS: B deletes own progress → the spoiler gate re-locks p.200 (deleteProgress)", async () => {
+  const { error } = await cB.from("reading_progress").delete().eq("book_id", book.id).eq("user_id", B.id);
+  if (error) throw error;
+  const { data: gone } = await cB.from("reading_progress").select("id").eq("book_id", book.id).eq("user_id", B.id);
+  assert((gone || []).length === 0, "own progress delete did not remove the row");
+  // Gate reads live from reading_progress: with no row, B is back to page 0 and
+  // must no longer receive the gated p.200 reaction.
+  const { data: seen } = await cB.from("reactions").select("page").eq("book_id", book.id);
+  assert(!(seen || []).some((r) => r.page === 200), "SPOILER LEAK: p.200 still visible after B reset progress");
 });
 
 await step("picker — wheel geometry: marker always matches the winner", async () => {
