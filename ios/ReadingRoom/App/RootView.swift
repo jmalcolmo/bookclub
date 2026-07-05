@@ -1,0 +1,106 @@
+// The app shell. Auth phase decides login vs the tab UI (port of main.js
+// boot + nav). The web's hash routes become value-based NavigationStack
+// destinations; the web's bottom tab bar maps 1:1 onto TabView.
+
+import SwiftUI
+
+// The pushable routes (web: /club/:id, /club/:id/picker, /club/:id/history,
+// /club/:id/book/:bookId). Feed/clubs/progress/profile are tabs, not routes.
+enum Route: Hashable {
+    case club(UUID)
+    case picker(clubId: UUID)
+    case history(clubId: UUID)
+    case book(clubId: UUID, bookId: UUID)
+}
+
+extension View {
+    // Shared destination mapping so every tab's stack resolves routes the same.
+    func appDestinations() -> some View {
+        navigationDestination(for: Route.self) { route in
+            switch route {
+            case .club(let id):
+                ClubView(clubId: id)
+            case .picker(let clubId):
+                PickerView(clubId: clubId)
+            case .history(let clubId):
+                HistoryView(clubId: clubId)
+            case .book(let clubId, let bookId):
+                BookView(clubId: clubId, bookId: bookId)
+            }
+        }
+    }
+}
+
+struct RootView: View {
+    @Environment(SessionStore.self) private var session
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            switch session.phase {
+            case .loading:
+                splash
+            case .signedOut:
+                LoginView()
+            case .signedIn:
+                MainTabView()
+            }
+            ToastOverlay()
+        }
+    }
+
+    private var splash: some View {
+        VStack(spacing: 14) {
+            Text("\u{1F4DA}")
+                .font(.system(size: 44))
+            StampTitle(text: "The Reading Room")
+            ProgressView()
+                .tint(Theme.yarnSage)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg.ignoresSafeArea())
+    }
+}
+
+struct MainTabView: View {
+    enum Tab: Hashable {
+        case feed, clubs, progress, profile
+    }
+
+    @State private var tab: Tab = .feed
+    @State private var feedPath = NavigationPath()
+    @State private var clubsPath = NavigationPath()
+    @State private var progressPath = NavigationPath()
+
+    var body: some View {
+        TabView(selection: $tab) {
+            NavigationStack(path: $feedPath) {
+                FeedView()
+                    .appDestinations()
+            }
+            .tabItem { Label("Feed", systemImage: "sparkles.rectangle.stack") }
+            .tag(Tab.feed)
+
+            NavigationStack(path: $clubsPath) {
+                ClubsView()
+                    .appDestinations()
+            }
+            .tabItem { Label("Clubs", systemImage: "books.vertical") }
+            .tag(Tab.clubs)
+
+            NavigationStack(path: $progressPath) {
+                MyProgressView()
+                    .appDestinations()
+            }
+            .tabItem { Label("Progress", systemImage: "bookmark") }
+            .tag(Tab.progress)
+
+            NavigationStack {
+                ProfileView()
+                    .appDestinations()
+            }
+            .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+            .tag(Tab.profile)
+        }
+        .tint(Theme.yarnSage)
+    }
+}

@@ -1,0 +1,11 @@
+// ============================================================================
+// DEV environment (Debug builds run against the dev Supabase project).
+// Mirrors config.js "dev". The anon key is publishable and safe to commit.
+// The $() trick keeps xcconfig from treating // as a comment.
+// ============================================================================
+
+#include "Shared.xcconfig"
+
+SUPABASE_ENV_NAME = dev
+SUPABASE_URL = https:/$()/wwzvwjhohkyudytoqvfl.supabase.co
+SUPABASE_ANON_KEY = sb_publishable_oWZKSlHJFMQDSiAt-3SwOA_xslAn-_s

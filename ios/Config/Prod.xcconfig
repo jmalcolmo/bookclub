@@ -1,0 +1,10 @@
+// ============================================================================
+// PROD environment (Release/Archive builds run against the prod Supabase
+// project). Mirrors config.js "prod". Anon key is publishable and RLS-safe.
+// ============================================================================
+
+#include "Shared.xcconfig"
+
+SUPABASE_ENV_NAME = prod
+SUPABASE_URL = https:/$()/kxiyvqpmmfbibeoygmnw.supabase.co
+SUPABASE_ANON_KEY = sb_publishable_B7uxeAfGEWdrZX4if8ZNQw_X6_KIWmH

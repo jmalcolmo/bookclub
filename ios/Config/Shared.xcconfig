@@ -1,0 +1,25 @@
+// ============================================================================
+// Shared build settings for The Reading Room iOS app.
+// Dev.xcconfig / Prod.xcconfig include this file and add per-environment keys.
+//
+// Only PUBLISHABLE Supabase keys belong in these files (public-safe under RLS).
+// NEVER put a service_role key here or anywhere in the app bundle.
+// ============================================================================
+
+PRODUCT_NAME = The Reading Room
+PRODUCT_MODULE_NAME = ReadingRoom
+PRODUCT_BUNDLE_IDENTIFIER = com.jmalcolmo.thereadingroom
+
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 1
+
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+TARGETED_DEVICE_FAMILY = 1
+SWIFT_VERSION = 5.9
+
+// Google iOS OAuth client (Google Cloud console -> Credentials -> iOS client).
+// The user creates this once per the backlog Phase 5; paste both values here.
+// GOOGLE_REVERSED_CLIENT_ID is the same id with the dot-segments reversed and
+// is registered as the app's custom URL scheme in Info.plist.
+GOOGLE_CLIENT_ID = 628478024832-3l2qdjsvlv1vvc6e5ro7grtop8jrfcuc.apps.googleusercontent.com
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.628478024832-3l2qdjsvlv1vvc6e5ro7grtop8jrfcuc
