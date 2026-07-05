@@ -760,8 +760,10 @@ struct DeadlineEditorSheet: View {
         NavigationStack {
             Form {
                 Toggle("has a deadline", isOn: $hasDeadline)
+                    .font(Theme.displayFont(16))
                 if hasDeadline {
                     DatePicker("finish-by date", selection: $date, displayedComponents: .date)
+                        .font(Theme.displayFont(16))
                 }
                 Section {
                     Text("turn the deadline off and save to remove it.")
@@ -774,9 +776,12 @@ struct DeadlineEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(Theme.monoMedium(15))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }.disabled(saving)
+                    Button("Save") { save() }
+                        .font(Theme.monoMedium(15))
+                        .disabled(saving)
                 }
             }
         }

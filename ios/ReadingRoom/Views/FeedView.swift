@@ -324,7 +324,9 @@ struct FeedView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Join with code", systemImage: "number") { showJoinClub = true }
+                        .font(Theme.monoMedium(15))
                     Button("New club", systemImage: "plus") { showCreateClub = true }
+                        .font(Theme.monoMedium(15))
                 } label: {
                     Image(systemName: "plus.circle")
                 }

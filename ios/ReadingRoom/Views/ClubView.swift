@@ -128,8 +128,7 @@ struct ClubView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let desc = club.description, !desc.isEmpty {
                     Text(desc)
-                        .font(Theme.displayFont(16))
-                        .italic()
+                        .font(Theme.displayFont(16).italic())
                         .foregroundStyle(Theme.textMuted)
                 }
 
@@ -317,6 +316,7 @@ struct ClubView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showMenu = false }
+                        .font(Theme.monoMedium(15))
                 }
             }
             .confirmationDialog("Leave \(model.club?.name ?? "this club")?",
@@ -446,6 +446,7 @@ struct AddBookSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(Theme.monoMedium(15))
                 }
             }
         }

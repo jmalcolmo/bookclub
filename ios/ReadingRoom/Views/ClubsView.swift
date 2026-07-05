@@ -156,9 +156,11 @@ struct CreateClubSheet: View {
                 }
                 Section {
                     Toggle("use reading deadlines by default", isOn: $useDeadlines)
+                        .font(Theme.displayFont(16))
                     if useDeadlines {
                         Stepper("days to finish a book: \(deadlineDays)",
                                 value: $deadlineDays, in: 1...365)
+                            .font(Theme.displayFont(16))
                     }
                 }
             }
@@ -167,9 +169,11 @@ struct CreateClubSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(Theme.monoMedium(15))
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") { create() }
+                        .font(Theme.monoMedium(15))
                         .disabled(submitting || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -232,9 +236,11 @@ struct JoinClubSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(Theme.monoMedium(15))
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Find & Join") { join() }
+                        .font(Theme.monoMedium(15))
                         .disabled(submitting || code.count < 6)
                 }
             }
