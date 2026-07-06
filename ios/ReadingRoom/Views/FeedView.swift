@@ -36,6 +36,30 @@ struct FeedEvent: Identifiable {
     var targetId: UUID?
 }
 
+// Rotating greeting phrases (port of feed.js GREETINGS).
+private let greetingLines = [
+    "Any new plot twists?",
+    "What are you reading lately?",
+    "Who\u{2019}s ahead on the reading?",
+    "Got strong opinions about chapter 7?",
+    "Someone\u{2019}s been busy turning pages.",
+    "The club awaits your thoughts.",
+    "Anything worth dog-earing?",
+    "Still haunted by that last chapter?",
+]
+
+/// Pick a greeting by day-of-year so it changes daily but doesn't flicker.
+private func todaysGreeting() -> String {
+    let day = Int(Date().timeIntervalSince1970) / 86400
+    return greetingLines[day % greetingLines.count]
+}
+
+/// Count events from the last 24 hours as a lightweight "new activity" signal.
+private func countRecentEvents(_ events: [FeedEvent]) -> Int {
+    let cutoff = Date().addingTimeInterval(-86400)
+    return events.filter { $0.ts > cutoff }.count
+}
+
 @MainActor
 @Observable
 final class FeedModel {
@@ -349,12 +373,40 @@ struct FeedView: View {
     private var feedList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                greetingHeader
                 announcementsSection
                 feedStream
             }
             .padding(16)
         }
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    // MARK: greeting header
+
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(todaysGreeting())
+                    .font(Theme.displayFont(20).italic())
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let recentCount = countRecentEvents(model.events)
+                if recentCount > 0 {
+                    Text("\(recentCount) new")
+                        .font(Theme.monoFont(11))
+                        .foregroundStyle(Theme.surface)
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 9)
+                        .background(Capsule().fill(Theme.yarnRust))
+                }
+            }
+            Divider()
+                .overlay(Theme.yarnClay.opacity(0.6))
+                .padding(.top, 10)
+        }
+        .padding(.bottom, 4)
     }
 
     // MARK: announcements (+ admin composer)
