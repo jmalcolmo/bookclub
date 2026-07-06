@@ -4,7 +4,7 @@
 // scoped: RLS only ever returns/accepts posts for members of the club, so the
 // view relies entirely on the server for access control (never re-implements it).
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, toast, avatarHTML, timeAgo } from "../ui.js";
+import { esc, toast, avatarHTML, timeAgo, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { cropImage } from "../imageCropper.js";
@@ -130,6 +130,8 @@ async function loadPosts(root, clubId) {
     ? posts.map((p) => postCardHTML(p, myId)).join("")
     : `<p class="faint">no posts yet — be the first to share something.</p>`;
 
+  wireUserLinks(host);
+
   // Delete my own post (RLS posts_delete_own restricts this to the author).
   host.querySelectorAll("[data-del-post]").forEach((b) =>
     b.addEventListener("click", async () => {
@@ -167,8 +169,9 @@ function postCardHTML(p, myId) {
   return `
     <div class="feed-item post-card" data-id="${p.id}">
       <div class="post-head">
-        ${avatarHTML(p.profile, 30)}
-        <span class="post-name">${esc(p.profile?.display_name || "Reader")}</span>
+        ${userLinkHTML(p.user_id, `${avatarHTML(p.profile, 30)}
+          <span class="post-name">${esc(p.profile?.display_name || "Reader")}</span>`,
+          p.profile?.display_name)}
         <span class="post-time faint">${timeAgo(p.created_at)}</span>
         ${mine ? `<span class="post-controls" role="group" aria-label="Post actions">
           ${p.body ? `<button class="post-edit" data-edit-post="${p.id}" title="Edit post" aria-label="Edit post">✎</button>` : ""}

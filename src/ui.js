@@ -66,6 +66,35 @@ export function avatarHTML(profile, size = 36) {
   return `<span class="avatar" style="${style};background:${colorFor(name)}">${esc(initials(name))}</span>`;
 }
 
+// Instagram-style profile links: any avatar/name pair can be a door to that
+// reader's profile. userLinkHTML wraps the markup in a chip carrying
+// data-user-link; views call wireUserLinks() after painting. Falls back to the
+// bare markup when there's no user id to link to.
+export function userLinkHTML(userId, inner, name = "Reader") {
+  if (!userId) return inner;
+  return `<span class="user-link" data-user-link="${esc(userId)}" role="link" tabindex="0"
+    aria-label="View ${esc(name)}'s profile">${inner}</span>`;
+}
+
+// Wire every [data-user-link] in scope to navigate to that reader's profile.
+// stopPropagation keeps the click from also triggering a card's data-go
+// navigation. Assigning location.hash directly avoids a ui.js -> router.js
+// import cycle (router already imports toast from here).
+export function wireUserLinks(scope) {
+  scope.querySelectorAll("[data-user-link]").forEach((el) => {
+    if (el.dataset.wiredUser) return;
+    el.dataset.wiredUser = "1";
+    const go = (e) => {
+      e.stopPropagation();
+      window.location.hash = `/user/${el.dataset.userLink}`;
+    };
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(e); }
+    });
+  });
+}
+
 export function toast(msg, kind = "info") {
   const host = $("[data-toast-container]");
   if (!host) return;

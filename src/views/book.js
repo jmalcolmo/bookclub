@@ -1,5 +1,5 @@
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil } from "../ui.js";
+import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
@@ -118,8 +118,9 @@ function renderReviews(reviews, myId) {
   if (!reviews.length) return `<p class="faint">no reviews yet.</p>`;
   return reviews.map((rv) => `
     <div class="review-card">
-      <div class="review-head">${avatarHTML(rv.profile, 30)}
-        <span class="review-name">${esc(rv.profile?.display_name || "Reader")}</span>
+      <div class="review-head">${userLinkHTML(rv.user_id, `${avatarHTML(rv.profile, 30)}
+        <span class="review-name">${esc(rv.profile?.display_name || "Reader")}</span>`,
+        rv.profile?.display_name)}
         <span class="review-stars">${"★".repeat(rv.rating || 0)}${"☆".repeat(5 - (rv.rating || 0))}</span>
         ${rv.user_id === myId ? `<button class="review-del" data-del-review="${rv.id}" title="Delete review" aria-label="Delete review">×</button>` : ""}</div>
       ${rv.body ? `<p class="review-body">${esc(rv.body)}</p>` : ""}
@@ -132,8 +133,9 @@ function reactionCardHTML(r, ctx, book) {
   return `
     <div class="feed-item reaction-card" data-id="${r.id}">
       <div class="reaction-head">
-        ${avatarHTML(r.profile, 30)}
-        <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
+        ${userLinkHTML(r.user_id, `${avatarHTML(r.profile, 30)}
+          <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>`,
+          r.profile?.display_name)}
         <span class="reaction-page">p.${r.page}</span>
         <span class="reaction-time faint">${timeAgo(r.created_at)}</span>
         ${mine ? `<span class="reaction-controls" role="group" aria-label="Reaction actions">
@@ -286,7 +288,21 @@ async function loadFeed(root, clubId, book) {
   });
 
   // Likes, emoji tapbacks, and reply threads — refresh the feed on any change.
+  wireUserLinks(host);
   wireEngagementUI(host, () => loadFeed(root, clubId, book));
+
+  // Arriving from the profile's Activity feed: scroll to the reaction where the
+  // like/comment happened and flash it. One-shot — consume the stash either way.
+  const hl = sessionStorage.getItem("rr-highlight");
+  if (hl) {
+    sessionStorage.removeItem("rr-highlight");
+    const card = host.querySelector(`[data-id="${CSS.escape(hl)}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 2400);
+    }
+  }
 }
 
 function groupBy(rows, key) {

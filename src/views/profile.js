@@ -1,5 +1,5 @@
 import { render, navigate } from "../router.js";
-import { esc, toast, avatarHTML, fmtDate } from "../ui.js";
+import { esc, toast, avatarHTML, fmtDate, timeAgo } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
@@ -58,6 +58,11 @@ export async function renderProfile({ params } = {}) {
         <button type="button" class="btn-ghost signout-mobile" data-signout>sign out</button>
       </div>
 
+      <section class="profile-activity">
+        <h3 class="stamp-title small">ACTIVITY</h3>
+        <div data-activity><p class="faint">loading…</p></div>
+      </section>
+
       <section class="profile-history">
         <h3 class="stamp-title small">MY SHELF — BOOKS I'VE READ</h3>
         ${history.length ? `<div class="history-list">${historyRows}</div>` : `
@@ -66,6 +71,7 @@ export async function renderProfile({ params } = {}) {
       </section>
     </div>
   `, (root) => {
+    loadActivity(root); // async — don't block the profile paint
     root.querySelector("[data-signout]").addEventListener("click", signOut);
     root.querySelectorAll("[data-book]").forEach((b) =>
       b.addEventListener("click", () => navigate(`/club/${b.dataset.club}/book/${b.dataset.book}`)));
@@ -101,6 +107,64 @@ export async function renderProfile({ params } = {}) {
       } catch (err) { toast(err.message, "error"); }
     });
   });
+}
+
+// The activity feed: who liked / emoji-reacted / commented on my stuff.
+// Clicking a row jumps to the book page where it happened; the reaction id (if
+// any) is stashed in sessionStorage so the book view can scroll to + flash it.
+async function loadActivity(root) {
+  const host = root.querySelector("[data-activity]");
+  if (!host) return;
+
+  let items = [];
+  try { items = await api.myActivity(); }
+  catch (err) {
+    host.innerHTML = `<p class="faint">couldn't load activity: ${esc(err.message)}</p>`;
+    return;
+  }
+
+  if (!items.length) {
+    host.innerHTML = `
+      <div class="empty-state"><p>no activity yet.</p>
+        <p class="faint">when someone likes or comments on your reactions, it shows up here.</p></div>`;
+    return;
+  }
+
+  host.innerHTML = `<div class="activity-list">${items.map(activityRowHTML).join("")}</div>`;
+  host.querySelectorAll("[data-go]").forEach((row) =>
+    row.addEventListener("click", () => {
+      if (row.dataset.hl) sessionStorage.setItem("rr-highlight", row.dataset.hl);
+      navigate(row.dataset.go);
+    }));
+}
+
+function activityRowHTML(item) {
+  const who = esc(item.actor?.display_name || "Someone");
+  const verb = item.kind === "reply" ? `commented on your ${esc(item.what)}`
+    : item.kind === "emoji" ? `reacted ${esc(item.emoji)} to your ${esc(item.what)}`
+    : `liked your ${esc(item.what)}`;
+  const icon = item.kind === "reply" ? "💬" : item.kind === "emoji" ? item.emoji : "👍";
+  const snippet = item.kind === "reply"
+    ? `<p class="activity-snippet faint">“${esc(item.body)}”</p>`
+    : item.snippet
+      ? `<p class="activity-snippet faint">“${esc(truncate(item.snippet, 90))}”</p>`
+      : "";
+  return `
+    <button type="button" class="activity-row patch" data-go="${esc(item.go)}"
+      ${item.highlight ? `data-hl="${esc(item.highlight)}"` : ""}>
+      ${avatarHTML(item.actor, 32)}
+      <div class="activity-main">
+        <p class="activity-text"><strong>${who}</strong> ${verb}
+          · <span class="activity-book">${esc(item.book.title)}</span></p>
+        ${snippet}
+        <span class="activity-time faint">${esc(timeAgo(item.at))}</span>
+      </div>
+      <span class="activity-icon" aria-hidden="true">${icon}</span>
+    </button>`;
+}
+
+function truncate(s, n) {
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
 
 // Another reader's profile: read-only, with a follow/unfollow control. The

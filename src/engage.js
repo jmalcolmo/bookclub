@@ -5,7 +5,7 @@
 // All DB access still goes through api.js — this module only builds markup and
 // wires DOM events, then calls api.toggle/add/delete. It never touches supabase
 // directly (per the repo's api.js boundary rule).
-import { esc, avatarHTML, timeAgo, toast } from "./ui.js";
+import { esc, avatarHTML, timeAgo, toast, userLinkHTML } from "./ui.js";
 import * as api from "./api.js";
 
 // The fixed tapback palette (Like is separate, rendered as its own button).
@@ -77,10 +77,12 @@ function replyHTML(reply, engForReply, nameOf, myId) {
   const mine = reply.user_id === myId;
   return `
     <div class="reply-item" data-reply="${reply.id}">
-      ${avatarHTML(reply.profile, 22)}
+      ${userLinkHTML(reply.user_id, avatarHTML(reply.profile, 22), reply.profile?.display_name)}
       <div class="reply-main">
         <div class="reply-head">
-          <span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>
+          ${userLinkHTML(reply.user_id,
+            `<span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>`,
+            reply.profile?.display_name)}
           <span class="reply-time faint">${timeAgo(reply.created_at)}</span>
           ${mine ? `<span class="reply-controls" role="group" aria-label="Reply actions">
             <button type="button" class="reply-edit" data-edit-reply="${reply.id}" title="Edit reply" aria-label="Edit reply">✎</button>

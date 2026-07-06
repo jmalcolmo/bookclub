@@ -66,6 +66,42 @@ extension API {
             .execute()
     }
 
+    // The Following screen roster (api.js followingReading): each reader I
+    // follow with their latest visible reading - the book they're on and the
+    // page they've reached out of its page count. RLS decides which progress
+    // rows I can see (shared clubs + the additive follow path); a followee with
+    // no visible reading comes back with nil progress/book.
+    static func followingReading() async throws -> [FollowedReader] {
+        let followees = try await followingProfiles()
+        guard !followees.isEmpty else { return [] }
+        let ids = followees.map { $0.id.uuidString }
+
+        let progress: [ReadingProgress] = try await supabase.from("reading_progress")
+            .select()
+            .in("user_id", values: ids)
+            .order("updated_at", ascending: false)
+            .execute().value
+
+        // Newest visible row per reader = what they're on right now.
+        var latest: [UUID: ReadingProgress] = [:]
+        for p in progress where latest[p.userId] == nil { latest[p.userId] = p }
+
+        let bookIds = Array(Set(latest.values.map(\.bookId)))
+        let books: [Book] = bookIds.isEmpty ? [] : try await supabase.from("books")
+            .select()
+            .in("id", values: bookIds.map { $0.uuidString })
+            .execute().value
+        let bookById = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
+
+        return followees.map { profile in
+            let p = latest[profile.id]
+            let book = p.flatMap { bookById[$0.bookId] }
+            return FollowedReader(profile: profile,
+                                  progress: book != nil ? p : nil,
+                                  book: book)
+        }
+    }
+
     // The "people you follow" feed: for each reader I follow, their SOLO reading -
     // recent reactions and progress on books in clubs I'm NOT a member of. RLS
     // only ever returns follow-visible rows, so whatever comes back is safe to

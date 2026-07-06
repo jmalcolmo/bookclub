@@ -84,6 +84,36 @@ struct FollowFeedItem: Identifiable, Hashable, Sendable {
     let status: ProgressStatus?    // progress only
 }
 
+// One row of the Following screen: a reader I follow plus their latest visible
+// reading — the book and how far in they are (api.js followingReading). Both
+// nil when RLS shows me none of their progress.
+struct FollowedReader: Identifiable, Hashable, Sendable {
+    let profile: Profile
+    let progress: ReadingProgress?
+    let book: Book?
+    var id: UUID { profile.id }
+}
+
+// One entry of the profile's Activity feed: someone liked / emoji-reacted /
+// commented on my content (api.js myActivity). `book` is where it happened —
+// tapping the row navigates there; `highlightReactionId` is the reaction to
+// land on when the target lives in a thread.
+struct ActivityItem: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case like, emoji(String), reply }
+    enum What: String, Sendable { case reaction, comment, review, progress = "progress update" }
+
+    let id: UUID
+    let kind: Kind
+    let actor: Profile?
+    let what: What
+    let snippet: String?     // my content the actor engaged with
+    let body: String?        // the comment text (kind .reply)
+    let book: Book
+    let at: Date
+
+    var route: Route { .book(clubId: book.clubId, bookId: book.id) }
+}
+
 // An Open Library search hit (openlibrary.js searchBooks mapping).
 struct OpenLibraryBook: Identifiable, Hashable, Sendable {
     let openLibraryId: String   // e.g. "/works/OL123W"

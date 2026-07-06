@@ -207,10 +207,14 @@ struct PostsView: View {
         let mine = item.post.userId == myId
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                AvatarView(profile: item.profile, size: 30)
-                Text(item.displayName)
-                    .font(Theme.displaySemiBold(15))
-                    .foregroundStyle(Theme.textPrimary)
+                ReaderLink(userId: item.post.userId) {
+                    HStack(spacing: 8) {
+                        AvatarView(profile: item.profile, size: 30)
+                        Text(item.displayName)
+                            .font(Theme.displaySemiBold(15))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                }
                 Spacer()
                 Text(Format.timeAgo(item.post.createdAt))
                     .font(Theme.monoFont(11))

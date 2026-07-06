@@ -19,6 +19,8 @@ struct ProfileView: View {
     @State private var seeded = false
     @State private var saving = false
     @State private var history: [HistoryBook] = []
+    @State private var activity: [ActivityItem] = []
+    @State private var activityLoaded = false
     @State private var photoItem: PhotosPickerItem?
     @State private var pendingCrop: PendingCrop?
     @State private var confirmSignOut = false
@@ -130,6 +132,7 @@ struct ProfileView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 profileCard
+                activitySection
                 shelfSection
             }
             .padding(16)
@@ -140,10 +143,14 @@ struct ProfileView: View {
         .task {
             seedForm()
             history = (try? await API.myReadingHistory()) ?? []
+            activity = (try? await API.myActivity()) ?? []
+            activityLoaded = true
         }
         .refreshable {
             await session.refreshProfile()
             history = (try? await API.myReadingHistory()) ?? []
+            activity = (try? await API.myActivity()) ?? []
+            activityLoaded = true
         }
         .fullScreenCover(item: $pendingCrop) { pending in
             ImageCropperView(image: pending.image, shape: .circle) { data in
@@ -212,6 +219,75 @@ struct ProfileView: View {
                 .buttonStyle(.ghostDanger)
         }
         .patch(accent: Theme.yarnSage, seed: "profile-card")
+    }
+
+    // MARK: - activity (who liked / commented on my stuff)
+
+    @ViewBuilder
+    private var activitySection: some View {
+        StampTitle(text: "Activity", small: true)
+        if !activityLoaded {
+            ProgressView().tint(Theme.yarnSage)
+                .frame(maxWidth: .infinity)
+        } else if activity.isEmpty {
+            EmptyStateView(
+                title: "no activity yet.",
+                hint: "when someone likes or comments on your reactions, it shows up here."
+            )
+        } else {
+            ForEach(activity) { item in
+                NavigationLink(value: item.route) {
+                    activityRow(item)
+                }
+                .buttonStyle(.plain)
+                .patch(seed: item.id.uuidString, padding: 12)
+            }
+        }
+    }
+
+    private func activityRow(_ item: ActivityItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            AvatarView(profile: item.actor, size: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                (Text(item.actor?.displayName ?? "Someone").fontWeight(.semibold)
+                    + Text(" \(verb(item)) \u{00B7} ")
+                    + Text(item.book.title).italic().foregroundColor(Theme.yarnRust))
+                    .font(Theme.displayFont(15))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                if let quote = item.kind == .reply ? item.body : item.snippet,
+                   !quote.isEmpty {
+                    Text("\u{201C}\(quote)\u{201D}")
+                        .font(Theme.displayFont(13))
+                        .foregroundStyle(Theme.textMuted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Text(Format.timeAgo(item.at))
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            Spacer()
+            Text(icon(item))
+                .font(.system(size: 15))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func verb(_ item: ActivityItem) -> String {
+        switch item.kind {
+        case .like: return "liked your \(item.what.rawValue)"
+        case .emoji(let e): return "reacted \(e) to your \(item.what.rawValue)"
+        case .reply: return "commented on your \(item.what.rawValue)"
+        }
+    }
+
+    private func icon(_ item: ActivityItem) -> String {
+        switch item.kind {
+        case .like: return "\u{1F44D}"
+        case .emoji(let e): return e
+        case .reply: return "\u{1F4AC}"
+        }
     }
 
     @ViewBuilder

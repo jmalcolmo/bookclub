@@ -75,7 +75,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .ol-row:focus-visible,
 .pick-chip:focus-visible,
 .vote-chip:focus-visible,
-.people-chip:focus-visible,
+.people-row:focus-visible,
 .progress-card:focus-visible,
 .history-row:focus-visible {
   outline: 3px solid var(--yarn-slate);
@@ -571,25 +571,53 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .other-bio { max-width: 420px; margin: 0; color: var(--text-primary); }
 .follow-hint { max-width: 360px; margin: 2px 0 0; }
 
-/* ---- PEOPLE YOU FOLLOW (follow feed) ---- */
-.people-following { margin-bottom: 26px; }
-.people-following .stamp-title,
-.people-feed .stamp-title { margin-bottom: 12px; }
-.people-chips { display: flex; flex-wrap: wrap; gap: 12px; }
-.people-chip { flex-direction: row; align-items: center; gap: 10px; min-height: 0;
-  padding: 8px 12px; cursor: pointer; }
-.people-chip-name { font-family: var(--font-display); font-weight: 600; }
-.people-chip .btn-ghost { margin-left: 4px; }
-.people-stream { display: flex; flex-direction: column; gap: 14px; }
+/* ---- FOLLOWING (the readers you follow + their current read) ---- */
+.people-following { margin-bottom: 26px; display: flex; flex-direction: column; gap: 12px; }
 .people-row { flex-direction: column; align-items: stretch; text-align: left; gap: 8px;
-  min-height: 0; padding: 14px 16px; }
-.people-row-head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  min-height: 0; padding: 14px 16px; cursor: pointer; }
+.people-row-head { display: flex; align-items: center; gap: 12px; }
 .people-row-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .people-who { font-family: var(--font-display); font-weight: 700; color: var(--text-primary); }
 .people-what { font-family: var(--font-mono); font-size: .78rem; }
 .people-when { font-family: var(--font-mono); font-size: .74rem; white-space: nowrap; }
 .people-book { font-style: italic; color: var(--yarn-rust); }
-.people-body { margin: 0; padding-left: 48px; color: var(--text-primary); }
+.people-page { display: inline-block; margin-left: 6px; font-family: var(--font-mono);
+  font-size: .72rem; color: var(--surface); background: var(--yarn-slate);
+  border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+
+/* ---- USER LINKS (any avatar/name is a door to that reader's profile) ---- */
+.user-link { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  border-radius: 6px; }
+.user-link:hover .reaction-name,
+.user-link:hover .review-name,
+.user-link:hover .post-name,
+.user-link:hover .reply-name,
+.user-link:hover .member-name { text-decoration: underline; }
+.user-link:focus-visible { outline: 3px solid var(--yarn-slate); outline-offset: 2px; }
+
+/* ---- ACTIVITY (profile: who liked/commented on my stuff) ---- */
+.profile-activity { margin-top: 26px; }
+.profile-activity .stamp-title { margin-bottom: 12px; }
+.activity-list { display: flex; flex-direction: column; gap: 10px; }
+.activity-row { display: flex; align-items: flex-start; gap: 10px; text-align: left;
+  min-height: 0; padding: 12px 14px; cursor: pointer; border: none; width: 100%;
+  font: inherit; color: inherit; }
+.activity-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.activity-text { margin: 0; font-family: var(--font-display); font-size: .95rem;
+  color: var(--text-primary); }
+.activity-book { font-style: italic; color: var(--yarn-rust); }
+.activity-snippet { margin: 0; font-family: var(--font-display); font-size: .85rem;
+  overflow: hidden; text-overflow: ellipsis; }
+.activity-time { font-family: var(--font-mono); font-size: .72rem; }
+.activity-icon { font-size: 1rem; line-height: 1; margin-top: 2px; }
+.activity-row:focus-visible { outline: 3px solid var(--yarn-slate); outline-offset: 3px; }
+
+/* Flash highlight when arriving from an activity item */
+.reaction-card.flash { animation: activity-flash 2.4s ease; }
+@keyframes activity-flash {
+  0%, 55% { box-shadow: 0 0 0 3px var(--yarn-ochre); }
+  100% { box-shadow: none; }
+}
 
 /* ---- IMAGE CROPPER (avatar / club icon framing) ---- */
 .cropper-backdrop { position: fixed; inset: 0; z-index: 1200;
@@ -747,6 +775,9 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 
   /* Feed entrance animation */
   .feed-item { animation: none; }
+
+  /* Activity flash highlight */
+  .reaction-card.flash { animation: none; }
 
   /* Club-avatar rotation */
   .club-avatar { transform: none; }

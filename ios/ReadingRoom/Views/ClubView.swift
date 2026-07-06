@@ -246,12 +246,16 @@ struct ClubView: View {
         let pct = ProgressMath.percent(page: p?.currentPage, of: model.book?.pageCount)
 
         return HStack(spacing: 10) {
-            AvatarView(profile: member.profile, size: 34)
+            ReaderLink(userId: member.userId) {
+                AvatarView(profile: member.profile, size: 34)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(member.displayName)
-                        .font(Theme.displaySemiBold(15))
-                        .foregroundStyle(Theme.textPrimary)
+                    ReaderLink(userId: member.userId) {
+                        Text(member.displayName)
+                            .font(Theme.displaySemiBold(15))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
                     if member.role.isOwnerTier {
                         Text(member.role.rawValue)
                             .font(Theme.monoFont(10))

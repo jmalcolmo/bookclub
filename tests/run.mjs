@@ -441,6 +441,26 @@ await step("EMOJI: B adds an emoji tapback to the p.30 reaction", async () => {
   if (error) throw error;
 });
 
+await step("ACTIVITY: A sees who liked/replied on their reaction (profile Activity feed)", async () => {
+  // Mirrors api.js myActivity(): engagements + replies targeting MY content,
+  // excluding my own, with the actor's profile resolvable for display. Runs
+  // while B's like + emoji + reply on A's p.30 reaction all exist.
+  const { data: myRx } = await cA.from("reactions").select("id").eq("user_id", A.id);
+  const ids = (myRx || []).map((r) => r.id);
+  const { data: engs } = await cA.from("engagements").select("*")
+    .in("target_id", ids).neq("user_id", A.id);
+  assert((engs || []).some((e) => e.target_id === r30 && e.kind === "like" && e.user_id === B.id),
+    "activity missed B's like on my reaction");
+  assert((engs || []).some((e) => e.target_id === r30 && e.kind === "❤️" && e.user_id === B.id),
+    "activity missed B's emoji on my reaction");
+  const { data: reps } = await cA.from("reaction_replies").select("*")
+    .in("reaction_id", ids).neq("user_id", A.id);
+  assert((reps || []).some((r) => r.id === replyId && r.user_id === B.id),
+    "activity missed B's reply on my reaction");
+  const { data: actor } = await cA.from("profiles").select("display_name").eq("id", B.id);
+  assert((actor || []).length === 1, "activity actor profile did not resolve");
+});
+
 await step("ENGAGE GATE: B (p.40) cannot like the gated p.200 reaction", async () => {
   const { data, error } = await cB.from("engagements")
     .insert({ target_type: "reaction", target_id: r200, user_id: B.id, kind: "like" }).select().single();
@@ -803,6 +823,18 @@ await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)"
   // posts of a club A isn't a member of.
   const { data: posts } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
   assert((posts || []).length === 0, "POST LEAK: following exposed a non-member club's posts");
+});
+
+await step("FOLLOWING ROSTER: A resolves B's current book + page (followingReading)", async () => {
+  // Mirrors api.js followingReading(): the newest visible progress row per
+  // followee, decorated with its book — "Book Title  p.X / Y" on Following.
+  const { data: prog } = await cA.from("reading_progress").select("*")
+    .eq("user_id", B.id).order("updated_at", { ascending: false });
+  assert((prog || []).length >= 1, "no visible progress for the followee");
+  const latest = prog[0];
+  assert(latest.current_page === 120, "followee's current page did not resolve");
+  const { data: bks } = await cA.from("books").select("title,page_count").eq("id", latest.book_id);
+  assert(bks?.[0]?.page_count === 400, "followee's book (for 'p.X / Y') did not resolve");
 });
 
 await step("FOLLOW GATE: A can't forge a follow edge on B's behalf (RLS)", async () => {

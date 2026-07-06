@@ -92,12 +92,16 @@ private struct ReplyRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            AvatarView(profile: item.profile, size: 22)
+            ReaderLink(userId: item.reply.userId) {
+                AvatarView(profile: item.profile, size: 22)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(item.profile?.displayName ?? "Reader")
-                        .font(Theme.monoMedium(12))
-                        .foregroundStyle(Theme.textPrimary)
+                    ReaderLink(userId: item.reply.userId) {
+                        Text(item.profile?.displayName ?? "Reader")
+                            .font(Theme.monoMedium(12))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
                     Text(Format.timeAgo(item.reply.createdAt))
                         .font(Theme.monoFont(11))
                         .foregroundStyle(Theme.textMuted)

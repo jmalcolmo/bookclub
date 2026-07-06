@@ -5,7 +5,7 @@
 // data (reactions are already spoiler-filtered by RLS server-side; we never
 // re-implement gating here). No notifications table, no new DB access.
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast } from "../ui.js";
+import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { createClubModal, joinClubModal } from "./clubs.js";
@@ -305,6 +305,7 @@ function paintFeed(root, shared, ctx, reload) {
        </div>`;
 
   wireGo(host);
+  wireUserLinks(host);
   wireEngagementUI(host, reload);
 }
 
@@ -446,8 +447,9 @@ function eventCardHTML(e, ctx) {
     return `
       <article class="feed-item feed-reaction" data-go="${e.go}">
         <div class="reaction-head">
-          ${avatarHTML(r.profile, 30)}
-          <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
+          ${userLinkHTML(r.user_id, `${avatarHTML(r.profile, 30)}
+            <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>`,
+            r.profile?.display_name)}
           <span class="feed-context faint">${esc(e.where)}</span>
           <span class="reaction-page">p.${r.page}</span>
         </div>

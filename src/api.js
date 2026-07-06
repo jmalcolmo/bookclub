@@ -125,6 +125,163 @@ export async function followFeed({ limit = 40 } = {}) {
   return { items, followees };
 }
 
+// The "following" screen roster: each reader I follow with their latest visible
+// reading — the book they're on and the page they've reached out of its page
+// count. RLS decides which progress rows I can see (shared clubs + the additive
+// follow path), so a followee with no visible reading comes back with
+// progress/book null and the screen says so instead of leaking anything.
+export async function followingReading() {
+  const followees = await followingProfiles();
+  if (!followees.length) return [];
+  const ids = followees.map((p) => p.id);
+
+  const progress = unwrap(
+    await supabase.from("reading_progress").select("*").in("user_id", ids)
+      .order("updated_at", { ascending: false })
+  );
+  // Newest visible row per reader = what they're on right now.
+  const latest = {};
+  for (const p of progress) latest[p.user_id] ||= p;
+
+  const bookIds = [...new Set(Object.values(latest).map((p) => p.book_id))];
+  const books = bookIds.length
+    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
+    : [];
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+
+  return followees.map((profile) => {
+    const p = latest[profile.id];
+    const book = p ? bById[p.book_id] || null : null;
+    return { profile, progress: book ? p : null, book };
+  });
+}
+
+// ---------------------------------------------------------------- ACTIVITY ---
+// Who engaged with MY content: likes/emoji on my reactions, comments (replies),
+// reviews and progress milestones, plus replies posted under my reactions.
+// Everything here is already reader-visible to me under RLS — I can always see
+// my own rows, and engagements/replies on them route through those same gates.
+// Anyone able to engage my content necessarily shares a club with me, so their
+// profile resolves too. Returns items newest first:
+//   { id, kind: 'like'|'emoji'|'reply', emoji?, actor, what, snippet, body?,
+//     book, at, go, highlight }
+// `go` is the book route where it happened; `highlight` is the reaction id to
+// flash/scroll to (null when the target has no anchor, e.g. reviews).
+export async function myActivity({ limit = 30 } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+
+  const [myReactions, myReplies, myReviews, myProgress] = await Promise.all([
+    supabase.from("reactions").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reaction_replies").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reviews").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reading_progress").select("*").eq("user_id", user.id).then(unwrap),
+  ]);
+
+  const reactionById = Object.fromEntries(myReactions.map((r) => [r.id, r]));
+  const replyById = Object.fromEntries(myReplies.map((r) => [r.id, r]));
+  const reviewById = Object.fromEntries(myReviews.map((r) => [r.id, r]));
+  const progressById = Object.fromEntries(myProgress.map((r) => [r.id, r]));
+  const targetIds = [
+    ...Object.keys(reactionById), ...Object.keys(replyById),
+    ...Object.keys(reviewById), ...Object.keys(progressById),
+  ];
+
+  const [engs, replies] = await Promise.all([
+    targetIds.length
+      ? supabase.from("engagements").select("*").in("target_id", targetIds)
+          .neq("user_id", user.id).order("created_at", { ascending: false })
+          .limit(limit).then(unwrap)
+      : [],
+    myReactions.length
+      ? supabase.from("reaction_replies").select("*")
+          .in("reaction_id", myReactions.map((r) => r.id))
+          .neq("user_id", user.id).order("created_at", { ascending: false })
+          .limit(limit).then(unwrap)
+      : [],
+  ]);
+
+  // My replies hang off OTHER people's reactions — resolve those parents for
+  // their book ids (visible to me: I could see them when I replied).
+  const parentIds = [...new Set(
+    myReplies.map((r) => r.reaction_id).filter((id) => !reactionById[id])
+  )];
+  const parents = parentIds.length
+    ? unwrap(await supabase.from("reactions").select("*").in("id", parentIds))
+    : [];
+  const parentById = Object.fromEntries(parents.map((r) => [r.id, r]));
+
+  const bookIdOf = (e) => {
+    if (e.target_type === "reaction") return reactionById[e.target_id]?.book_id;
+    if (e.target_type === "reply") {
+      const rep = replyById[e.target_id];
+      return (reactionById[rep?.reaction_id] || parentById[rep?.reaction_id])?.book_id;
+    }
+    if (e.target_type === "review") return reviewById[e.target_id]?.book_id;
+    if (e.target_type === "progress") return progressById[e.target_id]?.book_id;
+    return null;
+  };
+
+  const bookIds = [...new Set([
+    ...engs.map(bookIdOf),
+    ...replies.map((r) => reactionById[r.reaction_id]?.book_id),
+  ].filter(Boolean))];
+  const books = bookIds.length
+    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
+    : [];
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+
+  const actorIds = [...new Set([...engs, ...replies].map((r) => r.user_id))];
+  const actors = await getProfiles(actorIds);
+  const aById = Object.fromEntries(actors.map((p) => [p.id, p]));
+
+  const whatLabel = { reaction: "reaction", reply: "comment", review: "review", progress: "progress update" };
+  const items = [];
+
+  for (const e of engs) {
+    const book = bById[bookIdOf(e)];
+    if (!book) continue; // target no longer resolvable — nothing to link to
+    let snippet = null, highlight = null;
+    if (e.target_type === "reaction") {
+      snippet = reactionById[e.target_id]?.body;
+      highlight = e.target_id;
+    } else if (e.target_type === "reply") {
+      const rep = replyById[e.target_id];
+      snippet = rep?.body;
+      highlight = rep?.reaction_id || null;
+    } else if (e.target_type === "review") {
+      snippet = reviewById[e.target_id]?.body;
+    }
+    items.push({
+      id: e.id,
+      kind: e.kind === "like" ? "like" : "emoji",
+      emoji: e.kind === "like" ? null : e.kind,
+      actor: aById[e.user_id] || null,
+      what: whatLabel[e.target_type] || e.target_type,
+      snippet, book, at: e.created_at,
+      go: `/club/${book.club_id}/book/${book.id}`,
+      highlight,
+    });
+  }
+
+  for (const r of replies) {
+    const parent = reactionById[r.reaction_id];
+    const book = bById[parent?.book_id];
+    if (!book) continue;
+    items.push({
+      id: r.id, kind: "reply", emoji: null,
+      actor: aById[r.user_id] || null,
+      what: "reaction",
+      snippet: parent.body, body: r.body, book, at: r.created_at,
+      go: `/club/${book.club_id}/book/${book.id}`,
+      highlight: r.reaction_id,
+    });
+  }
+
+  return items
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, limit);
+}
+
 // ------------------------------------------------------------------- CLUBS ---
 export async function myClubs() {
   // Clubs I'm a member of, with member counts.

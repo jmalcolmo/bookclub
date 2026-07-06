@@ -485,27 +485,36 @@ struct FeedView: View {
 
     private func reactionCard(event: FeedEvent, item: ReactionItem, contextLine: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            navigable(event.go) {
-                VStack(alignment: .leading, spacing: 8) {
+            // The author chip links to their profile; the body still links to
+            // the book. Two separate links, so the header sits OUTSIDE the
+            // card-level navigable (nested NavigationLinks don't mix).
+            HStack(spacing: 8) {
+                ReaderLink(userId: item.reaction.userId) {
                     HStack(spacing: 8) {
                         AvatarView(profile: item.profile, size: 30)
                         Text(item.profile?.displayName ?? "Reader")
                             .font(Theme.monoMedium(13))
                             .foregroundStyle(Theme.textPrimary)
-                        Text(contextLine)
-                            .font(Theme.monoFont(11))
-                            .foregroundStyle(Theme.textMuted)
-                            .lineLimit(1)
-                        Spacer()
-                        pageTag(item.reaction.page)
                     }
+                }
+                Text(contextLine)
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+                Spacer()
+                pageTag(item.reaction.page)
+            }
+            navigable(event.go) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(item.reaction.body)
                         .font(Theme.displayFont(16))
                         .foregroundStyle(Theme.textPrimary)
+                        .multilineTextAlignment(.leading)
                     Text(Format.timeAgo(item.reaction.createdAt))
                         .font(Theme.monoFont(11))
                         .foregroundStyle(Theme.textMuted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
                 await model.load()

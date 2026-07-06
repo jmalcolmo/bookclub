@@ -547,10 +547,14 @@ struct BookView: View {
     private func reviewCard(_ item: ReviewItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                AvatarView(profile: item.profile, size: 28)
-                Text(item.profile?.displayName ?? "Reader")
-                    .font(Theme.monoMedium(13))
-                    .foregroundStyle(Theme.textPrimary)
+                ReaderLink(userId: item.review.userId) {
+                    HStack(spacing: 8) {
+                        AvatarView(profile: item.profile, size: 28)
+                        Text(item.profile?.displayName ?? "Reader")
+                            .font(Theme.monoMedium(13))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                }
                 Spacer()
                 StarRatingView(rating: item.review.rating ?? 0)
                 if item.review.userId == session.userId {
@@ -785,10 +789,14 @@ private struct ReactionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                AvatarView(profile: item.profile, size: 30)
-                Text(item.profile?.displayName ?? "Reader")
-                    .font(Theme.monoMedium(13))
-                    .foregroundStyle(Theme.textPrimary)
+                ReaderLink(userId: item.reaction.userId) {
+                    HStack(spacing: 8) {
+                        AvatarView(profile: item.profile, size: 30)
+                        Text(item.profile?.displayName ?? "Reader")
+                            .font(Theme.monoMedium(13))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                }
                 Text("p.\(item.reaction.page)")
                     .font(Theme.monoMedium(11))
                     .foregroundStyle(.white)

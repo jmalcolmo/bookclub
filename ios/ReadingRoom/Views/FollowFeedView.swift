@@ -1,29 +1,37 @@
-// "People you follow" - the follow feed (port of views/people.js). A social
-// screen OUTSIDE of clubs: the readers you follow and their SOLO reading
-// (reactions + progress on books in clubs you're not in). Every row comes back
-// already filtered by RLS's additive follow paths; the client never re-implements
-// gating.
+// "Following" (port of views/people.js): the readers you follow, each with what
+// they're reading right now - the book and the page they've reached out of how
+// many. Every progress row comes back already filtered by RLS (shared clubs +
+// the additive follow paths); the client never re-implements gating. Tapping a
+// reader opens their profile (where follow/unfollow lives).
 
 import SwiftUI
 
 struct FollowFeedView: View {
-    @State private var followees: [Profile] = []
-    @State private var items: [FollowFeedItem] = []
+    @State private var readers: [FollowedReader] = []
     @State private var loading = true
     @State private var loadError: String?
 
     var body: some View {
         Group {
-            if loading && items.isEmpty && followees.isEmpty && loadError == nil {
+            if loading && readers.isEmpty && loadError == nil {
                 ProgressView().tint(Theme.yarnSage)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let err = loadError, followees.isEmpty {
+            } else if let err = loadError, readers.isEmpty {
                 ScrollView { LoadErrorView(message: err) { await load() }.padding(16) }
+            } else if readers.isEmpty {
+                ScrollView {
+                    EmptyStateView(
+                        title: "you're not following anyone yet.",
+                        hint: "open a fellow reader's profile and tap Follow to see what they're reading here."
+                    )
+                    .padding(16)
+                }
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        followingSection
-                        feedSection
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(readers) { reader in
+                            readerRow(reader)
+                        }
                     }
                     .padding(16)
                 }
@@ -36,110 +44,64 @@ struct FollowFeedView: View {
         .refreshable { await load() }
     }
 
-    @ViewBuilder
-    private var followingSection: some View {
-        if followees.isEmpty {
-            EmptyStateView(
-                title: "you're not following anyone yet.",
-                hint: "open a fellow reader's profile and tap Follow to see their solo reading here."
-            )
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                StampTitle(text: "Following (\(followees.count))", small: true)
-                ForEach(followees) { profile in
-                    HStack(spacing: 10) {
-                        NavigationLink(value: Route.reader(profile.id)) {
-                            HStack(spacing: 10) {
-                                AvatarView(profile: profile, size: 40)
-                                Text(profile.displayName)
-                                    .font(Theme.displaySemiBold(16))
-                                    .foregroundStyle(Theme.textPrimary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
-                        Button("unfollow") { unfollow(profile.id) }
-                            .buttonStyle(.ghostSmall)
-                    }
-                    .patch(seed: profile.id.uuidString, padding: 10)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var feedSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StampTitle(text: "Their Solo Reading", small: true)
-            if items.isEmpty {
-                EmptyStateView(
-                    title: "nothing to show yet.",
-                    hint: "as the people you follow read on their own, their reactions and progress land here."
-                )
-            } else {
-                ForEach(items) { item in
-                    feedRow(item)
-                }
-            }
-        }
-    }
-
-    private func feedRow(_ item: FollowFeedItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func readerRow(_ reader: FollowedReader) -> some View {
+        NavigationLink(value: Route.reader(reader.profile.id)) {
             HStack(alignment: .center, spacing: 12) {
-                AvatarView(profile: item.profile, size: 36)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.profile?.displayName ?? "Reader")
-                        .font(Theme.displaySemiBold(15))
+                AvatarView(profile: reader.profile, size: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(reader.profile.displayName)
+                        .font(Theme.displaySemiBold(16))
                         .foregroundStyle(Theme.textPrimary)
-                    Text(lineFor(item))
-                        .font(Theme.monoFont(11))
-                        .foregroundStyle(Theme.textMuted)
-                        .multilineTextAlignment(.leading)
+                    readingLine(reader)
                 }
                 Spacer()
-                Text(Format.timeAgo(item.at))
-                    .font(Theme.monoFont(11))
-                    .foregroundStyle(Theme.textMuted)
+                if let progress = reader.progress {
+                    Text(Format.timeAgo(progress.updatedAt))
+                        .font(Theme.monoFont(11))
+                        .foregroundStyle(Theme.textMuted)
+                }
             }
-            if item.kind == .reaction, let body = item.body, !body.isEmpty {
-                Text(body)
-                    .font(Theme.displayFont(15))
-                    .foregroundStyle(Theme.textPrimary)
-                    .padding(.leading, 48)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .patch(seed: item.id.uuidString, padding: 14)
+        .buttonStyle(.plain)
+        .patch(seed: reader.id.uuidString, padding: 14)
     }
 
-    private func lineFor(_ item: FollowFeedItem) -> String {
-        let title = item.book?.title ?? "a book"
-        switch item.kind {
-        case .reaction:
-            return "reacted on p.\(item.page) of \(title)"
-        case .progress:
-            if item.status == .finished { return "finished \(title)" }
-            return "reached p.\(item.page) of \(title)"
+    // "Book Title  p.211 / 416" - or "finished Book Title", or an honest shrug
+    // when RLS shows us none of their reading.
+    @ViewBuilder
+    private func readingLine(_ reader: FollowedReader) -> some View {
+        if let book = reader.book, let progress = reader.progress {
+            HStack(spacing: 6) {
+                Text(progress.status == .finished ? "finished \(book.title)" : book.title)
+                    .font(Theme.displayFont(14))
+                    .italic()
+                    .foregroundStyle(Theme.yarnRust)
+                    .lineLimit(1)
+                if progress.status != .finished {
+                    Text(pageLabel(progress, book))
+                        .font(Theme.monoMedium(11))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 1)
+                        .padding(.horizontal, 7)
+                        .background(Capsule().fill(Theme.yarnSlate))
+                }
+            }
+        } else {
+            Text("no visible reading right now")
+                .font(Theme.monoFont(11))
+                .foregroundStyle(Theme.textMuted)
         }
     }
 
-    private func unfollow(_ userId: UUID) {
-        Task {
-            do {
-                try await API.unfollow(userId)
-                await load()
-            } catch {
-                loadError = error.localizedDescription
-            }
-        }
+    private func pageLabel(_ progress: ReadingProgress, _ book: Book) -> String {
+        if let count = book.pageCount { return "p.\(progress.currentPage) / \(count)" }
+        return "p.\(progress.currentPage)"
     }
 
     private func load() async {
         do {
-            let feed = try await API.followFeed()
-            followees = feed.followees
-            items = feed.items
+            readers = try await API.followingReading()
             loadError = nil
         } catch {
             loadError = error.localizedDescription
