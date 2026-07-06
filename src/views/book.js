@@ -30,8 +30,8 @@ export async function renderBook({ params }) {
       <aside class="feed-rail feed-rail-left book-rail">
         <button class="btn-back" data-nav="club">← back to club</button>
         <div class="patch book-rail-card">
-          ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="">`
-                           : `<div class="book-cover lg book-cover-blank">📖</div>`}
+          ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+                           : `<div class="book-cover lg book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
           <div class="book-rail-info">
             <h2 class="book-title">${esc(book.title)}</h2>
             <p class="book-author">${esc(book.author || "")}</p>
@@ -78,11 +78,11 @@ export async function renderBook({ params }) {
       <aside class="feed-rail feed-rail-right">
         <div class="progress-panel patch">
           <h4>my progress</h4>
-          <form data-progress class="progress-form">
+          <form data-progress class="progress-form" aria-label="My reading progress">
             <label class="inline-field">page
               <input name="page" type="number" min="0" max="${book.page_count || 100000}"
-                value="${myPage}" /></label>
-            ${book.page_count ? `<span class="faint">/ ${book.page_count}</span>` : ""}
+                value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
+            ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
             ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
             <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
             <button type="submit" class="btn-primary small">save</button>
@@ -105,7 +105,7 @@ function deadlineNote(dl) {
 function reviewFormHTML(rev) {
   const r = rev?.rating || 0;
   const stars = [1,2,3,4,5].map((n) =>
-    `<button type="button" class="star ${n <= r ? "on" : ""}" data-star="${n}">★</button>`).join("");
+    `<button type="button" class="star ${n <= r ? "on" : ""}" data-star="${n}" aria-label="${n} star${n === 1 ? "" : "s"}" aria-pressed="${n <= r}">★</button>`).join("");
   return `
     <form data-review class="review-form">
       <div class="star-row" data-stars>${stars}<input type="hidden" name="rating" value="${r}"></div>
@@ -121,7 +121,7 @@ function renderReviews(reviews, myId) {
       <div class="review-head">${avatarHTML(rv.profile, 30)}
         <span class="review-name">${esc(rv.profile?.display_name || "Reader")}</span>
         <span class="review-stars">${"★".repeat(rv.rating || 0)}${"☆".repeat(5 - (rv.rating || 0))}</span>
-        ${rv.user_id === myId ? `<button class="review-del" data-del-review="${rv.id}" title="delete">×</button>` : ""}</div>
+        ${rv.user_id === myId ? `<button class="review-del" data-del-review="${rv.id}" title="Delete review" aria-label="Delete review">×</button>` : ""}</div>
       ${rv.body ? `<p class="review-body">${esc(rv.body)}</p>` : ""}
     </div>`).join("");
 }
@@ -136,9 +136,9 @@ function reactionCardHTML(r, ctx, book) {
         <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
         <span class="reaction-page">p.${r.page}</span>
         <span class="reaction-time faint">${timeAgo(r.created_at)}</span>
-        ${mine ? `<span class="reaction-controls">
-          <button class="reaction-edit" data-edit="${r.id}" title="edit">✎</button>
-          <button class="reaction-del" data-del="${r.id}" title="delete">×</button>
+        ${mine ? `<span class="reaction-controls" role="group" aria-label="Reaction actions">
+          <button class="reaction-edit" data-edit="${r.id}" title="Edit reaction" aria-label="Edit reaction">✎</button>
+          <button class="reaction-del" data-del="${r.id}" title="Delete reaction" aria-label="Delete reaction">×</button>
         </span>` : ""}
       </div>
       <p class="reaction-body" data-body="${r.id}">${esc(r.body)}</p>

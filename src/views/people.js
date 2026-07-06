@@ -53,15 +53,26 @@ function paintFollowing(el, followees, streamEl) {
     <h3 class="stamp-title small">FOLLOWING (${followees.length})</h3>
     <div class="people-chips">
       ${followees.map((p) => `
-        <div class="people-chip patch" data-user="${esc(p.id)}">
+        <div class="people-chip patch" data-user="${esc(p.id)}" role="button" tabindex="0" aria-label="View ${esc(p.display_name || "Reader")}'s profile">
           ${avatarHTML(p, 40)}
           <span class="people-chip-name">${esc(p.display_name || "Reader")}</span>
-          <button type="button" class="btn-ghost small" data-unfollow="${esc(p.id)}">unfollow</button>
+          <button type="button" class="btn-ghost small" data-unfollow="${esc(p.id)}" aria-label="Unfollow ${esc(p.display_name || "Reader")}">unfollow</button>
         </div>`).join("")}
     </div>`;
 
-  el.querySelectorAll("[data-user]").forEach((chip) =>
-    chip.addEventListener("click", () => navigate(`/user/${chip.dataset.user}`)));
+  el.querySelectorAll("[data-user]").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      // Don't navigate when the unfollow button inside the chip was clicked.
+      if (e.target.closest("[data-unfollow]")) return;
+      navigate(`/user/${chip.dataset.user}`);
+    });
+    chip.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        navigate(`/user/${chip.dataset.user}`);
+      }
+    });
+  });
 
   el.querySelectorAll("[data-unfollow]").forEach((b) =>
     b.addEventListener("click", async (e) => {
@@ -88,8 +99,15 @@ function paintStream(el, items) {
     return;
   }
   el.innerHTML = items.map(rowHTML).join("");
-  el.querySelectorAll("[data-user]").forEach((head) =>
-    head.addEventListener("click", () => navigate(`/user/${head.dataset.user}`)));
+  el.querySelectorAll("[data-user]").forEach((head) => {
+    head.addEventListener("click", () => navigate(`/user/${head.dataset.user}`));
+    head.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        navigate(`/user/${head.dataset.user}`);
+      }
+    });
+  });
 }
 
 function rowHTML(i) {
@@ -106,7 +124,7 @@ function rowHTML(i) {
     ? `<p class="people-body">${esc(i.body)}</p>` : "";
   return `
     <article class="people-row patch">
-      <div class="people-row-head"${i.profile ? ` data-user="${esc(i.profile.id)}"` : ""}>
+      <div class="people-row-head"${i.profile ? ` data-user="${esc(i.profile.id)}" role="button" tabindex="0" aria-label="View ${esc(i.profile.display_name || "Reader")}'s profile"` : ""}>
         ${avatarHTML(i.profile, 36)}
         <div class="people-row-meta">
           <span class="people-who">${who}</span>

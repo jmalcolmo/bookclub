@@ -192,8 +192,8 @@ function paintReadingRail(root, data) {
     return `
       <button class="reading-item" data-go="/club/${club.id}/book/${book.id}">
         ${book.cover_url
-          ? `<img class="book-cover sm" src="${esc(book.cover_url)}" alt="">`
-          : `<div class="book-cover sm book-cover-blank">📖</div>`}
+          ? `<img class="book-cover sm" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+          : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
         <span class="reading-meta">
           <span class="reading-title">${esc(book.title)}</span>
           <span class="reading-club faint">${esc(club.name)}</span>
@@ -249,7 +249,7 @@ function paintAnnouncements(root, shared, ctx, reload) {
         <p class="announce-body">${esc(a.body)}</p>
         <div class="card-foot">${engagementBarHTML("announcement", a.id, ctx.engOf(a.id), ctx.nameOf, ctx.myId)}</div>
       </div>
-      <button class="announce-dismiss" data-dismiss="${a.id}" title="dismiss">×</button>
+      <button class="announce-dismiss" data-dismiss="${a.id}" title="Dismiss announcement" aria-label="Dismiss announcement">×</button>
     </div>`).join("");
 
   host.innerHTML = composer + cards;

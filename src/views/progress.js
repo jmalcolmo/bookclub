@@ -65,15 +65,15 @@ function card({ club, book, mine }) {
     : mine ? `page ${mine.current_page}${book.page_count ? ` / ${book.page_count}` : ""}`
     : "not started";
   return `
-    <button class="progress-card patch" data-go="/club/${club.id}/book/${book.id}">
+    <button class="progress-card patch" data-go="/club/${club.id}/book/${book.id}" aria-label="${esc(book.title)} — ${esc(club.name)} — ${status}">
       ${book.cover_url
-        ? `<img class="book-cover" src="${esc(book.cover_url)}" alt="">`
-        : `<div class="book-cover book-cover-blank">📖</div>`}
+        ? `<img class="book-cover" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+        : `<div class="book-cover book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
       <div class="progress-card-info">
         <strong class="book-title">${esc(book.title)}</strong>
         <span class="book-author faint">${esc(book.author || "")}</span>
         <span class="progress-club faint">${esc(club.name)}</span>
-        <span class="progress-bar"><span class="progress-fill" style="width:${pct}%"></span></span>
+        <span class="progress-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${pct}% read"><span class="progress-fill" style="width:${pct}%"></span></span>
         <span class="progress-foot">
           <span class="progress-label faint">${status}</span>${dlChip}
           <span class="progress-pct">${pct}%</span>

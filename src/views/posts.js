@@ -170,13 +170,13 @@ function postCardHTML(p, myId) {
         ${avatarHTML(p.profile, 30)}
         <span class="post-name">${esc(p.profile?.display_name || "Reader")}</span>
         <span class="post-time faint">${timeAgo(p.created_at)}</span>
-        ${mine ? `<span class="post-controls">
-          ${p.body ? `<button class="post-edit" data-edit-post="${p.id}" title="edit">✎</button>` : ""}
-          <button class="post-del" data-del-post="${p.id}" title="delete">×</button>
+        ${mine ? `<span class="post-controls" role="group" aria-label="Post actions">
+          ${p.body ? `<button class="post-edit" data-edit-post="${p.id}" title="Edit post" aria-label="Edit post">✎</button>` : ""}
+          <button class="post-del" data-del-post="${p.id}" title="Delete post" aria-label="Delete post">×</button>
         </span>` : ""}
       </div>
       ${p.body ? `<p class="post-body" data-post-body="${p.id}">${esc(p.body)}</p>` : ""}
-      ${p.image_url ? `<img class="post-image" src="${esc(p.image_url)}" alt="" loading="lazy">` : ""}
+      ${p.image_url ? `<img class="post-image" src="${esc(p.image_url)}" alt="Post photo by ${esc(p.profile?.display_name || "Reader")}" loading="lazy">` : ""}
       ${mine && p.body ? `<form class="post-edit-form" data-post-edit-form="${p.id}" hidden>
         <textarea name="body" rows="3" maxlength="800" required>${esc(p.body)}</textarea>
         <div class="edit-actions">
