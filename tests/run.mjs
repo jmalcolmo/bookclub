@@ -631,6 +631,32 @@ await step("profile update", async () => {
   if (error) throw error;
 });
 
+// --- push: device-token registration (device_tokens is owner-only; real APNs delivery
+//     is device-only and out of scope here — this covers the RLS registerDeviceToken uses) ---
+await step("PUSH: A registers a device token (registerDeviceToken upsert as self)", async () => {
+  // Mirror api.js registerDeviceToken: upsert on the unique token, owned by the caller.
+  const { data, error } = await cA.from("device_tokens")
+    .upsert(
+      { user_id: A.id, token: `tok-${tag}`, platform: "ios", environment: "sandbox", updated_at: new Date().toISOString() },
+      { onConflict: "token" }
+    )
+    .select().single();
+  if (error) throw error;
+  assert(data.user_id === A.id && data.token === `tok-${tag}`, "device token was not stored for the caller");
+});
+
+await step("PUSH GATE: B cannot read A's device token (device_tokens_select_own)", async () => {
+  const { data } = await cB.from("device_tokens").select("*").eq("user_id", A.id);
+  assert((data || []).length === 0, "DEVICE TOKEN LEAK: another user read A's device token");
+});
+
+await step("PUSH GATE: B cannot register a token as A (device_tokens_insert_own with-check)", async () => {
+  // The insert with-check requires user_id = auth.uid(); forging A's id must be rejected.
+  const { error } = await cB.from("device_tokens")
+    .insert({ user_id: A.id, token: `forged-${tag}`, platform: "ios", environment: "sandbox" });
+  assert(error, "FORGERY: B inserted a device token owned by A");
+});
+
 // --- avatar / club-icon uploads (the cropper bakes a square JPEG, then this path runs) ---
 await step("AVATAR UPLOAD: A uploads a cropped icon to own folder and sets avatar_url", async () => {
   // Mirror profile.js: upload the baked jpeg under `${user.id}/...`, then save the URL.

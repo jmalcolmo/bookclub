@@ -73,6 +73,7 @@ after finishing · wheel selection · vote tally · finalize selection (decide w
 **selection gate (non-creator cannot finalize a
 selection)** · **book gate (member cannot finish the
 book for the club)** · creator marks finished → history · profile update ·
+**push: register device token (owner-only) + gates (another user cannot read or forge your token)** ·
 **book-delete gate (member, not owner/picker, cannot delete)** · owner deletes a book ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
