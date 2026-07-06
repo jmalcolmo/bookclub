@@ -6,7 +6,14 @@ import { supabase } from "../supabaseClient.js";
 import { signOut } from "../auth.js";
 import { cropImage } from "../imageCropper.js";
 
-export async function renderProfile() {
+export async function renderProfile({ params } = {}) {
+  // A profile can be MINE (the editable self view) or SOMEONE ELSE'S (read-only,
+  // with a follow/unfollow control). params.id present -> another reader.
+  const viewingId = params?.id;
+  if (viewingId && viewingId !== store.user.id) {
+    return renderOtherProfile(viewingId);
+  }
+
   const p = store.profile || (await api.getProfile(store.user.id));
   store.profile = p;
 
@@ -92,6 +99,64 @@ export async function renderProfile() {
         document.dispatchEvent(new CustomEvent("profile-updated"));
         renderProfile();
       } catch (err) { toast(err.message, "error"); }
+    });
+  });
+}
+
+// Another reader's profile: read-only, with a follow/unfollow control. The
+// follow graph lives OUTSIDE clubs; following them surfaces their solo reading
+// in your "people you follow" feed. RLS returns their profile only if you share
+// a club OR already follow them, so a brittle load is expected for strangers.
+async function renderOtherProfile(userId) {
+  let p = null;
+  try { p = await api.getProfile(userId); } catch { /* not visible under RLS */ }
+  let followed = false;
+  try { followed = await api.isFollowing(userId); } catch { /* default false */ }
+
+  if (!p) {
+    render(`
+      <div class="screen-pad profile-screen">
+        <div class="screen-header">
+          <button class="btn-back" data-back>← back</button>
+          <h2 class="stamp-title small">READER</h2><span></span></div>
+        <div class="empty-state"><p>this reader isn't visible to you.</p>
+          <p class="faint">you can see a reader once you share a club or follow them.</p></div>
+      </div>
+    `, (root) => {
+      root.querySelector("[data-back]").addEventListener("click", () => history.back());
+    });
+    return;
+  }
+
+  render(`
+    <div class="screen-pad profile-screen">
+      <div class="screen-header">
+        <button class="btn-back" data-back>← back</button>
+        <h2 class="stamp-title small">READER</h2><span></span></div>
+
+      <div class="profile-card patch">
+        <div class="profile-avatar-wrap">${avatarHTML(p, 96)}</div>
+        <h3 class="stamp-title small other-name">${esc(p.display_name || "Reader")}</h3>
+        ${p.bio ? `<p class="other-bio">${esc(p.bio)}</p>` : `<p class="faint">no bio yet.</p>`}
+        <button type="button" class="${followed ? "btn-ghost" : "btn-primary"}" data-follow>
+          ${followed ? "Following ✓" : "Follow"}
+        </button>
+        <p class="faint follow-hint">following surfaces their solo reading on your
+          “following” feed.</p>
+      </div>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-back]").addEventListener("click", () => history.back());
+    const btn = root.querySelector("[data-follow]");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        if (followed) { await api.unfollow(userId); followed = false; toast("Unfollowed", "success"); }
+        else { await api.follow(userId); followed = true; toast("Following", "success"); }
+        btn.className = followed ? "btn-ghost" : "btn-primary";
+        btn.textContent = followed ? "Following ✓" : "Follow";
+      } catch (err) { toast(err.message, "error"); }
+      finally { btn.disabled = false; }
     });
   });
 }

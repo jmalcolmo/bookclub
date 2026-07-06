@@ -72,6 +72,9 @@ book for the club)** · creator marks finished → history · profile update ·
 **book-delete gate (member, not owner/picker, cannot delete)** · owner deletes a book ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
+**follows: A follows B and sees B's SOLO reading (progress/reaction/book/profile) on a club A
+isn't in — the additive follow RLS path — while a non-follower sees nothing; follow only from
+self; unfollow re-locks the solo view live** ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
 ## MAINTENANCE RULE (important)

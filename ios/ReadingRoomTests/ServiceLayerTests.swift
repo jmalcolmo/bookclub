@@ -463,6 +463,78 @@ final class ServiceLayerTests: XCTestCase {
             .eq("club_id", value: club.id.uuidString)
             .eq("user_id", value: b.uuidString).execute()
 
+        // ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) ----------
+        // B owns a private club A never joins, with a book, a reaction and progress.
+        // A follows B and should see B's SOLO reading there WITHOUT joining — the
+        // additive follow RLS path. Crucially this must NOT be a club-gate bypass:
+        // A is not a member, and it only surfaces B's OWN authored reading.
+        struct NewClubRaw: Encodable { let name: String; let accent: String; let createdBy: UUID }
+        let bClub: Club = try await cB.from("clubs")
+            .insert(NewClubRaw(name: "B Solo Club \(tag)", accent: "yarn-mauve", createdBy: b))
+            .select().single().execute().value
+        struct NewBookRaw: Encodable { let clubId: UUID; let title: String; let pageCount: Int; let pickedBy: UUID; let status: String }
+        let bBook: Book = try await cB.from("books")
+            .insert(NewBookRaw(clubId: bClub.id, title: "B Solo Book \(tag)", pageCount: 400, pickedBy: b, status: "current"))
+            .select().single().execute().value
+        struct BProgress: Encodable { let bookId: UUID; let userId: UUID; let currentPage: Int; let status: String }
+        _ = try await cB.from("reading_progress")
+            .upsert(BProgress(bookId: bBook.id, userId: b, currentPage: 120, status: "reading"),
+                    onConflict: "book_id,user_id").execute()
+        struct BReaction: Encodable { let bookId: UUID; let userId: UUID; let page: Int; let body: String }
+        let bReaction: Reaction = try await cB.from("reactions")
+            .insert(BReaction(bookId: bBook.id, userId: b, page: 90, body: "solo thought \(tag)"))
+            .select().single().execute().value
+
+        // BEFORE following: A can't read B's solo profile/reactions/progress at all.
+        let preFollowProfiles: [Profile] = try await supabase.from("profiles").select()
+            .eq("id", value: b.uuidString).execute().value
+        XCTAssertTrue(preFollowProfiles.isEmpty, "FOLLOW LEAK: saw a non-co-member profile before following")
+        let preFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(preFollowReactions.isEmpty, "FOLLOW LEAK: saw a non-member's reaction before following")
+        let preFeed = try await API.followFeed()
+        XCTAssertFalse(preFeed.items.contains { $0.id == bReaction.id },
+                       "FOLLOW LEAK: B's reaction showed in the feed before A followed")
+
+        // A follows B (the app API under test), then the follow paths open up.
+        _ = try await API.follow(b)
+        XCTAssertTrue(try await API.isFollowing(b), "follow did not register")
+        XCTAssertTrue(try await API.following().contains(b), "following() missing the followee")
+        XCTAssertTrue(try await API.followingProfiles().contains { $0.id == b },
+                      "followingProfiles() missing the followee's profile")
+
+        // Now A sees B's SOLO reaction + progress via the additive path.
+        let postFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(postFollowReactions.contains { $0.id == bReaction.id },
+                      "follow path did not expose the followee's solo reaction")
+        let feed = try await API.followFeed()
+        XCTAssertTrue(feed.followees.contains { $0.id == b }, "feed roster missing the followee")
+        XCTAssertTrue(feed.items.contains { $0.kind == .reaction && $0.id == bReaction.id },
+                      "follow feed missing the followee's reaction")
+        XCTAssertTrue(feed.items.contains { $0.kind == .progress },
+                      "follow feed missing the followee's progress")
+
+        // Only follower A may follow FROM themselves: A can't forge B->A.
+        struct ForgedFollow: Encodable { let followerId: UUID; let followeeId: UUID }
+        var forgeBlocked = false
+        do {
+            _ = try await supabase.from("follows")
+                .insert(ForgedFollow(followerId: b, followeeId: a))
+                .select().single().execute()
+        } catch { forgeBlocked = true }
+        XCTAssertTrue(forgeBlocked, "FOLLOW LEAK: forged a follow edge on someone else's behalf")
+
+        // A unfollows -> the solo view re-locks live (RLS reads the graph each time).
+        try await API.unfollow(b)
+        XCTAssertFalse(try await API.isFollowing(b), "unfollow did not remove the edge")
+        let afterUnfollow: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(afterUnfollow.isEmpty, "FOLLOW LEAK: solo reaction still visible after unfollowing")
+
+        // Clean up B's solo club (cascades its book/progress/reactions).
+        _ = try await cB.from("clubs").delete().eq("id", value: bClub.id.uuidString).execute()
+
         // ---- announcements: non-admin cannot broadcast ----------------------------
         var broadcastBlocked = false
         do { _ = try await API.postAnnouncement(body: "should be blocked \(tag)") }

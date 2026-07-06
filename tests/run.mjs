@@ -643,6 +643,73 @@ await step("B can leave the club", async () => {
   if (error) throw error;
 });
 
+// ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) -------------
+// B owns a private club A never joins, with a book, a reaction and progress.
+// A follows B and then sees B's SOLO reading via the ADDITIVE follow RLS path —
+// without joining. This must never be a club-gate bypass: A isn't a member, and
+// only B's OWN authored reading is surfaced. Mirrors src/api.js follows + feed.
+let bClub, bBook, bReaction;
+await step("FOLLOW SETUP: B owns a solo club A never joins", async () => {
+  const { data: c, error: ce } = await cB.from("clubs")
+    .insert({ name: `B Solo Club ${tag}`, accent: "yarn-mauve", created_by: B.id }).select().single();
+  if (ce) throw ce;
+  bClub = c;
+  const { data: bk, error: be } = await cB.from("books")
+    .insert({ club_id: bClub.id, title: `B Solo Book ${tag}`, page_count: 400, picked_by: B.id, status: "current" })
+    .select().single();
+  if (be) throw be;
+  bBook = bk;
+  const { error: pe } = await cB.from("reading_progress")
+    .upsert({ book_id: bBook.id, user_id: B.id, current_page: 120, status: "reading" }, { onConflict: "book_id,user_id" });
+  if (pe) throw pe;
+  const { data: rx, error: re } = await cB.from("reactions")
+    .insert({ book_id: bBook.id, user_id: B.id, page: 90, body: `solo thought ${tag}` }).select().single();
+  if (re) throw re;
+  bReaction = rx;
+});
+
+await step("FOLLOW GATE: before following, A can't see B's solo profile/reaction (RLS)", async () => {
+  const { data: profs } = await cA.from("profiles").select("id").eq("id", B.id);
+  assert((profs || []).length === 0, "FOLLOW LEAK: saw a non-co-member profile before following");
+  const { data: rxs } = await cA.from("reactions").select("id").eq("book_id", bBook.id);
+  assert((rxs || []).length === 0, "FOLLOW LEAK: saw a non-member's reaction before following");
+});
+
+await step("A follows B (RLS: only from self)", async () => {
+  const { error } = await cA.from("follows").insert({ follower_id: A.id, followee_id: B.id });
+  if (error) throw error;
+  const { data } = await cA.from("follows").select("followee_id").eq("follower_id", A.id).eq("followee_id", B.id);
+  assert((data || []).length === 1, "follow did not register");
+});
+
+await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)", async () => {
+  const { data: rxs } = await cA.from("reactions").select("id,page").eq("book_id", bBook.id);
+  assert((rxs || []).some((r) => r.id === bReaction.id), "follow path did not expose the followee's solo reaction");
+  const { data: prog } = await cA.from("reading_progress").select("current_page").eq("book_id", bBook.id).eq("user_id", B.id);
+  assert((prog || []).length === 1, "follow path did not expose the followee's solo progress");
+  const { data: prof } = await cA.from("profiles").select("id").eq("id", B.id);
+  assert((prof || []).length === 1, "follow path did not expose the followee's profile");
+  const { data: bk } = await cA.from("books").select("id").eq("id", bBook.id);
+  assert((bk || []).length === 1, "follow path did not expose the followee's book row for the feed");
+});
+
+await step("FOLLOW GATE: A can't forge a follow edge on B's behalf (RLS)", async () => {
+  const { data, error } = await cA.from("follows").insert({ follower_id: B.id, followee_id: A.id }).select().single();
+  assert(error && !data, "FOLLOW LEAK: forged a follow edge on someone else's behalf");
+});
+
+await step("A unfollows B → the solo view re-locks live", async () => {
+  const { error } = await cA.from("follows").delete().eq("follower_id", A.id).eq("followee_id", B.id);
+  if (error) throw error;
+  const { data: rxs } = await cA.from("reactions").select("id").eq("book_id", bBook.id);
+  assert((rxs || []).length === 0, "FOLLOW LEAK: solo reaction still visible after unfollowing");
+});
+
+await step("cleanup: B removes the solo club (cascades)", async () => {
+  const { error } = await cB.from("clubs").delete().eq("id", bClub.id);
+  if (error) throw error;
+});
+
 // ---- global announcements (admin broadcast) --------------------------------
 await step("ANNOUNCEMENT GATE: a non-admin cannot broadcast (RLS)", async () => {
   // announcements_insert_admin: with check is_admin() — A is not an admin.

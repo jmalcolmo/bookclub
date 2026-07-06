@@ -520,6 +520,29 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .avatar-upload { cursor: pointer; }
 .profile-form { width: 100%; max-width: 420px; text-align: left; }
 .signed-as { margin-top: 6px; }
+.other-name { margin: 2px 0 0; }
+.other-bio { max-width: 420px; margin: 0; color: var(--text-primary); }
+.follow-hint { max-width: 360px; margin: 2px 0 0; }
+
+/* ---- PEOPLE YOU FOLLOW (follow feed) ---- */
+.people-following { margin-bottom: 26px; }
+.people-following .stamp-title,
+.people-feed .stamp-title { margin-bottom: 12px; }
+.people-chips { display: flex; flex-wrap: wrap; gap: 12px; }
+.people-chip { flex-direction: row; align-items: center; gap: 10px; min-height: 0;
+  padding: 8px 12px; cursor: pointer; }
+.people-chip-name { font-family: var(--font-display); font-weight: 600; }
+.people-chip .btn-ghost { margin-left: 4px; }
+.people-stream { display: flex; flex-direction: column; gap: 14px; }
+.people-row { flex-direction: column; align-items: stretch; text-align: left; gap: 8px;
+  min-height: 0; padding: 14px 16px; }
+.people-row-head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.people-row-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.people-who { font-family: var(--font-display); font-weight: 700; color: var(--text-primary); }
+.people-what { font-family: var(--font-mono); font-size: .78rem; }
+.people-when { font-family: var(--font-mono); font-size: .74rem; white-space: nowrap; }
+.people-book { font-style: italic; color: var(--yarn-rust); }
+.people-body { margin: 0; padding-left: 48px; color: var(--text-primary); }
 
 /* ---- IMAGE CROPPER (avatar / club icon framing) ---- */
 .cropper-backdrop { position: fixed; inset: 0; z-index: 1200;
