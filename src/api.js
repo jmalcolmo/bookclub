@@ -448,6 +448,23 @@ export async function postAnnouncement(body) {
   );
 }
 
+// ------------------------------------------------------- DEVICE TOKENS ---
+// Store an APNs device token for the signed-in user so the push Edge Function
+// can find who to notify. Owner-only under RLS; unique on token, so re-register
+// upserts. `environment` is 'sandbox' (dev builds) or 'production'.
+export async function registerDeviceToken(token, { platform = "ios", environment = "sandbox" } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("not signed in");
+  return unwrap(
+    await supabase.from("device_tokens")
+      .upsert(
+        { user_id: user.id, token, platform, environment, updated_at: new Date().toISOString() },
+        { onConflict: "token" }
+      )
+      .select().single()
+  );
+}
+
 // ------------------------------------------------------------- REALTIME ---
 export function subscribe(channelName, table, filter, onChange) {
   const ch = supabase

@@ -738,6 +738,46 @@ begin
 end $$;
 
 -- ============================================================================
+-- DEVICE TOKENS  (APNs push registration; owner-only)
+-- ============================================================================
+-- One row per (user, APNs device token). The iOS app registers for remote
+-- notifications, then upserts the hex token here so the push Edge Function can
+-- look up who to notify. Owner-only: a user may only see/write their OWN tokens.
+-- The Edge Function reads across users via the service-role key (bypasses RLS).
+create table if not exists device_tokens (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  token       text not null,             -- APNs device token, hex-encoded
+  platform    text not null default 'ios' check (platform in ('ios')),
+  environment text not null default 'sandbox'
+                check (environment in ('sandbox','production')),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (token)
+);
+
+create index if not exists device_tokens_user_idx on device_tokens(user_id);
+
+alter table device_tokens enable row level security;
+
+-- Owner-only: a user sees and manages only their own device tokens.
+drop policy if exists "device_tokens_select_own" on device_tokens;
+create policy "device_tokens_select_own" on device_tokens
+  for select using (user_id = auth.uid());
+
+drop policy if exists "device_tokens_insert_own" on device_tokens;
+create policy "device_tokens_insert_own" on device_tokens
+  for insert with check (user_id = auth.uid());
+
+drop policy if exists "device_tokens_update_own" on device_tokens;
+create policy "device_tokens_update_own" on device_tokens
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "device_tokens_delete_own" on device_tokens;
+create policy "device_tokens_delete_own" on device_tokens
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
 -- STORAGE BUCKETS  (avatars + club cover images)
 -- ============================================================================
 insert into storage.buckets (id, name, public)
