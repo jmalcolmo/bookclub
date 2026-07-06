@@ -69,6 +69,9 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # XcodeGen derives TEST_HOST from the target name, but Shared.xcconfig
+        # renames the product to "The Reading Room" - point at the real bundle.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/The Reading Room.app/The Reading Room"
 
   ReadingRoomUITests:
     type: bundle.ui-testing

@@ -554,9 +554,12 @@ final class ServiceLayerTests: XCTestCase {
 
         // A follows B (the app API under test), then the follow paths open up.
         _ = try await API.follow(b)
-        XCTAssertTrue(try await API.isFollowing(b), "follow did not register")
-        XCTAssertTrue(try await API.following().contains(b), "following() missing the followee")
-        XCTAssertTrue(try await API.followingProfiles().contains { $0.id == b },
+        let isFollowing = try await API.isFollowing(b)
+        XCTAssertTrue(isFollowing, "follow did not register")
+        let following = try await API.following()
+        XCTAssertTrue(following.contains(b), "following() missing the followee")
+        let followingProfiles = try await API.followingProfiles()
+        XCTAssertTrue(followingProfiles.contains { $0.id == b },
                       "followingProfiles() missing the followee's profile")
 
         // Now A sees B's SOLO reaction + progress via the additive path.
@@ -597,7 +600,8 @@ final class ServiceLayerTests: XCTestCase {
 
         // A unfollows -> the solo view re-locks live (RLS reads the graph each time).
         try await API.unfollow(b)
-        XCTAssertFalse(try await API.isFollowing(b), "unfollow did not remove the edge")
+        let stillFollowing = try await API.isFollowing(b)
+        XCTAssertFalse(stillFollowing, "unfollow did not remove the edge")
         let afterUnfollow: [Reaction] = try await supabase.from("reactions").select()
             .eq("book_id", value: bBook.id.uuidString).execute().value
         XCTAssertTrue(afterUnfollow.isEmpty, "FOLLOW LEAK: solo reaction still visible after unfollowing")
