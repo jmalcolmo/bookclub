@@ -152,6 +152,51 @@ final class ServiceLayerTests: XCTestCase {
         XCTAssertNotEqual(afterHijack.description, "hijacked",
                           "CLUB UPDATE LEAK: a non-creator member edited club settings")
 
+        // ---- club posts: member-scoped, NON-spoiler-gated -------------------
+        // A uploads a photo under the club folder (member-scoped storage RLS)
+        // then creates a text+photo post through the app API under test.
+        var postImagePath: String?
+        let postUrl = try await API.uploadPostImage(clubId: club.id, jpegData: Self.tinyJPEG)
+        postImagePath = String(postUrl.split(separator: "/").suffix(2).joined(separator: "/"))
+        let post = try await API.addPost(clubId: club.id, body: "hello club \(tag)", imageUrl: postUrl)
+        XCTAssertEqual(post.imageUrl, postUrl, "post image_url was not saved")
+
+        // Cleanup the post photo while the club (and A's membership) still exists.
+        defer {
+            if let p = postImagePath {
+                Task { try? await supabase.storage.from("post-images").remove(paths: [p]) }
+            }
+        }
+
+        // B (co-member) reads it — NO spoiler gate, just membership.
+        let bSeesPosts: [ClubPost] = try await cB.from("club_posts").select()
+            .eq("club_id", value: club.id.uuidString).execute().value
+        XCTAssertTrue(bSeesPosts.contains { $0.id == post.id },
+                      "co-member could not read a club post")
+
+        // A edits their own post; a non-author (B) cannot.
+        let editedPost = try await API.updatePost(post.id, body: "edited post")
+        XCTAssertEqual(editedPost.body, "edited post", "own post edit failed")
+
+        struct PostHijack: Encodable { let body: String }
+        _ = try? await cB.from("club_posts").update(PostHijack(body: "hijacked post"))
+            .eq("id", value: post.id.uuidString).execute()
+        let postAfterHijack: ClubPost = try await cB.from("club_posts").select()
+            .eq("id", value: post.id.uuidString).single().execute().value
+        XCTAssertEqual(postAfterHijack.body, "edited post",
+                       "POST UPDATE LEAK: a non-author edited someone else's post")
+
+        // B cannot delete A's post.
+        _ = try? await cB.from("club_posts").delete().eq("id", value: post.id.uuidString).execute()
+        let postStill = try await API.clubPosts(club.id)
+        XCTAssertTrue(postStill.contains { $0.id == post.id },
+                      "POST DELETE LEAK: a non-author deleted someone else's post")
+
+        // Author deletes their own post through the API under test.
+        try await API.deletePost(post.id)
+        let afterDeletePost = try await API.clubPosts(club.id)
+        XCTAssertFalse(afterDeletePost.contains { $0.id == post.id }, "own post delete failed")
+
         // ---- book -----------------------------------------------------------
         let book = try await API.addBook(clubId: club.id, book: API.NewBook(
             title: "iOS Test Book \(tag)", author: "Tester", pageCount: 300))
@@ -484,6 +529,10 @@ final class ServiceLayerTests: XCTestCase {
         let bReaction: Reaction = try await cB.from("reactions")
             .insert(BReaction(bookId: bBook.id, userId: b, page: 90, body: "solo thought \(tag)"))
             .select().single().execute().value
+        struct BPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
+        let bPost: ClubPost = try await cB.from("club_posts")
+            .insert(BPost(clubId: bClub.id, userId: b, body: "solo post \(tag)"))
+            .select().single().execute().value
 
         // BEFORE following: A can't read B's solo profile/reactions/progress at all.
         let preFollowProfiles: [Profile] = try await supabase.from("profiles").select()
@@ -492,6 +541,13 @@ final class ServiceLayerTests: XCTestCase {
         let preFollowReactions: [Reaction] = try await supabase.from("reactions").select()
             .eq("book_id", value: bBook.id.uuidString).execute().value
         XCTAssertTrue(preFollowReactions.isEmpty, "FOLLOW LEAK: saw a non-member's reaction before following")
+
+        // POST MEMBERSHIP GATE: a non-member cannot read a club's posts, and posts
+        // are NOT part of the follow path.
+        let preFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
+            .eq("club_id", value: bClub.id.uuidString).execute().value
+        XCTAssertTrue(preFollowPosts.isEmpty, "POST LEAK: a non-member read a club's posts")
+        _ = bPost // referenced below via the post-follow assertion
         let preFeed = try await API.followFeed()
         XCTAssertFalse(preFeed.items.contains { $0.id == bReaction.id },
                        "FOLLOW LEAK: B's reaction showed in the feed before A followed")
@@ -508,6 +564,20 @@ final class ServiceLayerTests: XCTestCase {
             .eq("book_id", value: bBook.id.uuidString).execute().value
         XCTAssertTrue(postFollowReactions.contains { $0.id == bReaction.id },
                       "follow path did not expose the followee's solo reaction")
+
+        // Posts are NOT part of the follow path: following B must never expose
+        // the posts of a club A isn't a member of, and A can't insert into it.
+        let postFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
+            .eq("club_id", value: bClub.id.uuidString).execute().value
+        XCTAssertTrue(postFollowPosts.isEmpty, "POST LEAK: following exposed a non-member club's posts")
+        struct IntruderPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
+        var postInsertBlocked = false
+        do {
+            let _: ClubPost = try await supabase.from("club_posts")
+                .insert(IntruderPost(clubId: bClub.id, userId: a, body: "intruder \(tag)"))
+                .select().single().execute().value
+        } catch { postInsertBlocked = true }
+        XCTAssertTrue(postInsertBlocked, "POST LEAK: a non-member inserted a post into a club they're not in")
         let feed = try await API.followFeed()
         XCTAssertTrue(feed.followees.contains { $0.id == b }, "feed roster missing the followee")
         XCTAssertTrue(feed.items.contains { $0.kind == .reaction && $0.id == bReaction.id },

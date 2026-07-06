@@ -45,6 +45,14 @@ struct ReviewItem: Identifiable, Hashable, Sendable {
     var id: UUID { review.id }
 }
 
+// A club post decorated with its author's profile (api.js clubPosts).
+struct PostItem: Identifiable, Hashable, Sendable {
+    let post: ClubPost
+    let profile: Profile?
+    var id: UUID { post.id }
+    var displayName: String { profile?.displayName ?? "Reader" }
+}
+
 struct ProgressItem: Identifiable, Hashable, Sendable {
     let progress: ReadingProgress
     let profile: Profile?

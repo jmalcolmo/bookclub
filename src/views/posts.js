@@ -1,0 +1,188 @@
+// Club posts (views/posts.js): a lightweight Twitter/X-style feed of short text
+// updates and single-photo posts, scoped to one club. These are NOT reviews and
+// carry NO page number, so there is NO spoiler gate — but they ARE club-member-
+// scoped: RLS only ever returns/accepts posts for members of the club, so the
+// view relies entirely on the server for access control (never re-implements it).
+import { render, navigate, onCleanup } from "../router.js";
+import { esc, toast, avatarHTML, timeAgo } from "../ui.js";
+import { store } from "../store.js";
+import * as api from "../api.js";
+import { cropImage } from "../imageCropper.js";
+
+export async function renderPosts({ params }) {
+  const clubId = params.id;
+  render(`<div class="screen-pad"><p class="faint">loading posts…</p></div>`);
+
+  // Membership is enforced by RLS; getClub() throws for non-members, so a
+  // non-member hitting this route lands on the router's error page rather than
+  // seeing any club content.
+  const [club, membership] = await Promise.all([
+    api.getClub(clubId),
+    api.myMembership(clubId),
+  ]);
+
+  // A photo chosen but not yet uploaded (held until the post is submitted).
+  let pendingImageBlob = null;
+
+  render(`
+    <div class="screen-pad posts-screen" style="--accent:var(--${club.accent || "yarn-sage"})">
+      <div class="screen-header">
+        <button class="btn-back" data-nav="club">← ${esc(club.name)}</button>
+        <h2 class="stamp-title small">posts</h2>
+        <span></span>
+      </div>
+
+      <p class="posts-blurb faint">Share a quick thought or a photo with the club.
+        No page numbers, no spoilers gate — everyone in ${esc(club.name)} sees these.</p>
+
+      ${membership ? `
+      <div class="post-compose patch">
+        <form data-post class="post-form">
+          <textarea name="body" rows="3" maxlength="800"
+            placeholder="what's on your mind? (a book haul, a meetup pic, a hot take…)"></textarea>
+          <div class="post-photo-row">
+            <div data-photo-preview class="post-photo-preview" hidden></div>
+            <label class="btn-ghost small post-photo-btn">📷 add photo
+              <input type="file" accept="image/*" data-photo hidden></label>
+            <button type="button" class="btn-ghost small post-photo-clear" data-photo-clear hidden>remove photo</button>
+            <button type="submit" class="btn-primary small post-submit">post</button>
+          </div>
+        </form>
+      </div>` : `<p class="faint locked-note">Join this club to post.</p>`}
+
+      <div class="posts-stream" data-posts><p class="faint">loading…</p></div>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-nav='club']").addEventListener("click", () => navigate(`/club/${clubId}`));
+
+    const form = root.querySelector("[data-post]");
+    if (form) {
+      const preview = root.querySelector("[data-photo-preview]");
+      const clearBtn = root.querySelector("[data-photo-clear]");
+      const fileInput = root.querySelector("[data-photo]");
+
+      const clearPhoto = () => {
+        pendingImageBlob = null;
+        preview.hidden = true;
+        preview.style.backgroundImage = "";
+        clearBtn.hidden = true;
+        fileInput.value = "";
+      };
+
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        e.target.value = ""; // allow re-picking the same file later
+        if (!file) return;
+        try {
+          // Reuse the shared cropper (bakes an image/jpeg blob) — 'square' keeps
+          // post photos consistent and small, matching the storage size cap.
+          const blob = await cropImage(file, { shape: "square" });
+          if (!blob) return; // cancelled
+          pendingImageBlob = blob;
+          preview.style.backgroundImage = `url('${URL.createObjectURL(blob)}')`;
+          preview.hidden = false;
+          clearBtn.hidden = false;
+        } catch (err) { toast(err.message, "error"); }
+      });
+
+      clearBtn.addEventListener("click", clearPhoto);
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = e.target.body.value.trim();
+        if (!body && !pendingImageBlob) {
+          toast("Add some text or a photo", "error");
+          return;
+        }
+        const submitBtn = form.querySelector(".post-submit");
+        submitBtn.disabled = true;
+        try {
+          let imageUrl = null;
+          if (pendingImageBlob) imageUrl = await api.uploadPostImage(clubId, pendingImageBlob);
+          await api.addPost(clubId, { body, imageUrl });
+          e.target.body.value = "";
+          clearPhoto();
+          toast("Posted", "success");
+          loadPosts(root, clubId);
+        } catch (err) { toast(err.message, "error"); }
+        finally { submitBtn.disabled = false; }
+      });
+    }
+
+    loadPosts(root, clubId);
+
+    // Live updates: club_posts is club-scoped, so filter the subscription to this
+    // club. Router tears the subscription down before the next (re)render.
+    const sub = api.subscribe(
+      `club-posts-${clubId}`, "club_posts", `club_id=eq.${clubId}`,
+      () => loadPosts(root, clubId));
+    onCleanup(sub);
+  });
+}
+
+async function loadPosts(root, clubId) {
+  const host = root.querySelector("[data-posts]");
+  if (!host) return;
+  const posts = await api.clubPosts(clubId);
+  const myId = store.user.id;
+
+  host.innerHTML = posts.length
+    ? posts.map((p) => postCardHTML(p, myId)).join("")
+    : `<p class="faint">no posts yet — be the first to share something.</p>`;
+
+  // Delete my own post (RLS posts_delete_own restricts this to the author).
+  host.querySelectorAll("[data-del-post]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Delete this post?")) return;
+      try { await api.deletePost(b.dataset.delPost); loadPosts(root, clubId); }
+      catch (err) { toast(err.message, "error"); }
+    }));
+
+  // Edit my own post's text: ✎ swaps the body for an inline form; save patches
+  // body (author-only per RLS), cancel restores.
+  host.querySelectorAll("[data-edit-post]").forEach((b) => {
+    const id = b.dataset.editPost;
+    const card = b.closest(".post-card");
+    const body = card.querySelector(`[data-post-body="${id}"]`);
+    const editForm = card.querySelector(`[data-post-edit-form="${id}"]`);
+    b.addEventListener("click", () => { if (body) body.hidden = true; editForm.hidden = false; editForm.body.focus(); });
+    editForm.querySelector("[data-cancel-edit]").addEventListener("click", () => {
+      editForm.hidden = true; if (body) body.hidden = false;
+    });
+    editForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = editForm.body.value.trim();
+      if (!text) { toast("Post text can't be empty", "error"); return; }
+      try {
+        await api.updatePost(id, { body: text });
+        toast("Post updated", "success");
+        loadPosts(root, clubId);
+      } catch (err) { toast(err.message, "error"); }
+    });
+  });
+}
+
+function postCardHTML(p, myId) {
+  const mine = p.user_id === myId;
+  return `
+    <div class="feed-item post-card" data-id="${p.id}">
+      <div class="post-head">
+        ${avatarHTML(p.profile, 30)}
+        <span class="post-name">${esc(p.profile?.display_name || "Reader")}</span>
+        <span class="post-time faint">${timeAgo(p.created_at)}</span>
+        ${mine ? `<span class="post-controls">
+          ${p.body ? `<button class="post-edit" data-edit-post="${p.id}" title="edit">✎</button>` : ""}
+          <button class="post-del" data-del-post="${p.id}" title="delete">×</button>
+        </span>` : ""}
+      </div>
+      ${p.body ? `<p class="post-body" data-post-body="${p.id}">${esc(p.body)}</p>` : ""}
+      ${p.image_url ? `<img class="post-image" src="${esc(p.image_url)}" alt="" loading="lazy">` : ""}
+      ${mine && p.body ? `<form class="post-edit-form" data-post-edit-form="${p.id}" hidden>
+        <textarea name="body" rows="3" maxlength="800" required>${esc(p.body)}</textarea>
+        <div class="edit-actions">
+          <button type="submit" class="btn-primary small">save</button>
+          <button type="button" class="btn-ghost small" data-cancel-edit>cancel</button>
+        </div>
+      </form>` : ""}
+    </div>`;
+}

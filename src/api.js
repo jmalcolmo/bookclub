@@ -579,6 +579,60 @@ export async function postAnnouncement(body) {
   );
 }
 
+// ------------------------------------------------------------- CLUB POSTS ---
+// Lightweight Twitter/X-style posts scoped to a club: a short text update OR a
+// single photo. These are NOT reviews and carry NO page number, so there is NO
+// spoiler gate — but they ARE club-member-scoped. RLS (posts_select_member)
+// only returns posts to members of the club, so whatever comes back is safe to
+// show; posts_insert_member limits writes to members, and only the author can
+// edit/delete their own. Photos live in the 'post-images' bucket under
+// `${clubId}/...` (member-scoped by storage RLS).
+export async function clubPosts(clubId) {
+  const rows = unwrap(
+    await supabase.from("club_posts").select("*").eq("club_id", clubId)
+      .order("created_at", { ascending: false })
+  );
+  const profiles = await getProfiles(rows.map((r) => r.user_id));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
+}
+
+// Upload a post photo to the 'post-images' bucket under the club's folder
+// (member-scoped by storage RLS) and return its public URL. Mirrors the club
+// cover upload path convention: `${clubId}/${Date.now()}.jpg`.
+export async function uploadPostImage(clubId, blob) {
+  const path = `${clubId}/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from("post-images")
+    .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// Create a post. At least one of body / imageUrl must be non-empty (enforced by
+// the table CHECK too). body is trimmed to null when blank so a photo-only post
+// stores no empty string.
+export async function addPost(clubId, { body, imageUrl } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const text = (body || "").trim();
+  return unwrap(
+    await supabase.from("club_posts")
+      .insert({ club_id: clubId, user_id: user.id, body: text || null, image_url: imageUrl || null })
+      .select().single()
+  );
+}
+
+// Edit my own post's text. RLS (posts_update_own) only lets the author update.
+export async function updatePost(id, changes) {
+  return unwrap(
+    await supabase.from("club_posts").update(changes).eq("id", id).select().single()
+  );
+}
+
+export async function deletePost(id) {
+  return unwrap(await supabase.from("club_posts").delete().eq("id", id));
+}
+
 // ------------------------------------------------------- DEVICE TOKENS ---
 // Store an APNs device token for the signed-in user so the push Edge Function
 // can find who to notify. Owner-only under RLS; unique on token, so re-register
