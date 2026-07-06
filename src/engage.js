@@ -44,25 +44,29 @@ export function engagementBarHTML(targetType, targetId, engs = [], nameOf = () =
       const users = byKind[em];
       const mine = users.includes(myId);
       return `<button type="button" class="engage-chip ${mine ? "on" : ""}" data-kind="${esc(em)}"
-        title="${esc(namesLabel(users.map(nameOf), ""))}">${em}<span class="engage-n">${users.length}</span></button>`;
+        title="${esc(namesLabel(users.map(nameOf), ""))}"
+        aria-pressed="${mine}"
+        aria-label="${esc(em)} reaction, ${users.length} ${users.length === 1 ? "person" : "people"}">${em}<span class="engage-n" aria-hidden="true">${users.length}</span></button>`;
     }).join("");
 
   // The "add reaction" popover offers the full palette; an already-tapped one is marked.
   const palette = EMOJI_PALETTE.map((em) => {
     const mine = (byKind[em] || []).includes(myId);
-    return `<button type="button" class="palette-emoji ${mine ? "on" : ""}" data-kind="${esc(em)}">${em}</button>`;
+    return `<button type="button" class="palette-emoji ${mine ? "on" : ""}" data-kind="${esc(em)}" aria-label="${esc(em)}" aria-pressed="${mine}" role="option">${em}</button>`;
   }).join("");
 
   return `
     <div class="engage-bar" data-engage="${esc(targetType)}" data-target="${esc(targetId)}">
       <button type="button" class="engage-like ${iLiked ? "on" : ""}" data-kind="like"
-        title="${esc(namesLabel(likeUsers.map(nameOf), "Be the first to like"))}">
-        <span class="engage-thumb">👍</span><span class="engage-label">Like</span>${likeUsers.length ? `<span class="engage-n">${likeUsers.length}</span>` : ""}
+        title="${esc(namesLabel(likeUsers.map(nameOf), "Be the first to like"))}"
+        aria-pressed="${iLiked}"
+        aria-label="Like${likeUsers.length ? ` (${likeUsers.length})` : ""}">
+        <span class="engage-thumb" aria-hidden="true">👍</span><span class="engage-label">Like</span>${likeUsers.length ? `<span class="engage-n" aria-hidden="true">${likeUsers.length}</span>` : ""}
       </button>
       ${chips}
       <span class="engage-react">
-        <button type="button" class="engage-add" title="react">＋</button>
-        <span class="engage-palette" hidden>${palette}</span>
+        <button type="button" class="engage-add" title="Add emoji reaction" aria-label="Add emoji reaction" aria-haspopup="true">＋</button>
+        <span class="engage-palette" hidden role="listbox" aria-label="Emoji reactions">${palette}</span>
       </span>
     </div>`;
 }
@@ -78,9 +82,9 @@ function replyHTML(reply, engForReply, nameOf, myId) {
         <div class="reply-head">
           <span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>
           <span class="reply-time faint">${timeAgo(reply.created_at)}</span>
-          ${mine ? `<span class="reply-controls">
-            <button type="button" class="reply-edit" data-edit-reply="${reply.id}" title="edit">✎</button>
-            <button type="button" class="reply-del" data-del-reply="${reply.id}" title="delete">×</button>
+          ${mine ? `<span class="reply-controls" role="group" aria-label="Reply actions">
+            <button type="button" class="reply-edit" data-edit-reply="${reply.id}" title="Edit reply" aria-label="Edit reply">✎</button>
+            <button type="button" class="reply-del" data-del-reply="${reply.id}" title="Delete reply" aria-label="Delete reply">×</button>
           </span>` : ""}
         </div>
         <p class="reply-body" data-reply-body="${reply.id}">${esc(reply.body)}</p>
@@ -103,7 +107,7 @@ export function replyThreadHTML(reactionId, replies, engByTarget, nameOf, myId) 
   const label = count ? `${count} repl${count === 1 ? "y" : "ies"}` : "reply";
   return `
     <div class="reaction-thread" data-thread="${reactionId}">
-      <button type="button" class="thread-toggle" data-thread-toggle="${reactionId}">💬 ${label}</button>
+      <button type="button" class="thread-toggle" data-thread-toggle="${reactionId}" aria-expanded="${open}"><span aria-hidden="true">💬</span> ${label}</button>
       <div class="thread-body" ${open ? "" : "hidden"}>
         ${replies.map((r) => replyHTML(r, engByTarget(r.id), nameOf, myId)).join("")}
         <form class="reply-form" data-reply-form="${reactionId}">
@@ -147,6 +151,7 @@ export function wireReplies(scope, onChange) {
       const body = btn.parentElement.querySelector(".thread-body");
       const show = body.hidden;
       body.hidden = !show;
+      btn.setAttribute("aria-expanded", show ? "true" : "false");
       if (show) openThreads.add(id); else openThreads.delete(id);
     });
   });

@@ -22,8 +22,8 @@ export async function renderProfile({ params } = {}) {
 
   const historyRows = history.map((b) => `
     <button class="history-row patch" data-book="${b.id}" data-club="${b.club_id}">
-      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="">`
-                    : `<div class="book-cover sm book-cover-blank">📖</div>`}
+      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
+                    : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
       <div class="history-info">
         <strong class="book-title">${esc(b.title)}</strong>
         <span class="book-author faint">${esc(b.author || "")}</span>

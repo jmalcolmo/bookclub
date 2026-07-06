@@ -38,12 +38,49 @@ html, .club-body { overscroll-behavior-x: none; }
   color: var(--text-primary);
 }
 textarea { resize: vertical; }
-input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
+input:focus-visible, textarea:focus-visible { outline: none; border-color: var(--yarn-sage);
   box-shadow: 0 0 0 3px rgba(122,144,104,.3); }
 
 .modal { max-height: 86vh; overflow-y: auto; }
 .modal > h3 { font-family: var(--font-display); font-weight: 700; color: var(--yarn-bark);
   letter-spacing: .04em; font-size: 1.3rem; padding: 18px 22px 0; margin: 0; }
+
+/* ---- FOCUS RINGS (book-club shell) ----
+   Keyboard-visible focus for nav links, tabs, and small icon-like controls that
+   don't inherit the button focus-visible rule from styles.css. */
+.navlink:focus-visible,
+.tab:focus-visible,
+.club-brand:focus-visible {
+  outline: 3px solid var(--yarn-slate);
+  outline-offset: 3px;
+}
+.copy-code:focus-visible,
+.star:focus-visible,
+.engage-like:focus-visible,
+.engage-chip:focus-visible,
+.engage-add:focus-visible,
+.palette-emoji:focus-visible,
+.thread-toggle:focus-visible,
+.reaction-edit:focus-visible,
+.reaction-del:focus-visible,
+.reply-edit:focus-visible,
+.reply-del:focus-visible,
+.review-del:focus-visible,
+.post-edit:focus-visible,
+.post-del:focus-visible,
+.announce-dismiss:focus-visible,
+.rail-club-card:focus-visible,
+.reading-item:focus-visible,
+.vote-alert:focus-visible,
+.ol-row:focus-visible,
+.pick-chip:focus-visible,
+.vote-chip:focus-visible,
+.people-chip:focus-visible,
+.progress-card:focus-visible,
+.history-row:focus-visible {
+  outline: 3px solid var(--yarn-slate);
+  outline-offset: 3px;
+}
 
 /* ---- NAV ---- */
 .club-nav { position: sticky; top: 0; z-index: 900;
@@ -690,3 +727,37 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
 .post-edit-form { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
 .post-edit-form textarea { width: 100%; }
 .post-edit-form .edit-actions { display: flex; gap: 8px; }
+
+/* ============================================================================
+   REDUCED MOTION (book-club additions)
+   Strips card hover lifts, feed-pop entrance, and club-specific rotations when
+   the user has prefers-reduced-motion: reduce. Complements the global block in
+   styles.css that handles base patches/animations.
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  /* Club-card and rail card hover transforms */
+  .rail-club-card:hover,
+  .reading-item:hover,
+  .vote-alert:hover,
+  .feed-reaction:hover,
+  .notif-card[data-go]:hover,
+  .pick-chip:hover,
+  .vote-chip:hover,
+  .ol-row:hover { transform: none; }
+
+  /* Feed entrance animation */
+  .feed-item { animation: none; }
+
+  /* Club-avatar rotation */
+  .club-avatar { transform: none; }
+
+  /* Engage button micro-lift */
+  .engage-like:hover,
+  .engage-chip:hover,
+  .engage-add:hover,
+  .palette-emoji:hover { transform: none; }
+
+  /* Feed-shell notif card entrances */
+  .feed-shell .feed-stream .notif-card,
+  .feed-shell .feed-stream .feed-reaction { transition: none; }
+}

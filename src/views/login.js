@@ -6,7 +6,7 @@ export function renderLogin() {
   render(`
     <div class="login-screen">
       <div class="login-card patch">
-        <span class="login-mark">📚</span>
+        <span class="login-mark" aria-hidden="true">📚</span>
         <h1 class="stamp-title">THE READING ROOM</h1>
         <p class="subtitle">a book club, stitched together</p>
         <p class="login-blurb">
