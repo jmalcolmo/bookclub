@@ -7,6 +7,10 @@ import PhotosUI
 import Observation
 
 struct ProfileView: View {
+    // When set, this shows ANOTHER reader's read-only profile with a follow
+    // control (reached from the follow feed). When nil, it's MY editable profile.
+    var readerId: UUID? = nil
+
     @Environment(SessionStore.self) private var session
     @Environment(ToastCenter.self) private var toasts
 
@@ -19,7 +23,110 @@ struct ProfileView: View {
     @State private var pendingCrop: PendingCrop?
     @State private var confirmSignOut = false
 
+    // Other-reader state.
+    @State private var reader: Profile?
+    @State private var readerLoaded = false
+    @State private var isFollowing = false
+    @State private var followBusy = false
+
+    // Am I looking at someone else? (readerId is nil, or my own, => self view)
+    private var isOther: Bool {
+        guard let readerId else { return false }
+        return readerId != session.userId
+    }
+
     var body: some View {
+        if isOther {
+            otherBody
+        } else {
+            selfBody
+        }
+    }
+
+    // MARK: - Another reader (read-only + follow control)
+
+    private var otherBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let reader {
+                    VStack(alignment: .leading, spacing: 14) {
+                        AvatarView(profile: reader, size: 88)
+                        Text(reader.displayName)
+                            .font(Theme.displaySemiBold(20))
+                            .foregroundStyle(Theme.textPrimary)
+                        if let bio = reader.bio, !bio.isEmpty {
+                            Text(bio)
+                                .font(Theme.displayFont(16))
+                                .foregroundStyle(Theme.textPrimary)
+                        } else {
+                            Text("no bio yet.")
+                                .font(Theme.displayFont(15))
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                        Group {
+                            if isFollowing {
+                                Button("Following \u{2713}") { toggleFollow() }
+                                    .buttonStyle(.ghost)
+                            } else {
+                                Button("Follow") { toggleFollow() }
+                                    .buttonStyle(.primary)
+                            }
+                        }
+                        .disabled(followBusy)
+                        Text("following surfaces their solo reading on your Following feed.")
+                            .font(Theme.monoFont(11))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .patch(accent: Theme.yarnSage, seed: "reader-card")
+                } else if readerLoaded {
+                    EmptyStateView(
+                        title: "this reader isn't visible to you.",
+                        hint: "you can see a reader once you share a club or follow them."
+                    )
+                } else {
+                    ProgressView().tint(Theme.yarnSage)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(16)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("Reader")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await loadReader() }
+    }
+
+    private func loadReader() async {
+        guard let readerId, !readerLoaded else { return }
+        reader = try? await API.getProfile(readerId)
+        isFollowing = (try? await API.isFollowing(readerId)) ?? false
+        readerLoaded = true
+    }
+
+    private func toggleFollow() {
+        guard let readerId, !followBusy else { return }
+        followBusy = true
+        Task {
+            defer { followBusy = false }
+            do {
+                if isFollowing {
+                    try await API.unfollow(readerId)
+                    isFollowing = false
+                    toasts.show("Unfollowed", .success)
+                } else {
+                    try await API.follow(readerId)
+                    isFollowing = true
+                    toasts.show("Following", .success)
+                }
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+
+    // MARK: - My own profile
+
+    private var selfBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 profileCard

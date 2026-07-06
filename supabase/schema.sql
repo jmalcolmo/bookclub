@@ -95,6 +95,26 @@ as $$
   );
 $$;
 
+-- Does the current user follow _other? Powers the FOLLOW system: a follower gets
+-- an additive, consensual view of a followee's SOLO reading — their own
+-- progress/reactions on books in clubs the FOLLOWER is NOT a member of. The
+-- non-member guard lives in the callers' policies, so this never widens the
+-- spoiler gate inside a shared club. SECURITY DEFINER so it doesn't recurse on
+-- the follows SELECT policy. (`follows` is created later; check_function_bodies
+-- is off, so this compiles fine.)
+create or replace function public.is_following(_other uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from follows
+    where follower_id = auth.uid() and followee_id = _other
+  );
+$$;
+
 -- Is the current user the app admin? (the is_admin flag on their profile). Gates
 -- global announcement broadcasts. SECURITY DEFINER so it doesn't depend on the
 -- caller being able to SELECT their own profile row under RLS.
@@ -208,10 +228,14 @@ alter table profiles enable row level security;
 -- user_id the client ever surfaces — club rosters, reaction/review/progress
 -- authors — already comes from a club you belong to, so this doesn't break any
 -- legitimate read.
+-- FOLLOW PATH (additive): you can also read the profile of someone you follow —
+-- otherwise the "people you follow" feed couldn't show their name/avatar. This
+-- is consensual (you chose to follow them) and exposes only their public profile.
 drop policy if exists "profiles_select_all" on profiles;
 drop policy if exists "profiles_select_self_or_comember" on profiles;
-create policy "profiles_select_self_or_comember" on profiles
-  for select using (id = auth.uid() or shares_club_with(id));
+drop policy if exists "profiles_select_self_comember_or_followed" on profiles;
+create policy "profiles_select_self_comember_or_followed" on profiles
+  for select using (id = auth.uid() or shares_club_with(id) or is_following(id));
 
 drop policy if exists "profiles_update_own" on profiles;
 create policy "profiles_update_own" on profiles
@@ -250,6 +274,46 @@ create trigger on_auth_user_created
 -- exists). Add more emails here if co-admins are ever needed.
 update profiles set is_admin = true
 where id in (select id from auth.users where email = 'malcolm.olexa24@gmail.com');
+
+-- ============================================================================
+-- FOLLOWS  (one user follows another, outside of clubs)
+-- ============================================================================
+-- A directed edge: follower_id follows followee_id. Powers the "people you
+-- follow" feed and the additive RLS paths above (a follower gets a consensual
+-- view of a followee's SOLO reading — their own progress/reactions on books in
+-- clubs the follower isn't in; the club spoiler gate is never widened).
+create table if not exists follows (
+  follower_id uuid not null references auth.users(id) on delete cascade,
+  followee_id uuid not null references auth.users(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (follower_id, followee_id),
+  -- you can't follow yourself
+  check (follower_id <> followee_id)
+);
+
+create index if not exists follows_follower_idx on follows(follower_id);
+create index if not exists follows_followee_idx on follows(followee_id);
+
+alter table follows enable row level security;
+
+-- You can see the follow edges you're either side of: who you follow (to build
+-- your feed / show follow state) and who follows you (a followers list). You
+-- can never enumerate other people's follow graph.
+drop policy if exists "follows_select_own" on follows;
+create policy "follows_select_own" on follows
+  for select using (follower_id = auth.uid() or followee_id = auth.uid());
+
+-- You may only create a follow edge FROM yourself (follow someone). You can't
+-- make anyone else follow, and the CHECK constraint blocks self-follows.
+drop policy if exists "follows_insert_self" on follows;
+create policy "follows_insert_self" on follows
+  for insert with check (follower_id = auth.uid());
+
+-- You may only remove your OWN follow edge (unfollow). (A followee can't force
+-- someone to unfollow them; that would be a separate "block" feature.)
+drop policy if exists "follows_delete_own" on follows;
+create policy "follows_delete_own" on follows
+  for delete using (follower_id = auth.uid());
 
 -- ============================================================================
 -- CLUBS
@@ -403,9 +467,31 @@ create index if not exists books_club_idx on books(club_id);
 
 alter table books enable row level security;
 
+-- FOLLOW PATH (additive): you can also read a book row when someone you follow
+-- has SOLO reading on it (a progress row or a reaction) AND you are NOT a member
+-- of its club — so the "people you follow" feed can show the book's title/cover
+-- alongside their activity. This exposes only the book metadata, never other
+-- members' gated content; the reactions/progress spoiler rules are unchanged.
 drop policy if exists "books_select_member" on books;
-create policy "books_select_member" on books
-  for select using (is_club_member(club_id));
+drop policy if exists "books_select_member_or_followed" on books;
+create policy "books_select_member_or_followed" on books
+  for select using (
+    is_club_member(club_id)
+    or (
+      not is_club_member(club_id)
+      and exists (
+        select 1 from reading_progress rp
+        where rp.book_id = books.id and is_following(rp.user_id)
+      )
+    )
+    or (
+      not is_club_member(club_id)
+      and exists (
+        select 1 from reactions rx
+        where rx.book_id = books.id and is_following(rx.user_id)
+      )
+    )
+  );
 
 drop policy if exists "books_insert_member" on books;
 create policy "books_insert_member" on books
@@ -445,9 +531,22 @@ create index if not exists progress_book_idx on reading_progress(book_id);
 alter table reading_progress enable row level security;
 
 -- Members can see everyone's progress in their club (powers "who's where" + gating UI).
+--
+-- FOLLOW PATH (additive): you may ALSO see the progress of someone you follow,
+-- but ONLY on a book in a club you are NOT a member of — their SOLO reading
+-- outside your shared clubs. The non-member guard keeps club privacy intact:
+-- following never grants a foothold into a club you don't belong to beyond the
+-- followee's own reading activity, and inside a shared club the member rule is
+-- unchanged.
 drop policy if exists "progress_select_member" on reading_progress;
 create policy "progress_select_member" on reading_progress
-  for select using (is_club_member(book_club(book_id)));
+  for select using (
+    is_club_member(book_club(book_id))
+    or (
+      is_following(user_id)
+      and not is_club_member(book_club(book_id))
+    )
+  );
 
 drop policy if exists "progress_upsert_own" on reading_progress;
 create policy "progress_upsert_own" on reading_progress
@@ -485,13 +584,26 @@ alter table reactions enable row level security;
 -- You may read a reaction only if:
 --   - you are a member of the book's club, AND
 --   - you wrote it, OR you have logged progress at/past its page.
+--
+-- FOLLOW PATH (additive, never widens the club gate): you may ALSO read a
+-- reaction whose author you follow, but ONLY on a book in a club you are NOT a
+-- member of. This surfaces the followee's own SOLO reading outside your shared
+-- clubs. The `not is_club_member(...)` guard is essential: inside a club you
+-- share, the spoiler gate above stays the sole authority, so following someone
+-- can never reveal their page-200 reaction before you've read to page 200.
 drop policy if exists "reactions_select_spoiler_gated" on reactions;
 create policy "reactions_select_spoiler_gated" on reactions
   for select using (
-    is_club_member(book_club(book_id))
-    and (
-      user_id = auth.uid()
-      or has_read_to(book_id, page)
+    (
+      is_club_member(book_club(book_id))
+      and (
+        user_id = auth.uid()
+        or has_read_to(book_id, page)
+      )
+    )
+    or (
+      is_following(user_id)
+      and not is_club_member(book_club(book_id))
     )
   );
 
