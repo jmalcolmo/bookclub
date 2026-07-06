@@ -29,11 +29,11 @@ enum Appearance {
 
     private static func applyNavigationBar() {
         let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: uiFont("CrimsonPro-SemiBold", size: 17, style: .headline),
+            .font: uiFont("CrimsonProRoman-SemiBold", size: 17, style: .headline),
             .foregroundColor: UIColor(Theme.textPrimary),
         ]
         let largeTitleAttributes: [NSAttributedString.Key: Any] = [
-            .font: uiFont("CrimsonPro-Bold", size: 30, style: .largeTitle),
+            .font: uiFont("CrimsonProRoman-Bold", size: 30, style: .largeTitle),
             .foregroundColor: UIColor(Theme.textPrimary),
         ]
 
