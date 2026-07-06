@@ -749,6 +749,57 @@ create policy "engagements_delete_own" on engagements
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
+-- CLUB POSTS  (lightweight Twitter/X-style posts — NO spoiler gate)
+-- ============================================================================
+-- A short text update OR a single photo shared to a club. These are explicitly
+-- NOT reviews and carry NO page number, so there is NO spoiler gate on them.
+-- They are club-member-scoped instead: only members of the club can read or
+-- write that club's posts (RLS below), and only the author can edit/delete
+-- their own. Photos live in the 'post-images' storage bucket (created in the
+-- STORAGE BUCKETS section) under a `${club.id}/...` path.
+create table if not exists club_posts (
+  id         uuid primary key default gen_random_uuid(),
+  club_id    uuid not null references clubs(id) on delete cascade,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  body       text,                     -- short text (nullable when it's a photo-only post)
+  image_url  text,                     -- public URL of the single attached photo (nullable)
+  created_at timestamptz not null default now(),
+  -- a post must carry SOMETHING: text or a photo (or both)
+  check (
+    (body is not null and length(btrim(body)) > 0)
+    or (image_url is not null and length(image_url) > 0)
+  )
+);
+
+create index if not exists club_posts_club_idx on club_posts(club_id);
+
+alter table club_posts enable row level security;
+
+-- MEMBERSHIP-SCOPED (no spoiler gate). A post is visible only to members of its
+-- club — never to non-members, and never widened by follows. There is no page
+-- gate: any member sees every post in the club regardless of reading progress.
+drop policy if exists "posts_select_member" on club_posts;
+create policy "posts_select_member" on club_posts
+  for select using (is_club_member(club_id));
+
+-- Only a member may post, and only as themselves.
+drop policy if exists "posts_insert_member" on club_posts;
+create policy "posts_insert_member" on club_posts
+  for insert with check (user_id = auth.uid() and is_club_member(club_id));
+
+-- The author may edit their own post. WITH CHECK re-asserts ownership + club
+-- membership so an edit can never reassign the row or move it into another club.
+drop policy if exists "posts_update_own" on club_posts;
+create policy "posts_update_own" on club_posts
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(club_id));
+
+-- The author may delete their own post.
+drop policy if exists "posts_delete_own" on club_posts;
+create policy "posts_delete_own" on club_posts
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
 -- ANNOUNCEMENTS  (global broadcasts the app admin pushes to every user)
 -- ============================================================================
 create table if not exists announcements (
@@ -872,6 +923,7 @@ begin
   begin execute 'alter publication supabase_realtime add table engagements'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table reaction_replies'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table announcements'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table club_posts'; exception when others then null; end;
 end $$;
 
 -- ============================================================================
@@ -915,10 +967,12 @@ create policy "device_tokens_delete_own" on device_tokens
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
--- STORAGE BUCKETS  (avatars + club cover images)
+-- STORAGE BUCKETS  (avatars + club cover images + club-post photos)
 -- ============================================================================
 insert into storage.buckets (id, name, public)
-values ('avatars','avatars', true), ('club-images','club-images', true)
+values ('avatars','avatars', true),
+       ('club-images','club-images', true),
+       ('post-images','post-images', true)
 on conflict (id) do nothing;
 
 -- Cap uploads so a single user can't fill storage (cost/abuse) and can't host
@@ -927,13 +981,13 @@ on conflict (id) do nothing;
 update storage.buckets
    set file_size_limit = 2097152,  -- 2 MB
        allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif']
- where id in ('avatars','club-images');
+ where id in ('avatars','club-images','post-images');
 
--- Reads stay public (buckets are public; URLs are unguessable enough for avatars
--- and club covers).
+-- Reads stay public (buckets are public; URLs are unguessable enough for avatars,
+-- club covers, and club-post photos).
 drop policy if exists "storage_read_public" on storage.objects;
 create policy "storage_read_public" on storage.objects
-  for select using (bucket_id in ('avatars','club-images'));
+  for select using (bucket_id in ('avatars','club-images','post-images'));
 
 -- WRITE SCOPING. The previous policies allowed ANY authenticated user to write to
 -- ANY path in these buckets — so anyone could overwrite anyone's avatar or any
@@ -987,6 +1041,33 @@ create policy "clubimg_delete_owner" on storage.objects
   for delete using (
     bucket_id = 'club-images'
     and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+
+-- post-images: any MEMBER of a club may write a photo under that club's folder
+-- (club posts are not owner-restricted — any member can post). The client writes
+-- under `${club.id}/...`; the first path segment scopes the write server-side.
+-- A malformed, non-uuid first segment makes is_club_member() return false →
+-- denied. A member may delete their own uploads to clean up.
+drop policy if exists "postimg_insert_member" on storage.objects;
+create policy "postimg_insert_member" on storage.objects
+  for insert with check (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "postimg_update_member" on storage.objects;
+create policy "postimg_update_member" on storage.objects
+  for update using (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  ) with check (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "postimg_delete_member" on storage.objects;
+create policy "postimg_delete_member" on storage.objects
+  for delete using (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
   );
 
 -- ============================================================================

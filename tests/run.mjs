@@ -69,7 +69,8 @@ const cB = client();
 let A, B, club, book;
 let r30, r200;            // reaction ids (page 30 visible to B early; page 200 gated)
 let replyId, lateReplyId; // reaction reply ids
-let avatarPath, coverPath;
+let postId;               // a club post id (non-spoiler-gated, member-scoped)
+let avatarPath, coverPath, postImagePath;
 const tag = Date.now();
 
 // A real (tiny 1×1) JPEG. The cropper bakes an image/jpeg blob and uploads it, so
@@ -186,6 +187,70 @@ await step("CLUB UPDATE GATE: B (member, not creator) cannot edit club settings 
   await cB.from("clubs").update({ description: "hijacked" }).eq("id", club.id);
   const { data } = await cA.from("clubs").select("description").eq("id", club.id).single();
   assert(data.description !== "hijacked", "CLUB UPDATE LEAK: a non-creator member edited club settings");
+});
+
+// ---- CLUB POSTS: member-scoped, NON-spoiler-gated lightweight feed -----------
+await step("A creates a club post (text + photo)", async () => {
+  // Upload the photo under the club folder (member-scoped storage RLS), then
+  // insert the post row — mirrors api.js uploadPostImage() + addPost().
+  postImagePath = `${club.id}/${tag}.jpg`;
+  const { error: upErr } = await cA.storage.from("post-images")
+    .upload(postImagePath, blobJ(), { upsert: true, contentType: "image/jpeg" });
+  if (upErr) throw upErr;
+  const { data: pub } = cA.storage.from("post-images").getPublicUrl(postImagePath);
+  const { data, error } = await cA.from("club_posts")
+    .insert({ club_id: club.id, user_id: A.id, body: `hello club ${tag}`, image_url: pub.publicUrl })
+    .select().single();
+  if (error) throw error;
+  postId = data.id;
+  assert(data.image_url === pub.publicUrl, "post image_url was not saved");
+});
+
+await step("B (co-member) can read the club's posts (no spoiler gate)", async () => {
+  // Posts carry no page number and no gate beyond membership: B sees A's post
+  // regardless of reading progress.
+  const { data, error } = await cB.from("club_posts").select("*").eq("club_id", club.id);
+  if (error) throw error;
+  assert((data || []).some((p) => p.id === postId), "co-member could not read a club post");
+});
+
+await step("A edits their own post text (updatePost)", async () => {
+  const { data, error } = await cA.from("club_posts")
+    .update({ body: "edited post" }).eq("id", postId).select().single();
+  if (error) throw error;
+  assert(data.body === "edited post", "own post edit did not persist");
+});
+
+await step("POST UPDATE GATE: B cannot edit A's post (RLS)", async () => {
+  await cB.from("club_posts").update({ body: "hijacked post" }).eq("id", postId);
+  const { data } = await cA.from("club_posts").select("body").eq("id", postId).single();
+  assert(data.body !== "hijacked post", "POST UPDATE LEAK: a non-author edited someone else's post");
+});
+
+await step("POST DELETE GATE: B cannot delete A's post (RLS)", async () => {
+  await cB.from("club_posts").delete().eq("id", postId);
+  const { data } = await cA.from("club_posts").select("id").eq("id", postId);
+  assert((data || []).length === 1, "POST DELETE LEAK: a non-author deleted someone else's post");
+});
+
+await step("POST IMAGE GATE: a non-member cannot upload into a club's post folder (storage RLS)", async () => {
+  // Use a fresh signed-out client as a stand-in for a non-member: the write must
+  // be denied because post-images writes require club membership on the folder's
+  // first path segment. (cB is a member, so it would succeed — the point of the
+  // gate is that NON-members can't. We prove it with the anon client which has no
+  // membership at all.)
+  const anon = client();
+  const { error } = await anon.storage.from("post-images")
+    .upload(`${club.id}/evil-${tag}.jpg`, blobJ(), { upsert: false, contentType: "image/jpeg" });
+  assert(error, "POST IMAGE LEAK: a non-member uploaded into a club's post folder");
+});
+
+await step("A deletes their own post (deletePost)", async () => {
+  const { error } = await cA.from("club_posts").delete().eq("id", postId);
+  if (error) throw error;
+  const { data } = await cA.from("club_posts").select("id").eq("id", postId);
+  assert((data || []).length === 0, "author could not delete their own post");
+  postId = null;
 });
 
 await step("A adds the current book", async () => {
@@ -648,7 +713,7 @@ await step("B can leave the club", async () => {
 // A follows B and then sees B's SOLO reading via the ADDITIVE follow RLS path —
 // without joining. This must never be a club-gate bypass: A isn't a member, and
 // only B's OWN authored reading is surfaced. Mirrors src/api.js follows + feed.
-let bClub, bBook, bReaction;
+let bClub, bBook, bReaction, bPost;
 await step("FOLLOW SETUP: B owns a solo club A never joins", async () => {
   const { data: c, error: ce } = await cB.from("clubs")
     .insert({ name: `B Solo Club ${tag}`, accent: "yarn-mauve", created_by: B.id }).select().single();
@@ -666,6 +731,10 @@ await step("FOLLOW SETUP: B owns a solo club A never joins", async () => {
     .insert({ book_id: bBook.id, user_id: B.id, page: 90, body: `solo thought ${tag}` }).select().single();
   if (re) throw re;
   bReaction = rx;
+  const { data: po, error: poe } = await cB.from("club_posts")
+    .insert({ club_id: bClub.id, user_id: B.id, body: `solo post ${tag}` }).select().single();
+  if (poe) throw poe;
+  bPost = po;
 });
 
 await step("FOLLOW GATE: before following, A can't see B's solo profile/reaction (RLS)", async () => {
@@ -673,6 +742,19 @@ await step("FOLLOW GATE: before following, A can't see B's solo profile/reaction
   assert((profs || []).length === 0, "FOLLOW LEAK: saw a non-co-member profile before following");
   const { data: rxs } = await cA.from("reactions").select("id").eq("book_id", bBook.id);
   assert((rxs || []).length === 0, "FOLLOW LEAK: saw a non-member's reaction before following");
+});
+
+await step("POST MEMBERSHIP GATE: a non-member cannot read a club's posts (RLS)", async () => {
+  // Posts are strictly club-member-scoped and NOT part of the additive follow
+  // path — A (not a member of B's solo club) sees nothing.
+  const { data } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
+  assert((data || []).length === 0, "POST LEAK: a non-member read a club's posts");
+});
+
+await step("POST INSERT GATE: a non-member cannot post to a club (RLS)", async () => {
+  const { error } = await cA.from("club_posts")
+    .insert({ club_id: bClub.id, user_id: A.id, body: `intruder ${tag}` });
+  assert(error, "POST LEAK: a non-member inserted a post into a club they're not in");
 });
 
 await step("A follows B (RLS: only from self)", async () => {
@@ -691,6 +773,10 @@ await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)"
   assert((prof || []).length === 1, "follow path did not expose the followee's profile");
   const { data: bk } = await cA.from("books").select("id").eq("id", bBook.id);
   assert((bk || []).length === 1, "follow path did not expose the followee's book row for the feed");
+  // Posts are NOT part of the follow path — following B must never expose the
+  // posts of a club A isn't a member of.
+  const { data: posts } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
+  assert((posts || []).length === 0, "POST LEAK: following exposed a non-member club's posts");
 });
 
 await step("FOLLOW GATE: A can't forge a follow edge on B's behalf (RLS)", async () => {
@@ -759,6 +845,9 @@ await step("cleanup: remove uploaded storage objects", async () => {
   // club to still exist for is_club_owner()).
   if (avatarPath) await cA.storage.from("avatars").remove([avatarPath]);
   if (coverPath) await cA.storage.from("club-images").remove([coverPath]);
+  // Post photo lives in post-images under the club folder; remove it while the
+  // club (and A's membership) still exists so postimg_delete_member applies.
+  if (postImagePath) await cA.storage.from("post-images").remove([postImagePath]);
 });
 
 await step("cleanup: A (creator) deletes the club (cascades)", async () => {

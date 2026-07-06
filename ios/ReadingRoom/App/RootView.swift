@@ -10,6 +10,7 @@ enum Route: Hashable {
     case club(UUID)
     case picker(clubId: UUID)
     case history(clubId: UUID)
+    case posts(clubId: UUID)   // the club's lightweight, non-spoiler-gated post feed
     case book(clubId: UUID, bookId: UUID)
     case reader(UUID)   // another reader's read-only profile (with follow control)
 }
@@ -25,6 +26,8 @@ extension View {
                 PickerView(clubId: clubId)
             case .history(let clubId):
                 HistoryView(clubId: clubId)
+            case .posts(let clubId):
+                PostsView(clubId: clubId)
             case .book(let clubId, let bookId):
                 BookView(clubId: clubId, bookId: bookId)
             case .reader(let userId):

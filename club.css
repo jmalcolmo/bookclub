@@ -651,4 +651,42 @@ input:focus, textarea:focus { outline: none; border-color: var(--yarn-sage);
      or exceed the viewport width. */
   .toast-container { left: 12px; right: 12px; align-items: stretch; }
   .toast { max-width: 100%; overflow-wrap: anywhere; }
+
+  /* long post text/images stay within a narrow viewport */
+  .post-body, .post-name { overflow-wrap: anywhere; }
+  .post-image { max-width: 100%; }
 }
+
+/* ============================================================================
+   CLUB POSTS  (lightweight, NON-spoiler-gated, member-scoped feed)
+   Reuses the granny-square patch/yarn look of the reactions feed.
+   ============================================================================ */
+.posts-screen .screen-header span { width: 40px; } /* balance the back button */
+.posts-blurb { margin: 0 2px 16px; }
+
+.post-compose { padding: 16px 18px; margin-bottom: 18px; text-align: left; cursor: default; }
+.post-form { display: flex; flex-direction: column; gap: 10px; }
+.post-form textarea { width: 100%; }
+.post-photo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.post-photo-btn { position: relative; overflow: hidden; }
+.post-submit { margin-left: auto; }
+.post-photo-preview { width: 72px; height: 72px; border-radius: 10px; background-size: cover;
+  background-position: center; border: 3px solid var(--yarn-moss); box-shadow: var(--shadow-soft); }
+
+.posts-stream { display: flex; flex-direction: column; gap: 10px; }
+.post-card { background: var(--surface); border: 3px solid var(--yarn-moss); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow-soft); }
+.post-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.post-name { font-family: var(--font-display); font-weight: 600; }
+.post-time { margin-left: auto; }
+.post-controls { display: flex; gap: 4px; align-items: center; }
+.post-edit { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: .95rem; line-height: 1; }
+.post-edit:hover { color: var(--yarn-moss); }
+.post-del { background: none; border: none; cursor: pointer; color: var(--negative); font-size: 1.1rem; }
+.post-body { margin: 0 0 8px; font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
+.post-image { display: block; width: 100%; max-height: 460px; object-fit: cover; border-radius: 10px;
+  border: 2px solid var(--yarn-clay); margin-top: 4px; }
+/* inline edit form (posts) — reuses the composer look */
+.post-edit-form { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.post-edit-form textarea { width: 100%; }
+.post-edit-form .edit-actions { display: flex; gap: 8px; }

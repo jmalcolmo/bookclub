@@ -53,7 +53,11 @@ npm test
 sign-in (password) · Open Library lookup · create club · creator auto-membership (role 'creator') ·
 find-by-code RPC · non-member cannot read club · **profile gate (non-co-member cannot read a
 profile; co-member can)** · join · read club · **my clubs has no duplicates (2-member club appears once)** ·
-edit club settings · **club-update gate (member cannot edit settings)** · add book · edit book
+edit club settings · **club-update gate (member cannot edit settings)** ·
+**club posts (create text+photo post; co-member reads it with NO spoiler gate; edit own; delete own;
+post-update gate (non-author can't edit); post-delete gate (non-author can't delete); post-image
+gate (non-member can't upload to the club folder); membership gate (non-member can't read/insert a
+club's posts, and following does NOT expose them))** · add book · edit book
 deadline · read current book + books list · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 **reaction→progress sync (logged page can never sit below a reaction you posted)** ·
