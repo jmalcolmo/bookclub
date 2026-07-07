@@ -64,13 +64,42 @@ export async function renderPicker({ params }) {
   });
 }
 
-function resultBanner(profile) {
+// selectionId is the decided row; when present we offer an opt-in "Announce"
+// button that flips `selections.announced=true` so the feed surfaces the pick.
+// Whoever reaches this banner just decided the selection (createSelection +
+// decideSelection ran as them), so they are the decider/owner RLS allows.
+function resultBanner(profile, selectionId) {
+  const announce = selectionId
+    ? `<button class="btn-ghost" data-result-announce>📣 Announce to the club</button>`
+    : "";
   return `<div class="picker-result patch">
     ${avatarHTML(profile, 72)}
     <h3 class="result-name">${esc(profile?.display_name || "Reader")}</h3>
     <p class="result-sub">picks the next book!</p>
+    ${announce}
     <button class="btn-primary" data-result-done>Back to club →</button>
   </div>`;
+}
+
+// Wire the opt-in announce button inside a rendered result banner. Buttons that
+// aren't present (no selectionId) are simply skipped.
+function wireResultBanner(out, clubId, selectionId) {
+  out.querySelector("[data-result-done]")
+    .addEventListener("click", () => navigate(`/club/${clubId}`));
+  const announceBtn = out.querySelector("[data-result-announce]");
+  if (announceBtn && selectionId) {
+    announceBtn.addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        await api.announceSelection(selectionId);
+        e.currentTarget.textContent = "📣 Announced";
+        toast("Announced to the club", "success");
+      } catch (err) {
+        toast(err.message, "error");
+        e.currentTarget.disabled = false;
+      }
+    });
+  }
 }
 
 // Geometry for the SVG wheel. viewBox is 200×200, centered at (100,100).
@@ -164,13 +193,15 @@ function wheelStage(stage, { clubId, members }) {
     // Fire on a timer matching the animation — transitionend is unreliable for
     // SVG transforms across browsers, so don't depend on it.
     setTimeout(async () => {
+      let selId = null;
       try {
         const sel = await api.createSelection(clubId, "wheel");
         await api.decideSelection(sel.id, winner.user_id);
+        selId = sel.id;
       } catch (err) { toast(err.message, "error"); }
       const out = stage.querySelector("[data-out]");
-      out.innerHTML = resultBanner(winner.profile);
-      out.querySelector("[data-result-done]").addEventListener("click", () => navigate(`/club/${clubId}`));
+      out.innerHTML = resultBanner(winner.profile, selId);
+      wireResultBanner(out, clubId, selId);
     }, SPIN_MS + 150);
   });
 }
@@ -185,13 +216,15 @@ function pickStage(stage, { clubId, members }) {
     <div data-out></div>`;
   stage.querySelectorAll("[data-uid]").forEach((b) => b.addEventListener("click", async () => {
     const m = members.find((x) => x.user_id === b.dataset.uid);
+    let selId = null;
     try {
       const sel = await api.createSelection(clubId, "pick");
       await api.decideSelection(sel.id, m.user_id);
+      selId = sel.id;
     } catch (err) { toast(err.message, "error"); }
     const out = stage.querySelector("[data-out]");
-    out.innerHTML = resultBanner(m.profile);
-    out.querySelector("[data-result-done]").addEventListener("click", () => navigate(`/club/${clubId}`));
+    out.innerHTML = resultBanner(m.profile, selId);
+    wireResultBanner(out, clubId, selId);
   }));
 }
 
@@ -262,10 +295,12 @@ async function renderVote({ clubId, club, members, selection }) {
       votes.forEach((v) => (tally[v.candidate_id] = (tally[v.candidate_id] || 0) + 1));
       const winnerId = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
       const winner = members.find((m) => m.user_id === winnerId);
-      try { await api.decideSelection(selection.id, winnerId); } catch (err) { toast(err.message, "error"); }
+      let selId = null;
+      try { await api.decideSelection(selection.id, winnerId); selId = selection.id; }
+      catch (err) { toast(err.message, "error"); }
       const out = root.querySelector("[data-out]");
-      out.innerHTML = resultBanner(winner?.profile);
-      out.querySelector("[data-result-done]").addEventListener("click", () => navigate(`/club/${clubId}`));
+      out.innerHTML = resultBanner(winner?.profile, selId);
+      wireResultBanner(out, clubId, selId);
     });
   });
 }

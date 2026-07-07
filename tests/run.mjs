@@ -620,6 +620,32 @@ await step("picker — creator finalizes a selection (decideSelection)", async (
     .eq("id", sel.id).select().single();
   if (decErr) throw decErr;
   assert(decided.status === "decided" && decided.result_user === B.id, "creator could not finalize the selection");
+  // Announcing is opt-in: deciding must NOT set announced.
+  assert(decided.announced === false, "deciding a selection should leave announced=false");
+});
+
+await step("picker — creator announces a decided selection (announceSelection)", async () => {
+  const { data: sel, error } = await cA.from("selections")
+    .insert({ club_id: club.id, method: "pick", created_by: A.id, status: "decided", result_user: B.id, decided_at: new Date().toISOString() })
+    .select().single();
+  if (error) throw error;
+  assert(sel.announced === false, "new selection should default announced=false");
+  // api.announceSelection(): flip announced=true (creator/owner only).
+  const { data: ann, error: annErr } = await cA.from("selections")
+    .update({ announced: true }).eq("id", sel.id).select().single();
+  if (annErr) throw annErr;
+  assert(ann.announced === true, "creator could not announce the selection");
+});
+
+await step("SELECTION GATE: B (not creator) cannot announce A's selection (RLS)", async () => {
+  // selections_update_owner_or_creator also guards the announced flag.
+  const { data: sel, error } = await cA.from("selections")
+    .insert({ club_id: club.id, method: "pick", created_by: A.id, status: "decided", result_user: B.id, decided_at: new Date().toISOString() })
+    .select().single();
+  if (error) throw error;
+  await cB.from("selections").update({ announced: true }).eq("id", sel.id);
+  const { data } = await cA.from("selections").select("announced").eq("id", sel.id).single();
+  assert(data.announced === false, "SELECTION LEAK: a non-creator member announced the pick");
 });
 
 await step("SELECTION GATE: B (not creator) cannot finalize A's selection (RLS)", async () => {

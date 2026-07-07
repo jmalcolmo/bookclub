@@ -476,7 +476,9 @@ function buildEvents(data) {
         events.push({ kind: "notif", type: "pick", ts: s.created_at, icon: "🗳️",
           highlight: true, text: "A vote opened — pick who chooses next",
           go: `/club/${club.id}/picker`, ...t });
-      } else if (s.status === "decided") {
+      } else if (s.status === "decided" && s.announced) {
+        // Opt-in: only surface the decided selection once the decider/owner has
+        // announced it (see api.announceSelection / picker "Announce" button).
         const winner = members.find((m) => m.user_id === s.result_user)?.profile?.display_name;
         events.push({ kind: "notif", type: "pick", ts: s.decided_at || s.created_at, icon: "🎯",
           text: winner ? `${esc(winner)} will pick the next book` : "The club decided who picks next",

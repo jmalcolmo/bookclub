@@ -856,8 +856,15 @@ create table if not exists selections (
   result_user uuid references auth.users(id) on delete set null,
   created_by  uuid not null references auth.users(id) on delete set null,
   created_at  timestamptz not null default now(),
-  decided_at  timestamptz
+  decided_at  timestamptz,
+  -- The feed's "X will pick the next book" event is OPT-IN: it renders only when
+  -- the decider/owner explicitly announces (see api.announceSelection). Deciding a
+  -- selection leaves this false; nothing is announced until a human taps the button.
+  announced   boolean not null default false
 );
+
+-- Idempotent add for projects created before `announced` existed.
+alter table selections add column if not exists announced boolean not null default false;
 
 create index if not exists selections_club_idx on selections(club_id);
 
