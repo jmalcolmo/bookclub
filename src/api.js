@@ -566,6 +566,17 @@ export async function decideSelection(selectionId, resultUserId) {
   );
 }
 
+// Opt-in feed announcement. createSelection/decideSelection announce nothing;
+// the decider (or a club owner) flips `announced` here so the feed renders the
+// "X will pick the next book" event. RLS (selections_update_owner_or_creator)
+// restricts this UPDATE to the creator/owner.
+export async function announceSelection(selectionId) {
+  return unwrap(
+    await supabase.from("selections").update({ announced: true })
+      .eq("id", selectionId).select().single()
+  );
+}
+
 export async function openVote(clubId) {
   return createSelection(clubId, "vote");
 }

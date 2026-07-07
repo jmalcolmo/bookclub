@@ -29,6 +29,9 @@ struct PickerView: View {
     @State private var loadError: String?
     @State private var stage: Stage = .none
     @State private var result: Member?   // decided winner banner
+    @State private var decidedSelectionId: UUID?   // for opt-in announce
+    @State private var announced = false
+    @State private var announcing = false
 
     var body: some View {
         Group {
@@ -153,6 +156,7 @@ struct PickerView: View {
             voteIntroStage
         case .vote(let selection):
             VoteStage(clubId: clubId, selection: selection, members: members) { winner in
+                decidedSelectionId = selection.id
                 result = winner
                 openVote = nil
             }
@@ -224,10 +228,41 @@ struct PickerView: View {
             Text("picks the next book!")
                 .font(Theme.displayFont(16))
                 .foregroundStyle(Theme.textMuted)
+            // Opt-in: the "X will pick the next book" feed event is only created
+            // when the decider taps this. Reaching this banner means the current
+            // user just decided the selection, so they're the decider RLS allows.
+            if let selId = decidedSelectionId {
+                if announced {
+                    Text("\u{1F4E3} Announced")
+                        .font(Theme.monoFont(13))
+                        .foregroundStyle(Theme.textMuted)
+                } else {
+                    Button(announcing ? "announcing\u{2026}" : "\u{1F4E3} Announce to the club") {
+                        announce(selId)
+                    }
+                    .buttonStyle(.ghost)
+                    .disabled(announcing)
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .patch(accent: Theme.yarnOchre, seed: "result")
+    }
+
+    private func announce(_ selectionId: UUID) {
+        guard !announcing else { return }
+        announcing = true
+        Task {
+            defer { announcing = false }
+            do {
+                try await API.announceSelection(selectionId)
+                announced = true
+                toasts.show("Announced to the club", .success)
+            } catch {
+                toasts.error(error)
+            }
+        }
     }
 
     // MARK: data + actions
@@ -253,6 +288,8 @@ struct PickerView: View {
             do {
                 let sel = try await API.createSelection(clubId: clubId, method: method)
                 try await API.decideSelection(sel.id, resultUserId: winner.userId)
+                // Retained so the decider can opt in to announcing this pick.
+                decidedSelectionId = sel.id
             } catch {
                 toasts.error(error)
             }
