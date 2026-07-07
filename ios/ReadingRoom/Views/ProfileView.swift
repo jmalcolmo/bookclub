@@ -18,6 +18,9 @@ struct ProfileView: View {
     @State private var bio = ""
     @State private var seeded = false
     @State private var saving = false
+    @State private var editingProfile = false
+    @State private var showAllActivity = false
+    @State private var showAllShelf = false
     @State private var history: [HistoryBook] = []
     @State private var activity: [ActivityItem] = []
     @State private var activityLoaded = false
@@ -75,7 +78,7 @@ struct ProfileView: View {
                             }
                         }
                         .disabled(followBusy)
-                        Text("following surfaces their solo reading on your Following feed.")
+                        Text("following surfaces their solo reading on your feed.")
                             .font(Theme.monoFont(11))
                             .foregroundStyle(Theme.textMuted)
                     }
@@ -175,7 +178,55 @@ struct ProfileView: View {
         }
     }
 
+    // Two modes (web parity): a clean read-only VIEW (default) and the EDIT
+    // form (change photo / name / bio), reached via the "Edit profile" button.
+    @ViewBuilder
     private var profileCard: some View {
+        if editingProfile {
+            profileEditCard
+        } else {
+            profileViewCard
+        }
+    }
+
+    private var profileViewCard: some View {
+        VStack(alignment: .center, spacing: 12) {
+            AvatarView(profile: session.profile, size: 88)
+            Text(session.profile?.displayName ?? "Reader")
+                .font(Theme.displaySemiBold(20))
+                .foregroundStyle(Theme.textPrimary)
+            if let bio = session.profile?.bio, !bio.isEmpty {
+                Text(bio)
+                    .font(Theme.displayFont(16))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("no bio yet.")
+                    .font(Theme.displayFont(15))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            if let email = session.userEmail {
+                Text("signed in as \(email)")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            HStack(spacing: 12) {
+                Button("\u{270E} Edit profile") {
+                    seeded = false
+                    seedForm()
+                    editingProfile = true
+                }
+                .buttonStyle(.primary)
+                Button("sign out") { confirmSignOut = true }
+                    .buttonStyle(.ghostDanger)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity)
+        .patch(accent: Theme.yarnSage, seed: "profile-card")
+    }
+
+    private var profileEditCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
                 AvatarView(profile: session.profile, size: 88)
@@ -206,23 +257,21 @@ struct ProfileView: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Theme.surface2))
             }
 
-            Button(saving ? "saving\u{2026}" : "Save profile") { save() }
-                .buttonStyle(.primary)
-                .disabled(saving || displayName.trimmingCharacters(in: .whitespaces).isEmpty)
-
-            if let email = session.userEmail {
-                Text("signed in as \(email)")
-                    .font(Theme.monoFont(11))
-                    .foregroundStyle(Theme.textMuted)
+            HStack(spacing: 12) {
+                Button(saving ? "saving\u{2026}" : "Save profile") { save() }
+                    .buttonStyle(.primary)
+                    .disabled(saving || displayName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("cancel") { editingProfile = false }
+                    .buttonStyle(.ghost)
             }
-            Button("sign out") { confirmSignOut = true }
-                .buttonStyle(.ghostDanger)
         }
         .patch(accent: Theme.yarnSage, seed: "profile-card")
     }
 
     // MARK: - activity (who liked / commented on my stuff)
 
+    // Both lists live in ONE box showing at most three rows; the toggle expands
+    // the rest in place so the profile never becomes a giant scroll (web parity).
     @ViewBuilder
     private var activitySection: some View {
         StampTitle(text: "Activity", small: true)
@@ -235,13 +284,25 @@ struct ProfileView: View {
                 hint: "when someone likes or comments on your reactions, it shows up here."
             )
         } else {
-            ForEach(activity) { item in
-                NavigationLink(value: item.route) {
-                    activityRow(item)
+            VStack(spacing: 0) {
+                let shown = showAllActivity ? activity : Array(activity.prefix(3))
+                ForEach(shown.indices, id: \.self) { i in
+                    if i > 0 { Divider().overlay(Theme.yarnClay.opacity(0.5)) }
+                    NavigationLink(value: shown[i].route) {
+                        activityRow(shown[i])
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 10)
                 }
-                .buttonStyle(.plain)
-                .patch(seed: item.id.uuidString, padding: 12)
+                if activity.count > 3 {
+                    Button(showAllActivity ? "show less" : "show all \(activity.count) activity") {
+                        withAnimation { showAllActivity.toggle() }
+                    }
+                    .buttonStyle(.ghostSmall)
+                    .padding(.top, 8)
+                }
             }
+            .patch(seed: "activity-box", padding: 14)
         }
     }
 
@@ -299,45 +360,62 @@ struct ProfileView: View {
                 hint: "books you mark finished - in any club - land on your shelf."
             )
         } else {
-            ForEach(history) { item in
-                NavigationLink(value: Route.book(clubId: item.book.clubId, bookId: item.book.id)) {
-                    HStack(alignment: .top, spacing: 12) {
-                        BookCoverView(coverUrl: item.book.coverUrl, width: 46)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.book.title)
-                                .font(Theme.displaySemiBold(16))
-                                .foregroundStyle(Theme.textPrimary)
-                                .multilineTextAlignment(.leading)
-                            if let author = item.book.author, !author.isEmpty {
-                                Text(author)
-                                    .font(Theme.displayFont(14))
-                                    .foregroundStyle(Theme.textMuted)
-                            }
-                            Text("finished \(Format.date(item.myFinishedAt))")
-                                .font(Theme.monoFont(11))
-                                .foregroundStyle(Theme.textMuted)
-                        }
-                        Spacer()
-                        if let rating = item.myRating {
-                            HStack(spacing: 3) {
-                                Text("\(rating)")
-                                    .font(Theme.monoMedium(15))
-                                    .foregroundStyle(Theme.textPrimary)
-                                Text("\u{2605}")
-                                    .font(Theme.displayFont(14))
-                                    .foregroundStyle(Theme.yarnOchre)
-                            }
-                        } else {
-                            Text("not rated")
-                                .font(Theme.monoFont(11))
-                                .foregroundStyle(Theme.textMuted)
-                        }
+            VStack(spacing: 0) {
+                let shown = showAllShelf ? history : Array(history.prefix(3))
+                ForEach(shown.indices, id: \.self) { i in
+                    if i > 0 { Divider().overlay(Theme.yarnClay.opacity(0.5)) }
+                    NavigationLink(value: Route.book(clubId: shown[i].book.clubId, bookId: shown[i].book.id)) {
+                        shelfRow(shown[i])
                     }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 10)
                 }
-                .buttonStyle(.plain)
-                .patch(seed: item.book.id.uuidString, padding: 12)
+                if history.count > 3 {
+                    Button(showAllShelf ? "show less" : "show all \(history.count) books") {
+                        withAnimation { showAllShelf.toggle() }
+                    }
+                    .buttonStyle(.ghostSmall)
+                    .padding(.top, 8)
+                }
+            }
+            .patch(seed: "shelf-box", padding: 14)
+        }
+    }
+
+    private func shelfRow(_ item: HistoryBook) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            BookCoverView(coverUrl: item.book.coverUrl, width: 46)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.book.title)
+                    .font(Theme.displaySemiBold(16))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                if let author = item.book.author, !author.isEmpty {
+                    Text(author)
+                        .font(Theme.displayFont(14))
+                        .foregroundStyle(Theme.textMuted)
+                }
+                Text("finished \(Format.date(item.myFinishedAt))")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            Spacer()
+            if let rating = item.myRating {
+                HStack(spacing: 3) {
+                    Text("\(rating)")
+                        .font(Theme.monoMedium(15))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("\u{2605}")
+                        .font(Theme.displayFont(14))
+                        .foregroundStyle(Theme.yarnOchre)
+                }
+            } else {
+                Text("not rated")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func seedForm() {
@@ -360,6 +438,7 @@ struct ProfileView: View {
                 ))
                 session.profile = updated
                 toasts.show("Profile saved", .success)
+                editingProfile = false // back to the clean view
             } catch {
                 toasts.error(error)
             }

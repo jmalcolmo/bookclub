@@ -71,7 +71,15 @@ async function boot(root) {
   // region is then painted from the same in-memory snapshot.
   async function load() {
     const clubs = await api.myClubs();
-    const data = await Promise.all(clubs.map(gatherClub));
+    const [data, followed] = await Promise.all([
+      Promise.all(clubs.map(gatherClub)),
+      // Readers I follow: their solo reading OUTSIDE my clubs (already
+      // RLS-filtered). Items inside a shared club are dropped below — the club
+      // events cover those.
+      api.followFeed().catch(() => ({ items: [] })),
+    ]);
+    const myClubIds = new Set(clubs.map((c) => c.id));
+    const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
 
     // Bulk-load (in three queries, not per-club) the reply threads, the global
     // announcements, and every engagement on anything visible on this screen.
@@ -89,13 +97,16 @@ async function boot(root) {
       ...announcements.map((a) => a.id),
     ];
     const engagements = await api.engagementsFor(targetIds);
-    const shared = { data, replies, announcements, engagements };
+    const shared = { data, followItems, replies, announcements, engagements };
     const ctx = buildContext(shared);
 
     // Build events once so the greeting can derive the "new activity" count
     // from the same data the feed will render — no extra API call.
-    const events = [...buildEvents(shared.data, ctx), ...buildLikeNotifications(shared, ctx)]
-      .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    const events = [
+      ...buildEvents(shared.data, ctx),
+      ...buildFollowEvents(followItems),
+      ...buildLikeNotifications(shared, ctx),
+    ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
     paintClubsRail(root, data);
     paintReadingRail(root, data);
@@ -294,7 +305,9 @@ function paintFeed(root, shared, ctx, reload) {
   // Use pre-computed events if available (passed from load()); otherwise derive
   // them here (e.g. first render before refactor callers catch up).
   const events = shared.events
-    || ([...buildEvents(shared.data, ctx), ...buildLikeNotifications(shared, ctx)]
+    || ([...buildEvents(shared.data, ctx),
+         ...buildFollowEvents(shared.followItems || []),
+         ...buildLikeNotifications(shared, ctx)]
         .sort((a, b) => new Date(b.ts) - new Date(a.ts)));
 
   host.innerHTML = events.length
@@ -345,16 +358,25 @@ function buildLikeNotifications(shared, ctx) {
     if (e.kind === "like" && e.user_id !== me) (likesByTarget[e.target_id] ||= []).push(e);
   }
 
-  // Things I authored, with a human label (already escaped) for the notification.
+  // Things I authored, with a human label (already escaped) for the notification
+  // and the club it happened in (for the card's header chip).
   const mine = [];
+  const clubByReaction = {};
   for (const d of data) {
-    if (d.book && d.book.picked_by === me) mine.push({ id: d.book.id, label: `your pick — ${esc(d.book.title)}` });
-    for (const r of d.reactions) if (r.user_id === me) {
-      mine.push({ id: r.id, label: `your reaction on ${esc(d.book?.title || d.club.name)}` });
+    for (const r of d.reactions) clubByReaction[r.id] = d.club.name;
+    if (d.book && d.book.picked_by === me) {
+      mine.push({ id: d.book.id, club: d.club.name, book: d.book.title, label: "your pick" });
     }
-    for (const p of d.progress) if (p.user_id === me) mine.push({ id: p.id, label: "your reading update" });
+    for (const r of d.reactions) if (r.user_id === me) {
+      mine.push({ id: r.id, club: d.club.name, book: d.book?.title, label: "your reaction" });
+    }
+    for (const p of d.progress) if (p.user_id === me) {
+      mine.push({ id: p.id, club: d.club.name, book: d.book?.title, label: "your reading update" });
+    }
   }
-  for (const r of replies) if (r.user_id === me) mine.push({ id: r.id, label: "your reply" });
+  for (const r of replies) {
+    if (r.user_id === me) mine.push({ id: r.id, club: clubByReaction[r.reaction_id], label: "your reply" });
+  }
 
   const events = [];
   for (const m of mine) {
@@ -362,10 +384,34 @@ function buildLikeNotifications(shared, ctx) {
     if (!likes?.length) continue;
     const names = likes.map((l) => ctx.nameOf(l.user_id));
     const ts = likes.reduce((mx, l) => Math.max(mx, new Date(l.created_at).getTime()), 0);
-    events.push({ kind: "notif", ts: new Date(ts).toISOString(), icon: "👍",
+    events.push({ kind: "notif", type: "social", ts: new Date(ts).toISOString(), icon: "👍",
+      club: m.club, bookTitle: m.book,
       text: `${likeLabel(names)} liked ${m.label}` });
   }
   return events;
+}
+
+// Follow-feed items: solo reading by people I follow, outside my clubs. These
+// carry a "Following" header chip instead of a club name and tap through to the
+// reader's profile (their book lives in a club I'm not a member of).
+function buildFollowEvents(items) {
+  return items.map((i) => {
+    const name = esc(i.profile?.display_name || "A reader");
+    const go = i.profile ? `/user/${i.profile.id}` : undefined;
+    const base = { type: "follow", follow: true, ts: i.at, go, bookTitle: i.book.title };
+    if (i.kind === "reaction") {
+      return { kind: "reaction", ...base, reaction: {
+        id: i.id, user_id: i.profile?.id, profile: i.profile,
+        page: i.page, body: i.body, created_at: i.at,
+      } };
+    }
+    const of = i.book.page_count ? ` of ${i.book.page_count}` : "";
+    const text = i.status === "finished" ? `${name} finished the book`
+      : i.page > 0 ? `${name} read to page ${i.page}${of}`
+      : `${name} started reading`;
+    const icon = i.status === "finished" ? "🎉" : i.page > 0 ? "📖" : "🔖";
+    return { kind: "notif", ...base, icon, text };
+  });
 }
 
 function likeLabel(names) {
@@ -376,40 +422,42 @@ function likeLabel(names) {
 
 // Turn the per-club snapshot into a flat list of feed events. Reactions are
 // already spoiler-safe; progress milestones mirror book.js's buildNotifications.
+// Every event carries `club` (header chip) + `bookTitle` (its own line) instead
+// of baking them into the sentence, and a `type` that drives its look:
+//   progress · reaction · milestone · pick · social · follow
 function buildEvents(data) {
   const me = store.user?.id;
   const events = [];
 
   for (const { club, book, reactions, progress, members, selections } of data) {
-    const where = book ? `${book.title} · ${club.name}` : club.name;
-
     if (book) {
+      const go = `/club/${club.id}/book/${book.id}`;
+      const b = { club: club.name, bookTitle: book.title };
+
       events.push({
-        kind: "notif", ts: book.created_at, icon: "📚",
-        text: `${esc(club.name)} started reading ${esc(book.title)}`,
-        go: `/club/${club.id}/book/${book.id}`,
+        kind: "notif", type: "milestone", ts: book.created_at, icon: "📚",
+        text: "The club started a new book", go, ...b,
         targetType: "book", targetId: book.id,
       });
 
       for (const r of reactions) {
-        events.push({ kind: "reaction", ts: r.created_at, reaction: r, where,
-          go: `/club/${club.id}/book/${book.id}` });
+        events.push({ kind: "reaction", type: "reaction", ts: r.created_at,
+          reaction: r, go, ...b });
       }
 
       for (const p of progress) {
         const name = p.user_id === me ? "You" : (p.profile?.display_name || "A reader");
-        const go = `/club/${club.id}/book/${book.id}`;
-        const t = { targetType: "progress", targetId: p.id };
+        const t = { targetType: "progress", targetId: p.id, go, ...b };
         if (p.status === "finished") {
-          events.push({ kind: "notif", ts: p.finished_at || p.updated_at, icon: "🎉",
-            text: `${esc(name)} finished ${esc(book.title)}`, go, ...t });
+          events.push({ kind: "notif", type: "milestone", ts: p.finished_at || p.updated_at,
+            icon: "🎉", text: `${esc(name)} finished the book`, ...t });
         } else if (p.status === "reading" && p.current_page > 0) {
           const of = book.page_count ? ` of ${book.page_count}` : "";
-          events.push({ kind: "notif", ts: p.updated_at, icon: "📖",
-            text: `${esc(name)} read to page ${p.current_page}${of} of ${esc(book.title)}`, go, ...t });
+          events.push({ kind: "notif", type: "progress", ts: p.updated_at, icon: "📖",
+            text: `${esc(name)} read to page ${p.current_page}${of}`, ...t });
         } else if (p.status === "reading" || p.started_at) {
-          events.push({ kind: "notif", ts: p.started_at || p.updated_at, icon: "🔖",
-            text: `${esc(name)} started ${esc(book.title)}`, go, ...t });
+          events.push({ kind: "notif", type: "progress", ts: p.started_at || p.updated_at,
+            icon: "🔖", text: `${esc(name)} started reading`, ...t });
         }
       }
 
@@ -417,23 +465,21 @@ function buildEvents(data) {
       if (members.length > 0 && finishedRows.length >= members.length) {
         const lastTs = finishedRows.reduce(
           (m, p) => Math.max(m, new Date(p.finished_at || p.updated_at).getTime()), 0);
-        events.push({ kind: "notif", ts: new Date(lastTs).toISOString(), icon: "🏆",
-          highlight: true, text: `Everyone in ${esc(club.name)} finished ${esc(book.title)}!`,
-          go: `/club/${club.id}/book/${book.id}` });
+        events.push({ kind: "notif", type: "milestone", ts: new Date(lastTs).toISOString(),
+          icon: "🏆", highlight: true, text: "Everyone finished the book!", go, ...b });
       }
     }
 
     for (const s of selections) {
-      const t = { targetType: "selection", targetId: s.id };
+      const t = { targetType: "selection", targetId: s.id, club: club.name };
       if (s.status === "open") {
-        events.push({ kind: "notif", ts: s.created_at, icon: "🗳️", highlight: true,
-          text: `A vote opened in ${esc(club.name)} — pick who chooses next`,
+        events.push({ kind: "notif", type: "pick", ts: s.created_at, icon: "🗳️",
+          highlight: true, text: "A vote opened — pick who chooses next",
           go: `/club/${club.id}/picker`, ...t });
       } else if (s.status === "decided") {
         const winner = members.find((m) => m.user_id === s.result_user)?.profile?.display_name;
-        events.push({ kind: "notif", ts: s.decided_at || s.created_at, icon: "🎯",
-          text: winner ? `${esc(winner)} will pick the next book for ${esc(club.name)}`
-                       : `${esc(club.name)} decided who picks next`,
+        events.push({ kind: "notif", type: "pick", ts: s.decided_at || s.created_at, icon: "🎯",
+          text: winner ? `${esc(winner)} will pick the next book` : "The club decided who picks next",
           go: `/club/${club.id}/history`, ...t });
       }
     }
@@ -441,24 +487,38 @@ function buildEvents(data) {
   return events;
 }
 
+// The small header every card carries: which club this happened in — or
+// "Following" when it comes from a reader you follow outside your clubs —
+// with the book it's about right underneath.
+function cardHeadHTML(e) {
+  const chip = e.club
+    ? `<span class="feed-chip">${esc(e.club)}</span>`
+    : `<span class="feed-chip feed-chip-follow">✧ Following</span>`;
+  const bookLine = e.bookTitle ? `<span class="feed-book-line">${esc(e.bookTitle)}</span>` : "";
+  return `<div class="feed-card-head">${chip}<span class="notif-time faint">${timeAgo(e.ts)}</span></div>${bookLine}`;
+}
+
 function eventCardHTML(e, ctx) {
+  const typeClass = `feed-kind-${e.type || "progress"}`;
   if (e.kind === "reaction") {
     const r = e.reaction;
+    // Follow-path reactions are display-only (no engagement bar or replies —
+    // they live in clubs we're not members of), and tap to the reader's profile.
+    const foot = e.follow ? "" : `
+        <div class="card-foot">
+          ${engagementBarHTML("reaction", r.id, ctx.engOf(r.id), ctx.nameOf, ctx.myId)}
+          ${replyThreadHTML(r.id, ctx.repliesByReaction[r.id] || [], ctx.engOf, ctx.nameOf, ctx.myId)}
+        </div>`;
     return `
-      <article class="feed-item feed-reaction" data-go="${e.go}">
+      <article class="feed-item feed-reaction ${typeClass}" data-go="${e.go}">
+        ${cardHeadHTML(e)}
         <div class="reaction-head">
           ${userLinkHTML(r.user_id, `${avatarHTML(r.profile, 30)}
             <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>`,
             r.profile?.display_name)}
-          <span class="feed-context faint">${esc(e.where)}</span>
           <span class="reaction-page">p.${r.page}</span>
         </div>
-        <p class="reaction-body">${esc(r.body)}</p>
-        <span class="notif-time faint">${timeAgo(r.created_at)}</span>
-        <div class="card-foot">
-          ${engagementBarHTML("reaction", r.id, ctx.engOf(r.id), ctx.nameOf, ctx.myId)}
-          ${replyThreadHTML(r.id, ctx.repliesByReaction[r.id] || [], ctx.engOf, ctx.nameOf, ctx.myId)}
-        </div>
+        <p class="reaction-body">${esc(r.body)}</p>${foot}
       </article>`;
   }
   // notification (activity) card — likeable when backed by a real row.
@@ -467,13 +527,15 @@ function eventCardHTML(e, ctx) {
     ? `<div class="card-foot">${engagementBarHTML(e.targetType, e.targetId, ctx.engOf(e.targetId), ctx.nameOf, ctx.myId)}</div>`
     : "";
   return `
-    <article class="feed-item notif-card ${e.highlight ? "notif-highlight" : ""}"${goAttr}>
-      <span class="notif-icon" aria-hidden="true">${e.icon}</span>
-      <div class="notif-main">
-        <p class="notif-text">${e.text}</p>
-        <span class="notif-time faint">${timeAgo(e.ts)}</span>
-        ${bar}
+    <article class="feed-item notif-card ${typeClass} ${e.highlight ? "notif-highlight" : ""}"${goAttr}>
+      ${cardHeadHTML(e)}
+      <div class="notif-row">
+        <span class="notif-icon" aria-hidden="true">${e.icon}</span>
+        <div class="notif-main">
+          <p class="notif-text">${e.text}</p>
+        </div>
       </div>
+      ${bar}
     </article>`;
 }
 
