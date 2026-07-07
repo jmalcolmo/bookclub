@@ -45,6 +45,14 @@ struct ReviewItem: Identifiable, Hashable, Sendable {
     var id: UUID { review.id }
 }
 
+// A club post decorated with its author's profile (api.js clubPosts).
+struct PostItem: Identifiable, Hashable, Sendable {
+    let post: ClubPost
+    let profile: Profile?
+    var id: UUID { post.id }
+    var displayName: String { profile?.displayName ?? "Reader" }
+}
+
 struct ProgressItem: Identifiable, Hashable, Sendable {
     let progress: ReadingProgress
     let profile: Profile?
@@ -58,6 +66,52 @@ struct HistoryBook: Identifiable, Hashable, Sendable {
     let myFinishedAt: Date
     let myRating: Int?
     var id: UUID { book.id }
+}
+
+// One entry in the "people you follow" feed: a followee's SOLO reading — either
+// a reaction or a progress update on a book in a club I'm not in — decorated
+// with the author's profile and the book. Mirrors api.js followFeed().
+struct FollowFeedItem: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case reaction, progress }
+
+    let kind: Kind
+    let id: UUID
+    let at: Date
+    let profile: Profile?
+    let book: Book?
+    let page: Int
+    let body: String?              // reaction only
+    let status: ProgressStatus?    // progress only
+}
+
+// One row of the Following screen: a reader I follow plus their latest visible
+// reading — the book and how far in they are (api.js followingReading). Both
+// nil when RLS shows me none of their progress.
+struct FollowedReader: Identifiable, Hashable, Sendable {
+    let profile: Profile
+    let progress: ReadingProgress?
+    let book: Book?
+    var id: UUID { profile.id }
+}
+
+// One entry of the profile's Activity feed: someone liked / emoji-reacted /
+// commented on my content (api.js myActivity). `book` is where it happened —
+// tapping the row navigates there; `highlightReactionId` is the reaction to
+// land on when the target lives in a thread.
+struct ActivityItem: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case like, emoji(String), reply }
+    enum What: String, Sendable { case reaction, comment, review, progress = "progress update" }
+
+    let id: UUID
+    let kind: Kind
+    let actor: Profile?
+    let what: What
+    let snippet: String?     // my content the actor engaged with
+    let body: String?        // the comment text (kind .reply)
+    let book: Book
+    let at: Date
+
+    var route: Route { .book(clubId: book.clubId, bookId: book.id) }
 }
 
 // An Open Library search hit (openlibrary.js searchBooks mapping).

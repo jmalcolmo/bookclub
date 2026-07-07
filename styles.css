@@ -227,6 +227,16 @@ html, body {
   padding: 10px 18px;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
+/* Visible focus rings for keyboard navigation — use offset outline so it clears
+   thick borders and shows against both light and dark backgrounds. */
+.btn-primary:focus-visible,
+.btn-ghost:focus-visible,
+.btn-back:focus-visible,
+.btn-icon:focus-visible,
+.btn-close:focus-visible {
+  outline: 3px solid var(--yarn-slate);
+  outline-offset: 3px;
+}
 
 .btn-primary {
   background: var(--yarn-sage);
@@ -444,7 +454,7 @@ html, body {
   background: var(--surface-2);
   color: var(--text-primary);
 }
-.field input:focus {
+.field input:focus-visible {
   outline: none;
   border-color: var(--yarn-sage);
   box-shadow: 0 0 0 3px rgba(122, 144, 104, 0.3);
@@ -1006,6 +1016,30 @@ html, body {
 }
 
 /* =============================================
+   REDUCED MOTION
+   The theme uses slight card rotations, entrance animations (slideIn/feed-pop),
+   and the winner bounce/spin. Honor prefers-reduced-motion by stripping
+   transforms and animations while preserving all layout and color.
+   ============================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* Card rotations (stamp-title, patches, marble-card nth-child rules etc.) */
+  .stamp-title { transform: none; }
+  .patch { transform: none !important; }
+  .marble-card { transform: none !important; }
+  .panel-marbles, .panel-maps { transform: none; }
+  .setup-panel { transform: none !important; }
+  /* Winner marble animation */
+  .winner-marble { animation: none; }
+}
+
+/* =============================================
    YT TIME CLIP FIELDS
    ============================================= */
 .yt-time-row {
@@ -1036,7 +1070,7 @@ html, body {
   color: var(--text-primary);
   width: 100%;
 }
-.yt-time-col input:focus {
+.yt-time-col input:focus-visible {
   outline: none;
   border-color: var(--yarn-sage);
   box-shadow: 0 0 0 3px rgba(122, 144, 104, 0.3);

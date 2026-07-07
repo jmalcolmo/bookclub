@@ -29,18 +29,18 @@ export async function renderHistory({ params }) {
     const r = ratings[b.id];
     return `
       <button class="history-row patch" data-book="${b.id}">
-        ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="">`
-                      : `<div class="book-cover sm book-cover-blank">📖</div>`}
+        ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
+                      : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
         <div class="history-info">
           <strong class="book-title">${esc(b.title)}</strong>
           <span class="book-author faint">${esc(b.author || "")}</span>
           <span class="history-meta faint">
             picked by ${esc(picker?.display_name || "—")} · finished ${fmtDate(b.finished_at)}</span>
         </div>
-        <div class="history-rating">
-          ${r ? `<span class="rating-num">${r.avg.toFixed(1)}</span><span class="rating-stars">★</span>
-                 <span class="faint">${r.n}</span>`
-              : `<span class="faint">no ratings</span>`}
+        <div class="history-rating" aria-label="${r ? `Average rating ${r.avg.toFixed(1)} stars from ${r.n} ${r.n === 1 ? "review" : "reviews"}` : "No ratings yet"}">
+          ${r ? `<span class="rating-num" aria-hidden="true">${r.avg.toFixed(1)}</span><span class="rating-stars" aria-hidden="true">★</span>
+                 <span class="faint" aria-hidden="true">${r.n}</span>`
+              : `<span class="faint" aria-hidden="true">no ratings</span>`}
         </div>
       </button>`;
   }).join("");

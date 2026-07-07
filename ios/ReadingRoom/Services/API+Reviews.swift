@@ -43,4 +43,12 @@ extension API {
             .single()
             .execute().value
     }
+
+    // Delete my own review. RLS (reviews_delete_own) restricts this to the author.
+    static func deleteReview(_ id: UUID) async throws {
+        try await supabase.from("reviews")
+            .delete()
+            .eq("id", value: id.uuidString)
+            .execute()
+    }
 }

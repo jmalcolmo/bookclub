@@ -36,19 +36,21 @@ enum Theme {
     static let shadowInk = dynamic(light: 0x483828, dark: 0x000000)
 
     // MARK: fonts
-    // CrimsonPro.ttf is a variable font; these are its named instances.
-    // All sizes are Dynamic Type-relative.
+    // CrimsonPro.ttf is a variable font; these are its named instances. Core
+    // Text registers every instance except Regular under the "CrimsonProRoman-"
+    // prefix — asking for "CrimsonPro-SemiBold" finds nothing and SwiftUI
+    // silently substitutes the system font. All sizes are Dynamic Type-relative.
 
     static func displayFont(_ size: CGFloat) -> Font {
         .custom("CrimsonPro-Regular", size: size, relativeTo: .body)
     }
 
     static func displaySemiBold(_ size: CGFloat) -> Font {
-        .custom("CrimsonPro-SemiBold", size: size, relativeTo: .body)
+        .custom("CrimsonProRoman-SemiBold", size: size, relativeTo: .body)
     }
 
     static func displayBold(_ size: CGFloat) -> Font {
-        .custom("CrimsonPro-Bold", size: size, relativeTo: .body)
+        .custom("CrimsonProRoman-Bold", size: size, relativeTo: .body)
     }
 
     static func monoFont(_ size: CGFloat) -> Font {

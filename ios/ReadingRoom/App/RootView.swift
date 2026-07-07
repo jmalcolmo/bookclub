@@ -10,7 +10,9 @@ enum Route: Hashable {
     case club(UUID)
     case picker(clubId: UUID)
     case history(clubId: UUID)
+    case posts(clubId: UUID)   // the club's lightweight, non-spoiler-gated post feed
     case book(clubId: UUID, bookId: UUID)
+    case reader(UUID)   // another reader's read-only profile (with follow control)
 }
 
 extension View {
@@ -24,8 +26,12 @@ extension View {
                 PickerView(clubId: clubId)
             case .history(let clubId):
                 HistoryView(clubId: clubId)
+            case .posts(let clubId):
+                PostsView(clubId: clubId)
             case .book(let clubId, let bookId):
                 BookView(clubId: clubId, bookId: bookId)
+            case .reader(let userId):
+                ProfileView(readerId: userId)
             }
         }
     }
@@ -63,13 +69,14 @@ struct RootView: View {
 
 struct MainTabView: View {
     enum Tab: Hashable {
-        case feed, clubs, progress, profile
+        case feed, clubs, progress, people, profile
     }
 
     @State private var tab: Tab = .feed
     @State private var feedPath = NavigationPath()
     @State private var clubsPath = NavigationPath()
     @State private var progressPath = NavigationPath()
+    @State private var peoplePath = NavigationPath()
 
     var body: some View {
         TabView(selection: $tab) {
@@ -93,6 +100,13 @@ struct MainTabView: View {
             }
             .tabItem { Label("Progress", systemImage: "bookmark") }
             .tag(Tab.progress)
+
+            NavigationStack(path: $peoplePath) {
+                FollowFeedView()
+                    .appDestinations()
+            }
+            .tabItem { Label("Following", systemImage: "person.2") }
+            .tag(Tab.people)
 
             NavigationStack {
                 ProfileView()

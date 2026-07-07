@@ -1,5 +1,5 @@
 import { render, navigate } from "../router.js";
-import { esc, toast, avatarHTML, clubAvatarHTML, accentHex, fmtDate, daysUntil } from "../ui.js";
+import { esc, toast, avatarHTML, clubAvatarHTML, accentHex, fmtDate, daysUntil, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
@@ -68,11 +68,12 @@ export async function renderClub({ params }) {
       : "not started";
     return `
       <li class="member-row">
-        ${avatarHTML(m.profile, 34)}
-        <span class="member-name">${esc(m.profile?.display_name || "Reader")}
-          ${m.role === "creator" || m.role === "owner" ? `<span class="owner-pip">${esc(m.role)}</span>` : ""}</span>
+        ${userLinkHTML(m.user_id, `${avatarHTML(m.profile, 34)}
+          <span class="member-name">${esc(m.profile?.display_name || "Reader")}
+            ${m.role === "creator" || m.role === "owner" ? `<span class="owner-pip">${esc(m.role)}</span>` : ""}</span>`,
+          m.profile?.display_name)}
         <span class="member-progress">
-          <span class="progress-bar"><span class="progress-fill" style="width:${pct}%"></span></span>
+          <span class="progress-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${pct}% read"><span class="progress-fill" style="width:${pct}%"></span></span>
           <span class="progress-label faint">${statusLabel}</span>
         </span>
       </li>`;
@@ -83,14 +84,14 @@ export async function renderClub({ params }) {
       <div class="screen-header">
         <button class="btn-back" data-nav="clubs">← clubs</button>
         <h2 class="stamp-title small">${esc(club.name)}</h2>
-        <button class="btn-icon" data-action="club-menu" title="club settings">⚙</button>
+        <button class="btn-icon" data-action="club-menu" title="Club settings" aria-label="Club settings">⚙</button>
       </div>
 
       ${club.description ? `<p class="club-blurb">${esc(club.description)}</p>` : ""}
 
       <div class="club-toolbar">
         <span class="join-code-chip">code: <strong>${esc(club.join_code)}</strong>
-          <button class="copy-code" data-copy="${esc(club.join_code)}" title="copy">⧉</button></span>
+          <button class="copy-code" data-copy="${esc(club.join_code)}" title="Copy join code" aria-label="Copy join code">⧉</button></span>
         <div class="toolbar-actions">
           <button class="btn-ghost" data-nav="picker">🎡 Pick next reader</button>
           <button class="btn-ghost" data-nav="history">📜 History</button>
@@ -119,6 +120,7 @@ export async function renderClub({ params }) {
       toast("Code copied", "success");
     });
     root.querySelector("[data-action='club-menu']").addEventListener("click", () => clubMenu(club, isOwner));
+    wireUserLinks(root);
   });
 }
 

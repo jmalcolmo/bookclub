@@ -5,7 +5,7 @@
 // data (reactions are already spoiler-filtered by RLS server-side; we never
 // re-implement gating here). No notifications table, no new DB access.
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast } from "../ui.js";
+import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { createClubModal, joinClubModal } from "./clubs.js";
@@ -18,6 +18,31 @@ const ACCENTS = {
 };
 const accentColor = (a) => ACCENTS[a] || ACCENTS["yarn-sage"];
 
+// Rotating greeting lines for the feed header.
+const GREETINGS = [
+  "Any new plot twists?",
+  "What are you reading lately?",
+  "Who's ahead on the reading?",
+  "Got strong opinions about chapter 7?",
+  "Someone's been busy turning pages.",
+  "The club awaits your thoughts.",
+  "Anything worth dog-earing?",
+  "Still haunted by that last chapter?",
+];
+
+// Pick a greeting deterministically by day so it changes daily but doesn't
+// flicker on every reload within the same session.
+function todaysGreeting() {
+  const day = Math.floor(Date.now() / 86_400_000);
+  return GREETINGS[day % GREETINGS.length];
+}
+
+// Count events from the past 24 hours as a lightweight "new activity" signal.
+function countRecentEvents(events) {
+  const cutoff = Date.now() - 86_400_000;
+  return events.filter((e) => new Date(e.ts).getTime() > cutoff).length;
+}
+
 export async function renderFeed() {
   render(`
     <div class="feed-shell">
@@ -29,6 +54,7 @@ export async function renderFeed() {
           <button class="btn-ghost small" data-open-rail="reading">📖 Reading</button>
         </div>
         <h1 class="stamp-title small feed-title feed-title-desktop">YOUR FEED</h1>
+        <div class="feed-greeting" data-greeting></div>
         <div class="feed-announce" data-announce></div>
         <div class="feed-stream" data-feed><p class="faint">loading your feed…</p></div>
       </main>
@@ -66,10 +92,16 @@ async function boot(root) {
     const shared = { data, replies, announcements, engagements };
     const ctx = buildContext(shared);
 
+    // Build events once so the greeting can derive the "new activity" count
+    // from the same data the feed will render — no extra API call.
+    const events = [...buildEvents(shared.data, ctx), ...buildLikeNotifications(shared, ctx)]
+      .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
     paintClubsRail(root, data);
     paintReadingRail(root, data);
+    paintGreeting(root, events);
     paintAnnouncements(root, shared, ctx, load);
-    paintFeed(root, shared, ctx, load);
+    paintFeed(root, { ...shared, events }, ctx, load);
     return data;
   }
 
@@ -160,8 +192,8 @@ function paintReadingRail(root, data) {
     return `
       <button class="reading-item" data-go="/club/${club.id}/book/${book.id}">
         ${book.cover_url
-          ? `<img class="book-cover sm" src="${esc(book.cover_url)}" alt="">`
-          : `<div class="book-cover sm book-cover-blank">📖</div>`}
+          ? `<img class="book-cover sm" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+          : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
         <span class="reading-meta">
           <span class="reading-title">${esc(book.title)}</span>
           <span class="reading-club faint">${esc(club.name)}</span>
@@ -217,7 +249,7 @@ function paintAnnouncements(root, shared, ctx, reload) {
         <p class="announce-body">${esc(a.body)}</p>
         <div class="card-foot">${engagementBarHTML("announcement", a.id, ctx.engOf(a.id), ctx.nameOf, ctx.myId)}</div>
       </div>
-      <button class="announce-dismiss" data-dismiss="${a.id}" title="dismiss">×</button>
+      <button class="announce-dismiss" data-dismiss="${a.id}" title="Dismiss announcement" aria-label="Dismiss announcement">×</button>
     </div>`).join("");
 
   host.innerHTML = composer + cards;
@@ -239,11 +271,31 @@ function paintAnnouncements(root, shared, ctx, reload) {
   wireEngagementUI(host, reload);
 }
 
+/* ------------------------------------------------------- GREETING HEADER */
+// A rotating one-liner + a lightweight "N new" count derived from the same
+// events the feed already renders. Scrolls past naturally above the stream.
+function paintGreeting(root, events) {
+  const host = root.querySelector("[data-greeting]");
+  if (!host) return;
+  const recentCount = countRecentEvents(events);
+  const countChip = recentCount > 0
+    ? `<span class="greeting-count">${recentCount} new</span>`
+    : "";
+  host.innerHTML = `
+    <div class="feed-greeting-inner">
+      <p class="greeting-line">${esc(todaysGreeting())}</p>
+      ${countChip}
+    </div>`;
+}
+
 /* ------------------------------------------------------------- CENTER · feed */
 function paintFeed(root, shared, ctx, reload) {
   const host = root.querySelector("[data-feed]");
-  const events = [...buildEvents(shared.data, ctx), ...buildLikeNotifications(shared, ctx)]
-    .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  // Use pre-computed events if available (passed from load()); otherwise derive
+  // them here (e.g. first render before refactor callers catch up).
+  const events = shared.events
+    || ([...buildEvents(shared.data, ctx), ...buildLikeNotifications(shared, ctx)]
+        .sort((a, b) => new Date(b.ts) - new Date(a.ts)));
 
   host.innerHTML = events.length
     ? events.map((e) => eventCardHTML(e, ctx)).join("")
@@ -253,6 +305,7 @@ function paintFeed(root, shared, ctx, reload) {
        </div>`;
 
   wireGo(host);
+  wireUserLinks(host);
   wireEngagementUI(host, reload);
 }
 
@@ -394,8 +447,9 @@ function eventCardHTML(e, ctx) {
     return `
       <article class="feed-item feed-reaction" data-go="${e.go}">
         <div class="reaction-head">
-          ${avatarHTML(r.profile, 30)}
-          <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
+          ${userLinkHTML(r.user_id, `${avatarHTML(r.profile, 30)}
+            <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>`,
+            r.profile?.display_name)}
           <span class="feed-context faint">${esc(e.where)}</span>
           <span class="reaction-page">p.${r.page}</span>
         </div>

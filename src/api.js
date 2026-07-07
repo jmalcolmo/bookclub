@@ -27,6 +27,261 @@ export async function updateProfile(userId, changes) {
   );
 }
 
+// ----------------------------------------------------------------- FOLLOWS ---
+// A follow graph OUTSIDE of clubs: I can follow another reader and then see the
+// SOLO reading they do in clubs I'm not part of (their own progress + reactions).
+// RLS enforces every rule — the follows_* policies here, plus the additive
+// follow paths on profiles/books/reactions/reading_progress. The club spoiler
+// gate is never widened: inside a shared club it stays the sole authority.
+
+// Everyone I currently follow (the followee_id list). Cheap check for follow state.
+export async function following() {
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = unwrap(
+    await supabase.from("follows").select("followee_id")
+      .eq("follower_id", user.id).order("created_at", { ascending: false })
+  );
+  return rows.map((r) => r.followee_id);
+}
+
+// The people I follow, decorated with their profile (for the feed's roster).
+export async function followingProfiles() {
+  const ids = await following();
+  if (!ids.length) return [];
+  const profiles = await getProfiles(ids);
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return ids.map((id) => pById[id]).filter(Boolean);
+}
+
+// Am I following one specific user?
+export async function isFollowing(userId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = unwrap(
+    await supabase.from("follows").select("followee_id")
+      .eq("follower_id", user.id).eq("followee_id", userId)
+  );
+  return rows.length > 0;
+}
+
+export async function follow(userId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("follows")
+      .insert({ follower_id: user.id, followee_id: userId })
+      .select().single()
+  );
+}
+
+export async function unfollow(userId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("follows").delete()
+      .eq("follower_id", user.id).eq("followee_id", userId)
+  );
+}
+
+// The "people you follow" feed: for each reader I follow, their SOLO reading —
+// recent reactions and progress on books in clubs I'm NOT a member of. RLS only
+// ever returns the follow-visible rows, so whatever comes back is safe to show.
+// Rows are decorated with the author's profile and the book, and sorted newest
+// first. Returns { items, followees } where items are the feed entries.
+export async function followFeed({ limit = 40 } = {}) {
+  const followees = await followingProfiles();
+  if (!followees.length) return { items: [], followees };
+  const followeeIds = followees.map((p) => p.id);
+  const pById = Object.fromEntries(followees.map((p) => [p.id, p]));
+
+  const [reactions, progress] = await Promise.all([
+    supabase.from("reactions").select("*").in("user_id", followeeIds)
+      .order("created_at", { ascending: false }).limit(limit).then(unwrap),
+    supabase.from("reading_progress").select("*").in("user_id", followeeIds)
+      .order("updated_at", { ascending: false }).limit(limit).then(unwrap),
+  ]);
+
+  const bookIds = [...new Set([...reactions, ...progress].map((r) => r.book_id))];
+  const books = bookIds.length
+    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
+    : [];
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+
+  const items = [
+    ...reactions.map((r) => ({
+      kind: "reaction", id: r.id, at: r.created_at,
+      profile: pById[r.user_id], book: bById[r.book_id] || null,
+      page: r.page, body: r.body,
+    })),
+    ...progress.map((p) => ({
+      kind: "progress", id: p.id, at: p.updated_at,
+      profile: pById[p.user_id], book: bById[p.book_id] || null,
+      page: p.current_page, status: p.status,
+    })),
+  ]
+    // Only surface rows we could resolve a book for (RLS may hide the book if the
+    // follow path didn't apply — defensive, keeps the feed coherent).
+    .filter((i) => i.book)
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, limit);
+
+  return { items, followees };
+}
+
+// The "following" screen roster: each reader I follow with their latest visible
+// reading — the book they're on and the page they've reached out of its page
+// count. RLS decides which progress rows I can see (shared clubs + the additive
+// follow path), so a followee with no visible reading comes back with
+// progress/book null and the screen says so instead of leaking anything.
+export async function followingReading() {
+  const followees = await followingProfiles();
+  if (!followees.length) return [];
+  const ids = followees.map((p) => p.id);
+
+  const progress = unwrap(
+    await supabase.from("reading_progress").select("*").in("user_id", ids)
+      .order("updated_at", { ascending: false })
+  );
+  // Newest visible row per reader = what they're on right now.
+  const latest = {};
+  for (const p of progress) latest[p.user_id] ||= p;
+
+  const bookIds = [...new Set(Object.values(latest).map((p) => p.book_id))];
+  const books = bookIds.length
+    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
+    : [];
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+
+  return followees.map((profile) => {
+    const p = latest[profile.id];
+    const book = p ? bById[p.book_id] || null : null;
+    return { profile, progress: book ? p : null, book };
+  });
+}
+
+// ---------------------------------------------------------------- ACTIVITY ---
+// Who engaged with MY content: likes/emoji on my reactions, comments (replies),
+// reviews and progress milestones, plus replies posted under my reactions.
+// Everything here is already reader-visible to me under RLS — I can always see
+// my own rows, and engagements/replies on them route through those same gates.
+// Anyone able to engage my content necessarily shares a club with me, so their
+// profile resolves too. Returns items newest first:
+//   { id, kind: 'like'|'emoji'|'reply', emoji?, actor, what, snippet, body?,
+//     book, at, go, highlight }
+// `go` is the book route where it happened; `highlight` is the reaction id to
+// flash/scroll to (null when the target has no anchor, e.g. reviews).
+export async function myActivity({ limit = 30 } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+
+  const [myReactions, myReplies, myReviews, myProgress] = await Promise.all([
+    supabase.from("reactions").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reaction_replies").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reviews").select("*").eq("user_id", user.id).then(unwrap),
+    supabase.from("reading_progress").select("*").eq("user_id", user.id).then(unwrap),
+  ]);
+
+  const reactionById = Object.fromEntries(myReactions.map((r) => [r.id, r]));
+  const replyById = Object.fromEntries(myReplies.map((r) => [r.id, r]));
+  const reviewById = Object.fromEntries(myReviews.map((r) => [r.id, r]));
+  const progressById = Object.fromEntries(myProgress.map((r) => [r.id, r]));
+  const targetIds = [
+    ...Object.keys(reactionById), ...Object.keys(replyById),
+    ...Object.keys(reviewById), ...Object.keys(progressById),
+  ];
+
+  const [engs, replies] = await Promise.all([
+    targetIds.length
+      ? supabase.from("engagements").select("*").in("target_id", targetIds)
+          .neq("user_id", user.id).order("created_at", { ascending: false })
+          .limit(limit).then(unwrap)
+      : [],
+    myReactions.length
+      ? supabase.from("reaction_replies").select("*")
+          .in("reaction_id", myReactions.map((r) => r.id))
+          .neq("user_id", user.id).order("created_at", { ascending: false })
+          .limit(limit).then(unwrap)
+      : [],
+  ]);
+
+  // My replies hang off OTHER people's reactions — resolve those parents for
+  // their book ids (visible to me: I could see them when I replied).
+  const parentIds = [...new Set(
+    myReplies.map((r) => r.reaction_id).filter((id) => !reactionById[id])
+  )];
+  const parents = parentIds.length
+    ? unwrap(await supabase.from("reactions").select("*").in("id", parentIds))
+    : [];
+  const parentById = Object.fromEntries(parents.map((r) => [r.id, r]));
+
+  const bookIdOf = (e) => {
+    if (e.target_type === "reaction") return reactionById[e.target_id]?.book_id;
+    if (e.target_type === "reply") {
+      const rep = replyById[e.target_id];
+      return (reactionById[rep?.reaction_id] || parentById[rep?.reaction_id])?.book_id;
+    }
+    if (e.target_type === "review") return reviewById[e.target_id]?.book_id;
+    if (e.target_type === "progress") return progressById[e.target_id]?.book_id;
+    return null;
+  };
+
+  const bookIds = [...new Set([
+    ...engs.map(bookIdOf),
+    ...replies.map((r) => reactionById[r.reaction_id]?.book_id),
+  ].filter(Boolean))];
+  const books = bookIds.length
+    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
+    : [];
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+
+  const actorIds = [...new Set([...engs, ...replies].map((r) => r.user_id))];
+  const actors = await getProfiles(actorIds);
+  const aById = Object.fromEntries(actors.map((p) => [p.id, p]));
+
+  const whatLabel = { reaction: "reaction", reply: "comment", review: "review", progress: "progress update" };
+  const items = [];
+
+  for (const e of engs) {
+    const book = bById[bookIdOf(e)];
+    if (!book) continue; // target no longer resolvable — nothing to link to
+    let snippet = null, highlight = null;
+    if (e.target_type === "reaction") {
+      snippet = reactionById[e.target_id]?.body;
+      highlight = e.target_id;
+    } else if (e.target_type === "reply") {
+      const rep = replyById[e.target_id];
+      snippet = rep?.body;
+      highlight = rep?.reaction_id || null;
+    } else if (e.target_type === "review") {
+      snippet = reviewById[e.target_id]?.body;
+    }
+    items.push({
+      id: e.id,
+      kind: e.kind === "like" ? "like" : "emoji",
+      emoji: e.kind === "like" ? null : e.kind,
+      actor: aById[e.user_id] || null,
+      what: whatLabel[e.target_type] || e.target_type,
+      snippet, book, at: e.created_at,
+      go: `/club/${book.club_id}/book/${book.id}`,
+      highlight,
+    });
+  }
+
+  for (const r of replies) {
+    const parent = reactionById[r.reaction_id];
+    const book = bById[parent?.book_id];
+    if (!book) continue;
+    items.push({
+      id: r.id, kind: "reply", emoji: null,
+      actor: aById[r.user_id] || null,
+      what: "reaction",
+      snippet: parent.body, body: r.body, book, at: r.created_at,
+      go: `/club/${book.club_id}/book/${book.id}`,
+      highlight: r.reaction_id,
+    });
+  }
+
+  return items
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, limit);
+}
+
 // ------------------------------------------------------------------- CLUBS ---
 export async function myClubs() {
   // Clubs I'm a member of, with member counts.
@@ -216,6 +471,18 @@ export async function setProgress(bookId, currentPage, status) {
   );
 }
 
+// Reset my own progress on a book (delete the row). RLS (progress_delete_own)
+// restricts this to the reader themself. Removing the row re-locks any reactions
+// they'd unlocked by reading past them — the spoiler gate reads live from
+// reading_progress, so it stays correct.
+export async function deleteProgress(bookId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("reading_progress").delete()
+      .eq("book_id", bookId).eq("user_id", user.id)
+  );
+}
+
 // My personal reading history: every book I've marked finished, across all my
 // clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
 // "books read" shelf but scoped to me. RLS still applies (I only see books in
@@ -264,6 +531,14 @@ export async function addReaction(bookId, page, body) {
   );
 }
 
+// Edit my own reaction (body and/or page). RLS (reactions_update_own) only lets
+// the author update; the spoiler gate is a SELECT concern and stays intact.
+export async function updateReaction(id, changes) {
+  return unwrap(
+    await supabase.from("reactions").update(changes).eq("id", id).select().single()
+  );
+}
+
 export async function deleteReaction(id) {
   return unwrap(await supabase.from("reactions").delete().eq("id", id));
 }
@@ -294,6 +569,11 @@ export async function saveReview(bookId, rating, body) {
       .upsert({ book_id: bookId, user_id: user.id, rating, body }, { onConflict: "book_id,user_id" })
       .select().single()
   );
+}
+
+// Delete my own review. RLS (reviews_delete_own) restricts this to the author.
+export async function deleteReview(id) {
+  return unwrap(await supabase.from("reviews").delete().eq("id", id));
 }
 
 // ------------------------------------------------------------ SELECTIONS ---
@@ -377,6 +657,14 @@ export async function addReply(reactionId, body) {
   );
 }
 
+// Edit my own reply. RLS (replies_update_own) only lets the author update; the
+// reply keeps inheriting its parent reaction's spoiler gate.
+export async function updateReply(id, body) {
+  return unwrap(
+    await supabase.from("reaction_replies").update({ body }).eq("id", id).select().single()
+  );
+}
+
 export async function deleteReply(id) {
   return unwrap(await supabase.from("reaction_replies").delete().eq("id", id));
 }
@@ -444,6 +732,77 @@ export async function postAnnouncement(body) {
   return unwrap(
     await supabase.from("announcements")
       .insert({ body, created_by: user.id })
+      .select().single()
+  );
+}
+
+// ------------------------------------------------------------- CLUB POSTS ---
+// Lightweight Twitter/X-style posts scoped to a club: a short text update OR a
+// single photo. These are NOT reviews and carry NO page number, so there is NO
+// spoiler gate — but they ARE club-member-scoped. RLS (posts_select_member)
+// only returns posts to members of the club, so whatever comes back is safe to
+// show; posts_insert_member limits writes to members, and only the author can
+// edit/delete their own. Photos live in the 'post-images' bucket under
+// `${clubId}/...` (member-scoped by storage RLS).
+export async function clubPosts(clubId) {
+  const rows = unwrap(
+    await supabase.from("club_posts").select("*").eq("club_id", clubId)
+      .order("created_at", { ascending: false })
+  );
+  const profiles = await getProfiles(rows.map((r) => r.user_id));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
+}
+
+// Upload a post photo to the 'post-images' bucket under the club's folder
+// (member-scoped by storage RLS) and return its public URL. Mirrors the club
+// cover upload path convention: `${clubId}/${Date.now()}.jpg`.
+export async function uploadPostImage(clubId, blob) {
+  const path = `${clubId}/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from("post-images")
+    .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// Create a post. At least one of body / imageUrl must be non-empty (enforced by
+// the table CHECK too). body is trimmed to null when blank so a photo-only post
+// stores no empty string.
+export async function addPost(clubId, { body, imageUrl } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const text = (body || "").trim();
+  return unwrap(
+    await supabase.from("club_posts")
+      .insert({ club_id: clubId, user_id: user.id, body: text || null, image_url: imageUrl || null })
+      .select().single()
+  );
+}
+
+// Edit my own post's text. RLS (posts_update_own) only lets the author update.
+export async function updatePost(id, changes) {
+  return unwrap(
+    await supabase.from("club_posts").update(changes).eq("id", id).select().single()
+  );
+}
+
+export async function deletePost(id) {
+  return unwrap(await supabase.from("club_posts").delete().eq("id", id));
+}
+
+// ------------------------------------------------------- DEVICE TOKENS ---
+// Store an APNs device token for the signed-in user so the push Edge Function
+// can find who to notify. Owner-only under RLS; unique on token, so re-register
+// upserts. `environment` is 'sandbox' (dev builds) or 'production'.
+export async function registerDeviceToken(token, { platform = "ios", environment = "sandbox" } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("not signed in");
+  return unwrap(
+    await supabase.from("device_tokens")
+      .upsert(
+        { user_id: user.id, token, platform, environment, updated_at: new Date().toISOString() },
+        { onConflict: "token" }
+      )
       .select().single()
   );
 }

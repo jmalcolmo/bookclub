@@ -95,6 +95,26 @@ as $$
   );
 $$;
 
+-- Does the current user follow _other? Powers the FOLLOW system: a follower gets
+-- an additive, consensual view of a followee's SOLO reading — their own
+-- progress/reactions on books in clubs the FOLLOWER is NOT a member of. The
+-- non-member guard lives in the callers' policies, so this never widens the
+-- spoiler gate inside a shared club. SECURITY DEFINER so it doesn't recurse on
+-- the follows SELECT policy. (`follows` is created later; check_function_bodies
+-- is off, so this compiles fine.)
+create or replace function public.is_following(_other uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from follows
+    where follower_id = auth.uid() and followee_id = _other
+  );
+$$;
+
 -- Is the current user the app admin? (the is_admin flag on their profile). Gates
 -- global announcement broadcasts. SECURITY DEFINER so it doesn't depend on the
 -- caller being able to SELECT their own profile row under RLS.
@@ -208,10 +228,14 @@ alter table profiles enable row level security;
 -- user_id the client ever surfaces — club rosters, reaction/review/progress
 -- authors — already comes from a club you belong to, so this doesn't break any
 -- legitimate read.
+-- FOLLOW PATH (additive): you can also read the profile of someone you follow —
+-- otherwise the "people you follow" feed couldn't show their name/avatar. This
+-- is consensual (you chose to follow them) and exposes only their public profile.
 drop policy if exists "profiles_select_all" on profiles;
 drop policy if exists "profiles_select_self_or_comember" on profiles;
-create policy "profiles_select_self_or_comember" on profiles
-  for select using (id = auth.uid() or shares_club_with(id));
+drop policy if exists "profiles_select_self_comember_or_followed" on profiles;
+create policy "profiles_select_self_comember_or_followed" on profiles
+  for select using (id = auth.uid() or shares_club_with(id) or is_following(id));
 
 drop policy if exists "profiles_update_own" on profiles;
 create policy "profiles_update_own" on profiles
@@ -250,6 +274,46 @@ create trigger on_auth_user_created
 -- exists). Add more emails here if co-admins are ever needed.
 update profiles set is_admin = true
 where id in (select id from auth.users where email = 'malcolm.olexa24@gmail.com');
+
+-- ============================================================================
+-- FOLLOWS  (one user follows another, outside of clubs)
+-- ============================================================================
+-- A directed edge: follower_id follows followee_id. Powers the "people you
+-- follow" feed and the additive RLS paths above (a follower gets a consensual
+-- view of a followee's SOLO reading — their own progress/reactions on books in
+-- clubs the follower isn't in; the club spoiler gate is never widened).
+create table if not exists follows (
+  follower_id uuid not null references auth.users(id) on delete cascade,
+  followee_id uuid not null references auth.users(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (follower_id, followee_id),
+  -- you can't follow yourself
+  check (follower_id <> followee_id)
+);
+
+create index if not exists follows_follower_idx on follows(follower_id);
+create index if not exists follows_followee_idx on follows(followee_id);
+
+alter table follows enable row level security;
+
+-- You can see the follow edges you're either side of: who you follow (to build
+-- your feed / show follow state) and who follows you (a followers list). You
+-- can never enumerate other people's follow graph.
+drop policy if exists "follows_select_own" on follows;
+create policy "follows_select_own" on follows
+  for select using (follower_id = auth.uid() or followee_id = auth.uid());
+
+-- You may only create a follow edge FROM yourself (follow someone). You can't
+-- make anyone else follow, and the CHECK constraint blocks self-follows.
+drop policy if exists "follows_insert_self" on follows;
+create policy "follows_insert_self" on follows
+  for insert with check (follower_id = auth.uid());
+
+-- You may only remove your OWN follow edge (unfollow). (A followee can't force
+-- someone to unfollow them; that would be a separate "block" feature.)
+drop policy if exists "follows_delete_own" on follows;
+create policy "follows_delete_own" on follows
+  for delete using (follower_id = auth.uid());
 
 -- ============================================================================
 -- CLUBS
@@ -403,9 +467,31 @@ create index if not exists books_club_idx on books(club_id);
 
 alter table books enable row level security;
 
+-- FOLLOW PATH (additive): you can also read a book row when someone you follow
+-- has SOLO reading on it (a progress row or a reaction) AND you are NOT a member
+-- of its club — so the "people you follow" feed can show the book's title/cover
+-- alongside their activity. This exposes only the book metadata, never other
+-- members' gated content; the reactions/progress spoiler rules are unchanged.
 drop policy if exists "books_select_member" on books;
-create policy "books_select_member" on books
-  for select using (is_club_member(club_id));
+drop policy if exists "books_select_member_or_followed" on books;
+create policy "books_select_member_or_followed" on books
+  for select using (
+    is_club_member(club_id)
+    or (
+      not is_club_member(club_id)
+      and exists (
+        select 1 from reading_progress rp
+        where rp.book_id = books.id and is_following(rp.user_id)
+      )
+    )
+    or (
+      not is_club_member(club_id)
+      and exists (
+        select 1 from reactions rx
+        where rx.book_id = books.id and is_following(rx.user_id)
+      )
+    )
+  );
 
 drop policy if exists "books_insert_member" on books;
 create policy "books_insert_member" on books
@@ -445,9 +531,22 @@ create index if not exists progress_book_idx on reading_progress(book_id);
 alter table reading_progress enable row level security;
 
 -- Members can see everyone's progress in their club (powers "who's where" + gating UI).
+--
+-- FOLLOW PATH (additive): you may ALSO see the progress of someone you follow,
+-- but ONLY on a book in a club you are NOT a member of — their SOLO reading
+-- outside your shared clubs. The non-member guard keeps club privacy intact:
+-- following never grants a foothold into a club you don't belong to beyond the
+-- followee's own reading activity, and inside a shared club the member rule is
+-- unchanged.
 drop policy if exists "progress_select_member" on reading_progress;
 create policy "progress_select_member" on reading_progress
-  for select using (is_club_member(book_club(book_id)));
+  for select using (
+    is_club_member(book_club(book_id))
+    or (
+      is_following(user_id)
+      and not is_club_member(book_club(book_id))
+    )
+  );
 
 drop policy if exists "progress_upsert_own" on reading_progress;
 create policy "progress_upsert_own" on reading_progress
@@ -456,6 +555,14 @@ create policy "progress_upsert_own" on reading_progress
 drop policy if exists "progress_update_own" on reading_progress;
 create policy "progress_update_own" on reading_progress
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- A reader may remove their OWN progress row (e.g. reset "I haven't started this
+-- after all"). Owner-only: another member can never wipe your progress. Deleting
+-- your row re-locks any reactions you'd unlocked by reading past them, so the
+-- spoiler gate stays intact — it reads live from reading_progress via has_read_to.
+drop policy if exists "progress_delete_own" on reading_progress;
+create policy "progress_delete_own" on reading_progress
+  for delete using (user_id = auth.uid());
 
 -- ============================================================================
 -- REACTIONS  (page-tagged; SPOILER-GATED in the SELECT policy)
@@ -477,13 +584,26 @@ alter table reactions enable row level security;
 -- You may read a reaction only if:
 --   - you are a member of the book's club, AND
 --   - you wrote it, OR you have logged progress at/past its page.
+--
+-- FOLLOW PATH (additive, never widens the club gate): you may ALSO read a
+-- reaction whose author you follow, but ONLY on a book in a club you are NOT a
+-- member of. This surfaces the followee's own SOLO reading outside your shared
+-- clubs. The `not is_club_member(...)` guard is essential: inside a club you
+-- share, the spoiler gate above stays the sole authority, so following someone
+-- can never reveal their page-200 reaction before you've read to page 200.
 drop policy if exists "reactions_select_spoiler_gated" on reactions;
 create policy "reactions_select_spoiler_gated" on reactions
   for select using (
-    is_club_member(book_club(book_id))
-    and (
-      user_id = auth.uid()
-      or has_read_to(book_id, page)
+    (
+      is_club_member(book_club(book_id))
+      and (
+        user_id = auth.uid()
+        or has_read_to(book_id, page)
+      )
+    )
+    or (
+      is_following(user_id)
+      and not is_club_member(book_club(book_id))
     )
   );
 
@@ -492,6 +612,15 @@ create policy "reactions_insert_member" on reactions
   for insert with check (
     user_id = auth.uid() and is_club_member(book_club(book_id))
   );
+
+-- The author may edit their own reaction (body / page). Owner-only: WITH CHECK
+-- re-asserts ownership + club membership so an edit can never reassign the row to
+-- someone else or move it into a club you don't belong to. The spoiler gate is a
+-- SELECT concern and is unaffected — the author can always see their own reaction.
+drop policy if exists "reactions_update_own" on reactions;
+create policy "reactions_update_own" on reactions
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
 drop policy if exists "reactions_delete_own" on reactions;
 create policy "reactions_delete_own" on reactions
@@ -569,6 +698,14 @@ drop policy if exists "replies_insert_visible" on reaction_replies;
 create policy "replies_insert_visible" on reaction_replies
   for insert with check (user_id = auth.uid() and reaction_visible(reaction_id));
 
+-- The author may edit their own reply. Owner-only, and WITH CHECK re-asserts the
+-- parent reaction is still visible to them (reaction_visible) so an edit can never
+-- reattach a reply to a spoiler-gated reaction they can't see.
+drop policy if exists "replies_update_own" on reaction_replies;
+create policy "replies_update_own" on reaction_replies
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and reaction_visible(reaction_id));
+
 drop policy if exists "replies_delete_own" on reaction_replies;
 create policy "replies_delete_own" on reaction_replies
   for delete using (user_id = auth.uid());
@@ -609,6 +746,57 @@ create policy "engagements_insert_visible" on engagements
 
 drop policy if exists "engagements_delete_own" on engagements;
 create policy "engagements_delete_own" on engagements
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
+-- CLUB POSTS  (lightweight Twitter/X-style posts — NO spoiler gate)
+-- ============================================================================
+-- A short text update OR a single photo shared to a club. These are explicitly
+-- NOT reviews and carry NO page number, so there is NO spoiler gate on them.
+-- They are club-member-scoped instead: only members of the club can read or
+-- write that club's posts (RLS below), and only the author can edit/delete
+-- their own. Photos live in the 'post-images' storage bucket (created in the
+-- STORAGE BUCKETS section) under a `${club.id}/...` path.
+create table if not exists club_posts (
+  id         uuid primary key default gen_random_uuid(),
+  club_id    uuid not null references clubs(id) on delete cascade,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  body       text,                     -- short text (nullable when it's a photo-only post)
+  image_url  text,                     -- public URL of the single attached photo (nullable)
+  created_at timestamptz not null default now(),
+  -- a post must carry SOMETHING: text or a photo (or both)
+  check (
+    (body is not null and length(btrim(body)) > 0)
+    or (image_url is not null and length(image_url) > 0)
+  )
+);
+
+create index if not exists club_posts_club_idx on club_posts(club_id);
+
+alter table club_posts enable row level security;
+
+-- MEMBERSHIP-SCOPED (no spoiler gate). A post is visible only to members of its
+-- club — never to non-members, and never widened by follows. There is no page
+-- gate: any member sees every post in the club regardless of reading progress.
+drop policy if exists "posts_select_member" on club_posts;
+create policy "posts_select_member" on club_posts
+  for select using (is_club_member(club_id));
+
+-- Only a member may post, and only as themselves.
+drop policy if exists "posts_insert_member" on club_posts;
+create policy "posts_insert_member" on club_posts
+  for insert with check (user_id = auth.uid() and is_club_member(club_id));
+
+-- The author may edit their own post. WITH CHECK re-asserts ownership + club
+-- membership so an edit can never reassign the row or move it into another club.
+drop policy if exists "posts_update_own" on club_posts;
+create policy "posts_update_own" on club_posts
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(club_id));
+
+-- The author may delete their own post.
+drop policy if exists "posts_delete_own" on club_posts;
+create policy "posts_delete_own" on club_posts
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
@@ -735,13 +923,56 @@ begin
   begin execute 'alter publication supabase_realtime add table engagements'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table reaction_replies'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table announcements'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table club_posts'; exception when others then null; end;
 end $$;
 
 -- ============================================================================
--- STORAGE BUCKETS  (avatars + club cover images)
+-- DEVICE TOKENS  (APNs push registration; owner-only)
+-- ============================================================================
+-- One row per (user, APNs device token). The iOS app registers for remote
+-- notifications, then upserts the hex token here so the push Edge Function can
+-- look up who to notify. Owner-only: a user may only see/write their OWN tokens.
+-- The Edge Function reads across users via the service-role key (bypasses RLS).
+create table if not exists device_tokens (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  token       text not null,             -- APNs device token, hex-encoded
+  platform    text not null default 'ios' check (platform in ('ios')),
+  environment text not null default 'sandbox'
+                check (environment in ('sandbox','production')),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (token)
+);
+
+create index if not exists device_tokens_user_idx on device_tokens(user_id);
+
+alter table device_tokens enable row level security;
+
+-- Owner-only: a user sees and manages only their own device tokens.
+drop policy if exists "device_tokens_select_own" on device_tokens;
+create policy "device_tokens_select_own" on device_tokens
+  for select using (user_id = auth.uid());
+
+drop policy if exists "device_tokens_insert_own" on device_tokens;
+create policy "device_tokens_insert_own" on device_tokens
+  for insert with check (user_id = auth.uid());
+
+drop policy if exists "device_tokens_update_own" on device_tokens;
+create policy "device_tokens_update_own" on device_tokens
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "device_tokens_delete_own" on device_tokens;
+create policy "device_tokens_delete_own" on device_tokens
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
+-- STORAGE BUCKETS  (avatars + club cover images + club-post photos)
 -- ============================================================================
 insert into storage.buckets (id, name, public)
-values ('avatars','avatars', true), ('club-images','club-images', true)
+values ('avatars','avatars', true),
+       ('club-images','club-images', true),
+       ('post-images','post-images', true)
 on conflict (id) do nothing;
 
 -- Cap uploads so a single user can't fill storage (cost/abuse) and can't host
@@ -750,13 +981,13 @@ on conflict (id) do nothing;
 update storage.buckets
    set file_size_limit = 2097152,  -- 2 MB
        allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif']
- where id in ('avatars','club-images');
+ where id in ('avatars','club-images','post-images');
 
--- Reads stay public (buckets are public; URLs are unguessable enough for avatars
--- and club covers).
+-- Reads stay public (buckets are public; URLs are unguessable enough for avatars,
+-- club covers, and club-post photos).
 drop policy if exists "storage_read_public" on storage.objects;
 create policy "storage_read_public" on storage.objects
-  for select using (bucket_id in ('avatars','club-images'));
+  for select using (bucket_id in ('avatars','club-images','post-images'));
 
 -- WRITE SCOPING. The previous policies allowed ANY authenticated user to write to
 -- ANY path in these buckets — so anyone could overwrite anyone's avatar or any
@@ -810,6 +1041,33 @@ create policy "clubimg_delete_owner" on storage.objects
   for delete using (
     bucket_id = 'club-images'
     and is_club_owner(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+
+-- post-images: any MEMBER of a club may write a photo under that club's folder
+-- (club posts are not owner-restricted — any member can post). The client writes
+-- under `${club.id}/...`; the first path segment scopes the write server-side.
+-- A malformed, non-uuid first segment makes is_club_member() return false →
+-- denied. A member may delete their own uploads to clean up.
+drop policy if exists "postimg_insert_member" on storage.objects;
+create policy "postimg_insert_member" on storage.objects
+  for insert with check (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "postimg_update_member" on storage.objects;
+create policy "postimg_update_member" on storage.objects
+  for update using (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  ) with check (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+  );
+drop policy if exists "postimg_delete_member" on storage.objects;
+create policy "postimg_delete_member" on storage.objects
+  for delete using (
+    bucket_id = 'post-images'
+    and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
   );
 
 -- ============================================================================

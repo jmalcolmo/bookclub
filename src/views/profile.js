@@ -1,12 +1,19 @@
 import { render, navigate } from "../router.js";
-import { esc, toast, avatarHTML, fmtDate } from "../ui.js";
+import { esc, toast, avatarHTML, fmtDate, timeAgo } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
 import { signOut } from "../auth.js";
 import { cropImage } from "../imageCropper.js";
 
-export async function renderProfile() {
+export async function renderProfile({ params } = {}) {
+  // A profile can be MINE (the editable self view) or SOMEONE ELSE'S (read-only,
+  // with a follow/unfollow control). params.id present -> another reader.
+  const viewingId = params?.id;
+  if (viewingId && viewingId !== store.user.id) {
+    return renderOtherProfile(viewingId);
+  }
+
   const p = store.profile || (await api.getProfile(store.user.id));
   store.profile = p;
 
@@ -15,8 +22,8 @@ export async function renderProfile() {
 
   const historyRows = history.map((b) => `
     <button class="history-row patch" data-book="${b.id}" data-club="${b.club_id}">
-      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="">`
-                    : `<div class="book-cover sm book-cover-blank">📖</div>`}
+      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
+                    : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
       <div class="history-info">
         <strong class="book-title">${esc(b.title)}</strong>
         <span class="book-author faint">${esc(b.author || "")}</span>
@@ -51,6 +58,11 @@ export async function renderProfile() {
         <button type="button" class="btn-ghost signout-mobile" data-signout>sign out</button>
       </div>
 
+      <section class="profile-activity">
+        <h3 class="stamp-title small">ACTIVITY</h3>
+        <div data-activity><p class="faint">loading…</p></div>
+      </section>
+
       <section class="profile-history">
         <h3 class="stamp-title small">MY SHELF — BOOKS I'VE READ</h3>
         ${history.length ? `<div class="history-list">${historyRows}</div>` : `
@@ -59,6 +71,7 @@ export async function renderProfile() {
       </section>
     </div>
   `, (root) => {
+    loadActivity(root); // async — don't block the profile paint
     root.querySelector("[data-signout]").addEventListener("click", signOut);
     root.querySelectorAll("[data-book]").forEach((b) =>
       b.addEventListener("click", () => navigate(`/club/${b.dataset.club}/book/${b.dataset.book}`)));
@@ -92,6 +105,122 @@ export async function renderProfile() {
         document.dispatchEvent(new CustomEvent("profile-updated"));
         renderProfile();
       } catch (err) { toast(err.message, "error"); }
+    });
+  });
+}
+
+// The activity feed: who liked / emoji-reacted / commented on my stuff.
+// Clicking a row jumps to the book page where it happened; the reaction id (if
+// any) is stashed in sessionStorage so the book view can scroll to + flash it.
+async function loadActivity(root) {
+  const host = root.querySelector("[data-activity]");
+  if (!host) return;
+
+  let items = [];
+  try { items = await api.myActivity(); }
+  catch (err) {
+    host.innerHTML = `<p class="faint">couldn't load activity: ${esc(err.message)}</p>`;
+    return;
+  }
+
+  if (!items.length) {
+    host.innerHTML = `
+      <div class="empty-state"><p>no activity yet.</p>
+        <p class="faint">when someone likes or comments on your reactions, it shows up here.</p></div>`;
+    return;
+  }
+
+  host.innerHTML = `<div class="activity-list">${items.map(activityRowHTML).join("")}</div>`;
+  host.querySelectorAll("[data-go]").forEach((row) =>
+    row.addEventListener("click", () => {
+      if (row.dataset.hl) sessionStorage.setItem("rr-highlight", row.dataset.hl);
+      navigate(row.dataset.go);
+    }));
+}
+
+function activityRowHTML(item) {
+  const who = esc(item.actor?.display_name || "Someone");
+  const verb = item.kind === "reply" ? `commented on your ${esc(item.what)}`
+    : item.kind === "emoji" ? `reacted ${esc(item.emoji)} to your ${esc(item.what)}`
+    : `liked your ${esc(item.what)}`;
+  const icon = item.kind === "reply" ? "💬" : item.kind === "emoji" ? item.emoji : "👍";
+  const snippet = item.kind === "reply"
+    ? `<p class="activity-snippet faint">“${esc(item.body)}”</p>`
+    : item.snippet
+      ? `<p class="activity-snippet faint">“${esc(truncate(item.snippet, 90))}”</p>`
+      : "";
+  return `
+    <button type="button" class="activity-row patch" data-go="${esc(item.go)}"
+      ${item.highlight ? `data-hl="${esc(item.highlight)}"` : ""}>
+      ${avatarHTML(item.actor, 32)}
+      <div class="activity-main">
+        <p class="activity-text"><strong>${who}</strong> ${verb}
+          · <span class="activity-book">${esc(item.book.title)}</span></p>
+        ${snippet}
+        <span class="activity-time faint">${esc(timeAgo(item.at))}</span>
+      </div>
+      <span class="activity-icon" aria-hidden="true">${icon}</span>
+    </button>`;
+}
+
+function truncate(s, n) {
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
+}
+
+// Another reader's profile: read-only, with a follow/unfollow control. The
+// follow graph lives OUTSIDE clubs; following them surfaces their solo reading
+// in your "people you follow" feed. RLS returns their profile only if you share
+// a club OR already follow them, so a brittle load is expected for strangers.
+async function renderOtherProfile(userId) {
+  let p = null;
+  try { p = await api.getProfile(userId); } catch { /* not visible under RLS */ }
+  let followed = false;
+  try { followed = await api.isFollowing(userId); } catch { /* default false */ }
+
+  if (!p) {
+    render(`
+      <div class="screen-pad profile-screen">
+        <div class="screen-header">
+          <button class="btn-back" data-back>← back</button>
+          <h2 class="stamp-title small">READER</h2><span></span></div>
+        <div class="empty-state"><p>this reader isn't visible to you.</p>
+          <p class="faint">you can see a reader once you share a club or follow them.</p></div>
+      </div>
+    `, (root) => {
+      root.querySelector("[data-back]").addEventListener("click", () => history.back());
+    });
+    return;
+  }
+
+  render(`
+    <div class="screen-pad profile-screen">
+      <div class="screen-header">
+        <button class="btn-back" data-back>← back</button>
+        <h2 class="stamp-title small">READER</h2><span></span></div>
+
+      <div class="profile-card patch">
+        <div class="profile-avatar-wrap">${avatarHTML(p, 96)}</div>
+        <h3 class="stamp-title small other-name">${esc(p.display_name || "Reader")}</h3>
+        ${p.bio ? `<p class="other-bio">${esc(p.bio)}</p>` : `<p class="faint">no bio yet.</p>`}
+        <button type="button" class="${followed ? "btn-ghost" : "btn-primary"}" data-follow>
+          ${followed ? "Following ✓" : "Follow"}
+        </button>
+        <p class="faint follow-hint">following surfaces their solo reading on your
+          “following” feed.</p>
+      </div>
+    </div>
+  `, (root) => {
+    root.querySelector("[data-back]").addEventListener("click", () => history.back());
+    const btn = root.querySelector("[data-follow]");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        if (followed) { await api.unfollow(userId); followed = false; toast("Unfollowed", "success"); }
+        else { await api.follow(userId); followed = true; toast("Following", "success"); }
+        btn.className = followed ? "btn-ghost" : "btn-primary";
+        btn.textContent = followed ? "Following ✓" : "Follow";
+      } catch (err) { toast(err.message, "error"); }
+      finally { btn.disabled = false; }
     });
   });
 }

@@ -5,7 +5,7 @@
 // All DB access still goes through api.js — this module only builds markup and
 // wires DOM events, then calls api.toggle/add/delete. It never touches supabase
 // directly (per the repo's api.js boundary rule).
-import { esc, avatarHTML, timeAgo, toast } from "./ui.js";
+import { esc, avatarHTML, timeAgo, toast, userLinkHTML } from "./ui.js";
 import * as api from "./api.js";
 
 // The fixed tapback palette (Like is separate, rendered as its own button).
@@ -44,41 +44,57 @@ export function engagementBarHTML(targetType, targetId, engs = [], nameOf = () =
       const users = byKind[em];
       const mine = users.includes(myId);
       return `<button type="button" class="engage-chip ${mine ? "on" : ""}" data-kind="${esc(em)}"
-        title="${esc(namesLabel(users.map(nameOf), ""))}">${em}<span class="engage-n">${users.length}</span></button>`;
+        title="${esc(namesLabel(users.map(nameOf), ""))}"
+        aria-pressed="${mine}"
+        aria-label="${esc(em)} reaction, ${users.length} ${users.length === 1 ? "person" : "people"}">${em}<span class="engage-n" aria-hidden="true">${users.length}</span></button>`;
     }).join("");
 
   // The "add reaction" popover offers the full palette; an already-tapped one is marked.
   const palette = EMOJI_PALETTE.map((em) => {
     const mine = (byKind[em] || []).includes(myId);
-    return `<button type="button" class="palette-emoji ${mine ? "on" : ""}" data-kind="${esc(em)}">${em}</button>`;
+    return `<button type="button" class="palette-emoji ${mine ? "on" : ""}" data-kind="${esc(em)}" aria-label="${esc(em)}" aria-pressed="${mine}" role="option">${em}</button>`;
   }).join("");
 
   return `
     <div class="engage-bar" data-engage="${esc(targetType)}" data-target="${esc(targetId)}">
       <button type="button" class="engage-like ${iLiked ? "on" : ""}" data-kind="like"
-        title="${esc(namesLabel(likeUsers.map(nameOf), "Be the first to like"))}">
-        <span class="engage-thumb">👍</span><span class="engage-label">Like</span>${likeUsers.length ? `<span class="engage-n">${likeUsers.length}</span>` : ""}
+        title="${esc(namesLabel(likeUsers.map(nameOf), "Be the first to like"))}"
+        aria-pressed="${iLiked}"
+        aria-label="Like${likeUsers.length ? ` (${likeUsers.length})` : ""}">
+        <span class="engage-thumb" aria-hidden="true">👍</span><span class="engage-label">Like</span>${likeUsers.length ? `<span class="engage-n" aria-hidden="true">${likeUsers.length}</span>` : ""}
       </button>
       ${chips}
       <span class="engage-react">
-        <button type="button" class="engage-add" title="react">＋</button>
-        <span class="engage-palette" hidden>${palette}</span>
+        <button type="button" class="engage-add" title="Add emoji reaction" aria-label="Add emoji reaction" aria-haspopup="true">＋</button>
+        <span class="engage-palette" hidden role="listbox" aria-label="Emoji reactions">${palette}</span>
       </span>
     </div>`;
 }
 
-// A single reply inside a thread, with its own (small) engagement bar.
+// A single reply inside a thread, with its own (small) engagement bar. The author
+// gets edit (✎) + delete (×) controls; edit swaps the body for an inline form.
 function replyHTML(reply, engForReply, nameOf, myId) {
+  const mine = reply.user_id === myId;
   return `
     <div class="reply-item" data-reply="${reply.id}">
-      ${avatarHTML(reply.profile, 22)}
+      ${userLinkHTML(reply.user_id, avatarHTML(reply.profile, 22), reply.profile?.display_name)}
       <div class="reply-main">
         <div class="reply-head">
-          <span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>
+          ${userLinkHTML(reply.user_id,
+            `<span class="reply-name">${esc(reply.profile?.display_name || "Reader")}</span>`,
+            reply.profile?.display_name)}
           <span class="reply-time faint">${timeAgo(reply.created_at)}</span>
-          ${reply.user_id === myId ? `<button type="button" class="reply-del" data-del-reply="${reply.id}" title="delete">×</button>` : ""}
+          ${mine ? `<span class="reply-controls" role="group" aria-label="Reply actions">
+            <button type="button" class="reply-edit" data-edit-reply="${reply.id}" title="Edit reply" aria-label="Edit reply">✎</button>
+            <button type="button" class="reply-del" data-del-reply="${reply.id}" title="Delete reply" aria-label="Delete reply">×</button>
+          </span>` : ""}
         </div>
-        <p class="reply-body">${esc(reply.body)}</p>
+        <p class="reply-body" data-reply-body="${reply.id}">${esc(reply.body)}</p>
+        ${mine ? `<form class="reply-edit-form" data-edit-reply-form="${reply.id}" hidden>
+          <input class="reply-input" name="body" maxlength="500" value="${esc(reply.body)}" autocomplete="off" required>
+          <button type="submit" class="btn-ghost small">save</button>
+          <button type="button" class="btn-ghost small" data-cancel-edit>cancel</button>
+        </form>` : ""}
         ${engagementBarHTML("reply", reply.id, engForReply, nameOf, myId)}
       </div>
     </div>`;
@@ -93,7 +109,7 @@ export function replyThreadHTML(reactionId, replies, engByTarget, nameOf, myId) 
   const label = count ? `${count} repl${count === 1 ? "y" : "ies"}` : "reply";
   return `
     <div class="reaction-thread" data-thread="${reactionId}">
-      <button type="button" class="thread-toggle" data-thread-toggle="${reactionId}">💬 ${label}</button>
+      <button type="button" class="thread-toggle" data-thread-toggle="${reactionId}" aria-expanded="${open}"><span aria-hidden="true">💬</span> ${label}</button>
       <div class="thread-body" ${open ? "" : "hidden"}>
         ${replies.map((r) => replyHTML(r, engByTarget(r.id), nameOf, myId)).join("")}
         <form class="reply-form" data-reply-form="${reactionId}">
@@ -137,6 +153,7 @@ export function wireReplies(scope, onChange) {
       const body = btn.parentElement.querySelector(".thread-body");
       const show = body.hidden;
       body.hidden = !show;
+      btn.setAttribute("aria-expanded", show ? "true" : "false");
       if (show) openThreads.add(id); else openThreads.delete(id);
     });
   });
@@ -161,7 +178,38 @@ export function wireReplies(scope, onChange) {
     b.dataset.wired = "1";
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (!confirm("Delete this reply?")) return;
       try { await api.deleteReply(b.dataset.delReply); onChange?.(); }
+      catch (err) { toast(err.message, "error"); }
+    });
+  });
+
+  // Edit a reply in place: the ✎ swaps the body for the inline form; save patches
+  // it (author-only per RLS), cancel restores. The thread stays open across reload.
+  scope.querySelectorAll("[data-edit-reply]").forEach((b) => {
+    if (b.dataset.wired) return;
+    b.dataset.wired = "1";
+    const id = b.dataset.editReply;
+    const item = b.closest(".reply-item");
+    const body = item.querySelector(`[data-reply-body="${id}"]`);
+    const form = item.querySelector(`[data-edit-reply-form="${id}"]`);
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      body.hidden = true; form.hidden = false; form.body.focus();
+    });
+    form.addEventListener("click", (e) => e.stopPropagation());
+    form.querySelector("[data-cancel-edit]").addEventListener("click", (e) => {
+      e.stopPropagation();
+      form.hidden = true; body.hidden = false;
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const val = form.body.value.trim();
+      if (!val) return;
+      const thread = item.closest("[data-thread]");
+      if (thread) openThreads.add(thread.dataset.thread); // survive the reload
+      try { await api.updateReply(id, val); onChange?.(); }
       catch (err) { toast(err.message, "error"); }
     });
   });

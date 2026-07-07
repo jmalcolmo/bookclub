@@ -36,6 +36,30 @@ struct FeedEvent: Identifiable {
     var targetId: UUID?
 }
 
+// Rotating greeting phrases (port of feed.js GREETINGS).
+private let greetingLines = [
+    "Any new plot twists?",
+    "What are you reading lately?",
+    "Who\u{2019}s ahead on the reading?",
+    "Got strong opinions about chapter 7?",
+    "Someone\u{2019}s been busy turning pages.",
+    "The club awaits your thoughts.",
+    "Anything worth dog-earing?",
+    "Still haunted by that last chapter?",
+]
+
+/// Pick a greeting by day-of-year so it changes daily but doesn't flicker.
+private func todaysGreeting() -> String {
+    let day = Int(Date().timeIntervalSince1970) / 86400
+    return greetingLines[day % greetingLines.count]
+}
+
+/// Count events from the last 24 hours as a lightweight "new activity" signal.
+private func countRecentEvents(_ events: [FeedEvent]) -> Int {
+    let cutoff = Date().addingTimeInterval(-86400)
+    return events.filter { $0.ts > cutoff }.count
+}
+
 @MainActor
 @Observable
 final class FeedModel {
@@ -324,7 +348,9 @@ struct FeedView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Join with code", systemImage: "number") { showJoinClub = true }
+                        .font(Theme.monoMedium(15))
                     Button("New club", systemImage: "plus") { showCreateClub = true }
+                        .font(Theme.monoMedium(15))
                 } label: {
                     Image(systemName: "plus.circle")
                 }
@@ -347,12 +373,40 @@ struct FeedView: View {
     private var feedList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                greetingHeader
                 announcementsSection
                 feedStream
             }
             .padding(16)
         }
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    // MARK: greeting header
+
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(todaysGreeting())
+                    .font(Theme.displayFont(20).italic())
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let recentCount = countRecentEvents(model.events)
+                if recentCount > 0 {
+                    Text("\(recentCount) new")
+                        .font(Theme.monoFont(11))
+                        .foregroundStyle(Theme.surface)
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 9)
+                        .background(Capsule().fill(Theme.yarnRust))
+                }
+            }
+            Divider()
+                .overlay(Theme.yarnClay.opacity(0.6))
+                .padding(.top, 10)
+        }
+        .padding(.bottom, 4)
     }
 
     // MARK: announcements (+ admin composer)
@@ -431,27 +485,36 @@ struct FeedView: View {
 
     private func reactionCard(event: FeedEvent, item: ReactionItem, contextLine: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            navigable(event.go) {
-                VStack(alignment: .leading, spacing: 8) {
+            // The author chip links to their profile; the body still links to
+            // the book. Two separate links, so the header sits OUTSIDE the
+            // card-level navigable (nested NavigationLinks don't mix).
+            HStack(spacing: 8) {
+                ReaderLink(userId: item.reaction.userId) {
                     HStack(spacing: 8) {
                         AvatarView(profile: item.profile, size: 30)
                         Text(item.profile?.displayName ?? "Reader")
                             .font(Theme.monoMedium(13))
                             .foregroundStyle(Theme.textPrimary)
-                        Text(contextLine)
-                            .font(Theme.monoFont(11))
-                            .foregroundStyle(Theme.textMuted)
-                            .lineLimit(1)
-                        Spacer()
-                        pageTag(item.reaction.page)
                     }
+                }
+                Text(contextLine)
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+                Spacer()
+                pageTag(item.reaction.page)
+            }
+            navigable(event.go) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(item.reaction.body)
                         .font(Theme.displayFont(16))
                         .foregroundStyle(Theme.textPrimary)
+                        .multilineTextAlignment(.leading)
                     Text(Format.timeAgo(item.reaction.createdAt))
                         .font(Theme.monoFont(11))
                         .foregroundStyle(Theme.textMuted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
                 await model.load()

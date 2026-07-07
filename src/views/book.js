@@ -1,5 +1,5 @@
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil } from "../ui.js";
+import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
@@ -30,8 +30,8 @@ export async function renderBook({ params }) {
       <aside class="feed-rail feed-rail-left book-rail">
         <button class="btn-back" data-nav="club">← back to club</button>
         <div class="patch book-rail-card">
-          ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="">`
-                           : `<div class="book-cover lg book-cover-blank">📖</div>`}
+          ${book.cover_url ? `<img class="book-cover lg" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+                           : `<div class="book-cover lg book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
           <div class="book-rail-info">
             <h2 class="book-title">${esc(book.title)}</h2>
             <p class="book-author">${esc(book.author || "")}</p>
@@ -69,7 +69,7 @@ export async function renderBook({ params }) {
           ${finished ? reviewFormHTML(myRev) : `
             <p class="faint locked-note">🔒 reviews unlock once you've marked the book finished.</p>`}
           <div data-reviews class="reviews-list">
-            ${finished ? renderReviews(reviews) : ""}
+            ${finished ? renderReviews(reviews, store.user.id) : ""}
           </div>
         </div>
       </main>
@@ -78,14 +78,15 @@ export async function renderBook({ params }) {
       <aside class="feed-rail feed-rail-right">
         <div class="progress-panel patch">
           <h4>my progress</h4>
-          <form data-progress class="progress-form">
+          <form data-progress class="progress-form" aria-label="My reading progress">
             <label class="inline-field">page
               <input name="page" type="number" min="0" max="${book.page_count || 100000}"
-                value="${myPage}" /></label>
-            ${book.page_count ? `<span class="faint">/ ${book.page_count}</span>` : ""}
+                value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
+            ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
             ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
             <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
             <button type="submit" class="btn-primary small">save</button>
+            ${mine ? `<button type="button" class="btn-ghost small progress-reset" data-act="reset-progress">reset progress</button>` : ""}
           </form>
           <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
         </div>
@@ -104,7 +105,7 @@ function deadlineNote(dl) {
 function reviewFormHTML(rev) {
   const r = rev?.rating || 0;
   const stars = [1,2,3,4,5].map((n) =>
-    `<button type="button" class="star ${n <= r ? "on" : ""}" data-star="${n}">★</button>`).join("");
+    `<button type="button" class="star ${n <= r ? "on" : ""}" data-star="${n}" aria-label="${n} star${n === 1 ? "" : "s"}" aria-pressed="${n <= r}">★</button>`).join("");
   return `
     <form data-review class="review-form">
       <div class="star-row" data-stars>${stars}<input type="hidden" name="rating" value="${r}"></div>
@@ -113,29 +114,45 @@ function reviewFormHTML(rev) {
     </form>`;
 }
 
-function renderReviews(reviews) {
+function renderReviews(reviews, myId) {
   if (!reviews.length) return `<p class="faint">no reviews yet.</p>`;
   return reviews.map((rv) => `
     <div class="review-card">
-      <div class="review-head">${avatarHTML(rv.profile, 30)}
-        <span class="review-name">${esc(rv.profile?.display_name || "Reader")}</span>
-        <span class="review-stars">${"★".repeat(rv.rating || 0)}${"☆".repeat(5 - (rv.rating || 0))}</span></div>
+      <div class="review-head">${userLinkHTML(rv.user_id, `${avatarHTML(rv.profile, 30)}
+        <span class="review-name">${esc(rv.profile?.display_name || "Reader")}</span>`,
+        rv.profile?.display_name)}
+        <span class="review-stars">${"★".repeat(rv.rating || 0)}${"☆".repeat(5 - (rv.rating || 0))}</span>
+        ${rv.user_id === myId ? `<button class="review-del" data-del-review="${rv.id}" title="Delete review" aria-label="Delete review">×</button>` : ""}</div>
       ${rv.body ? `<p class="review-body">${esc(rv.body)}</p>` : ""}
     </div>`).join("");
 }
 
-function reactionCardHTML(r, ctx) {
+function reactionCardHTML(r, ctx, book) {
   const { myId, engOf, repliesByReaction, nameOf } = ctx;
+  const mine = r.user_id === myId;
   return `
     <div class="feed-item reaction-card" data-id="${r.id}">
       <div class="reaction-head">
-        ${avatarHTML(r.profile, 30)}
-        <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>
+        ${userLinkHTML(r.user_id, `${avatarHTML(r.profile, 30)}
+          <span class="reaction-name">${esc(r.profile?.display_name || "Reader")}</span>`,
+          r.profile?.display_name)}
         <span class="reaction-page">p.${r.page}</span>
         <span class="reaction-time faint">${timeAgo(r.created_at)}</span>
-        ${r.user_id === myId ? `<button class="reaction-del" data-del="${r.id}" title="delete">×</button>` : ""}
+        ${mine ? `<span class="reaction-controls" role="group" aria-label="Reaction actions">
+          <button class="reaction-edit" data-edit="${r.id}" title="Edit reaction" aria-label="Edit reaction">✎</button>
+          <button class="reaction-del" data-del="${r.id}" title="Delete reaction" aria-label="Delete reaction">×</button>
+        </span>` : ""}
       </div>
-      <p class="reaction-body">${esc(r.body)}</p>
+      <p class="reaction-body" data-body="${r.id}">${esc(r.body)}</p>
+      ${mine ? `<form class="reaction-edit-form" data-edit-form="${r.id}" hidden>
+        <div class="react-page">at page
+          <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${r.page}" required></div>
+        <textarea name="body" rows="2" maxlength="600" required>${esc(r.body)}</textarea>
+        <div class="edit-actions">
+          <button type="submit" class="btn-primary small">save</button>
+          <button type="button" class="btn-ghost small" data-cancel-edit>cancel</button>
+        </div>
+      </form>` : ""}
       <div class="card-foot">
         ${engagementBarHTML("reaction", r.id, engOf(r.id), nameOf, myId)}
         ${replyThreadHTML(r.id, repliesByReaction[r.id] || [], engOf, nameOf, myId)}
@@ -238,17 +255,54 @@ async function loadFeed(root, clubId, book) {
 
   host.innerHTML = feed.length
     ? feed.map((item) => item.kind === "reaction"
-        ? reactionCardHTML(item.data, ctx)
+        ? reactionCardHTML(item.data, ctx, book)
         : notifCardHTML(item.data, ctx)).join("")
     : `<p class="faint">nothing here yet — be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
 
   host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this reaction?")) return;
     try { await api.deleteReaction(b.dataset.del); loadFeed(root, clubId, book); }
     catch (err) { toast(err.message, "error"); }
   }));
 
+  // Edit my own reaction: ✎ swaps the body for the inline form; save patches page
+  // + body (author-only per RLS), cancel restores.
+  host.querySelectorAll("[data-edit]").forEach((b) => {
+    const id = b.dataset.edit;
+    const card = b.closest(".reaction-card");
+    const body = card.querySelector(`[data-body="${id}"]`);
+    const form = card.querySelector(`[data-edit-form="${id}"]`);
+    b.addEventListener("click", () => { body.hidden = true; form.hidden = false; form.body.focus(); });
+    form.querySelector("[data-cancel-edit]").addEventListener("click", () => { form.hidden = true; body.hidden = false; });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const page = Number(form.page.value);
+      const text = form.body.value.trim();
+      if (!text) return;
+      try {
+        await api.updateReaction(id, { page, body: text });
+        toast("Reaction updated", "success");
+        loadFeed(root, clubId, book);
+      } catch (err) { toast(err.message, "error"); }
+    });
+  });
+
   // Likes, emoji tapbacks, and reply threads — refresh the feed on any change.
+  wireUserLinks(host);
   wireEngagementUI(host, () => loadFeed(root, clubId, book));
+
+  // Arriving from the profile's Activity feed: scroll to the reaction where the
+  // like/comment happened and flash it. One-shot — consume the stash either way.
+  const hl = sessionStorage.getItem("rr-highlight");
+  if (hl) {
+    sessionStorage.removeItem("rr-highlight");
+    const card = host.querySelector(`[data-id="${CSS.escape(hl)}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 2400);
+    }
+  }
 }
 
 function groupBy(rows, key) {
@@ -285,6 +339,18 @@ function wire(root, { clubId, book, mine }) {
   };
   pForm.addEventListener("submit", (e) => { e.preventDefault(); save(); });
   startedBtn?.addEventListener("click", () => save("reading"));
+
+  // Reset my progress: delete my reading_progress row. This re-locks any reactions
+  // I'd unlocked by reading past them (the spoiler gate reads live from progress),
+  // so re-render the screen to reflect the new (relocked) state.
+  root.querySelector("[data-act='reset-progress']")?.addEventListener("click", async () => {
+    if (!confirm("Reset your reading progress for this book? This re-locks reactions past your current page.")) return;
+    try {
+      await api.deleteProgress(book.id);
+      toast("Progress reset", "success");
+      navigate(`/club/${clubId}/book/${book.id}`);
+    } catch (err) { toast(err.message, "error"); }
+  });
 
   // Reaction→progress popup: when you react past your logged page, offer to bump
   // "My progress". Dismissing (button, backdrop) still sets you to the reaction's
@@ -390,6 +456,24 @@ function wire(root, { clubId, book, mine }) {
         x.classList.toggle("on", Number(x.dataset.star) <= v));
     }));
   }
+  // Render the reviews list and (re-)wire the author-only delete (×) buttons.
+  const reviewsHost = root.querySelector("[data-reviews]");
+  const wireReviewDeletes = () => reviewsHost?.querySelectorAll("[data-del-review]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Delete your review?")) return;
+      try {
+        await api.deleteReview(b.dataset.delReview);
+        toast("Review deleted", "success");
+        paintReviews(await api.bookReviews(book.id));
+      } catch (err) { toast(err.message, "error"); }
+    }));
+  const paintReviews = (reviews) => {
+    if (!reviewsHost) return;
+    reviewsHost.innerHTML = renderReviews(reviews, store.user.id);
+    wireReviewDeletes();
+  };
+  wireReviewDeletes(); // wire the server-rendered list present on first paint
+
   root.querySelector("[data-review]")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const rating = Number(e.target.rating.value) || null;
@@ -397,7 +481,7 @@ function wire(root, { clubId, book, mine }) {
     try {
       await api.saveReview(book.id, rating, body);
       toast("Review saved", "success");
-      root.querySelector("[data-reviews]").innerHTML = renderReviews(await api.bookReviews(book.id));
+      paintReviews(await api.bookReviews(book.id));
     } catch (err) { toast(err.message, "error"); }
   });
 

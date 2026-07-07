@@ -40,6 +40,19 @@ struct AvatarView: View {
     }
 }
 
+// Instagram-style profile link (port of ui.js userLinkHTML): wraps an
+// avatar/name pair so tapping it opens that reader's profile. Plain button
+// style keeps the wrapped content looking exactly as it does unwrapped.
+struct ReaderLink<Content: View>: View {
+    let userId: UUID
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        NavigationLink(value: Route.reader(userId)) { content() }
+            .buttonStyle(.plain)
+    }
+}
+
 struct ClubAvatarView: View {
     let club: Club
     var size: CGFloat = 48

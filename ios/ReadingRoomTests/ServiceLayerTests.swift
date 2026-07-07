@@ -152,6 +152,51 @@ final class ServiceLayerTests: XCTestCase {
         XCTAssertNotEqual(afterHijack.description, "hijacked",
                           "CLUB UPDATE LEAK: a non-creator member edited club settings")
 
+        // ---- club posts: member-scoped, NON-spoiler-gated -------------------
+        // A uploads a photo under the club folder (member-scoped storage RLS)
+        // then creates a text+photo post through the app API under test.
+        var postImagePath: String?
+        let postUrl = try await API.uploadPostImage(clubId: club.id, jpegData: Self.tinyJPEG)
+        postImagePath = String(postUrl.split(separator: "/").suffix(2).joined(separator: "/"))
+        let post = try await API.addPost(clubId: club.id, body: "hello club \(tag)", imageUrl: postUrl)
+        XCTAssertEqual(post.imageUrl, postUrl, "post image_url was not saved")
+
+        // Cleanup the post photo while the club (and A's membership) still exists.
+        defer {
+            if let p = postImagePath {
+                Task { try? await supabase.storage.from("post-images").remove(paths: [p]) }
+            }
+        }
+
+        // B (co-member) reads it — NO spoiler gate, just membership.
+        let bSeesPosts: [ClubPost] = try await cB.from("club_posts").select()
+            .eq("club_id", value: club.id.uuidString).execute().value
+        XCTAssertTrue(bSeesPosts.contains { $0.id == post.id },
+                      "co-member could not read a club post")
+
+        // A edits their own post; a non-author (B) cannot.
+        let editedPost = try await API.updatePost(post.id, body: "edited post")
+        XCTAssertEqual(editedPost.body, "edited post", "own post edit failed")
+
+        struct PostHijack: Encodable { let body: String }
+        _ = try? await cB.from("club_posts").update(PostHijack(body: "hijacked post"))
+            .eq("id", value: post.id.uuidString).execute()
+        let postAfterHijack: ClubPost = try await cB.from("club_posts").select()
+            .eq("id", value: post.id.uuidString).single().execute().value
+        XCTAssertEqual(postAfterHijack.body, "edited post",
+                       "POST UPDATE LEAK: a non-author edited someone else's post")
+
+        // B cannot delete A's post.
+        _ = try? await cB.from("club_posts").delete().eq("id", value: post.id.uuidString).execute()
+        let postStill = try await API.clubPosts(club.id)
+        XCTAssertTrue(postStill.contains { $0.id == post.id },
+                      "POST DELETE LEAK: a non-author deleted someone else's post")
+
+        // Author deletes their own post through the API under test.
+        try await API.deletePost(post.id)
+        let afterDeletePost = try await API.clubPosts(club.id)
+        XCTAssertFalse(afterDeletePost.contains { $0.id == post.id }, "own post delete failed")
+
         // ---- book -----------------------------------------------------------
         let book = try await API.addBook(clubId: club.id, book: API.NewBook(
             title: "iOS Test Book \(tag)", author: "Tester", pageCount: 300))
@@ -213,6 +258,18 @@ final class ServiceLayerTests: XCTestCase {
         XCTAssertTrue(r30Still.contains { $0.id == r30.id },
                       "REACTION DELETE LEAK: non-author deleted someone else's reaction")
 
+        // EDIT own reaction (body + page); non-author cannot
+        let editedR30 = try await API.updateReaction(r30.id, page: 35, body: "edited early thought")
+        XCTAssertEqual(editedR30.body, "edited early thought", "own reaction edit failed")
+        XCTAssertEqual(editedR30.page, 35, "own reaction page edit failed")
+
+        struct ReactionHijack: Encodable { let body: String }
+        _ = try? await cB.from("reactions").update(ReactionHijack(body: "hijacked reaction"))
+            .eq("id", value: r30.id.uuidString).execute()
+        let r30AfterHijack = try await API.bookReactions(book.id).first { $0.id == r30.id }
+        XCTAssertEqual(r30AfterHijack?.reaction.body, "edited early thought",
+                       "REACTION UPDATE LEAK: a non-author edited someone else's reaction")
+
         // ---- replies inherit the gate ---------------------------------------
         struct NewReply: Encodable { let reactionId: UUID; let userId: UUID; let body: String }
         let bReply: ReactionReply = try await cB.from("reaction_replies")
@@ -228,6 +285,19 @@ final class ServiceLayerTests: XCTestCase {
         let replyStill: [ReactionReply] = try await cB.from("reaction_replies").select()
             .eq("id", value: bReply.id.uuidString).execute().value
         XCTAssertEqual(replyStill.count, 1, "REPLY DELETE LEAK: non-author deleted a reply")
+
+        // EDIT own reply; non-author cannot edit someone else's
+        let aReply = try await API.addReply(reactionId: r30.id, body: "my own reply")
+        let editedReply = try await API.updateReply(aReply.id, body: "my edited reply")
+        XCTAssertEqual(editedReply.body, "my edited reply", "own reply edit failed")
+
+        struct ReplyHijack: Encodable { let body: String }
+        _ = try? await cB.from("reaction_replies").update(ReplyHijack(body: "hijacked reply"))
+            .eq("id", value: aReply.id.uuidString).execute()
+        let aReplyAfter: [ReactionReply] = try await cB.from("reaction_replies").select()
+            .eq("id", value: aReply.id.uuidString).execute().value
+        XCTAssertEqual(aReplyAfter.first?.body, "my edited reply",
+                       "REPLY UPDATE LEAK: a non-author edited someone else's reply")
 
         // A replies to own gated p.200 reaction; B can't see or post there
         let lateReply = try await API.addReply(reactionId: r200.id, body: "spoiler-y reply")
@@ -300,6 +370,20 @@ final class ServiceLayerTests: XCTestCase {
         let bReviewsAfter: [Review] = try await cB.from("reviews").select()
             .eq("book_id", value: book.id.uuidString).execute().value
         XCTAssertGreaterThanOrEqual(bReviewsAfter.count, 1, "B should see reviews after finishing")
+
+        // REVIEW DELETE: non-author cannot delete A's review; author can
+        let aReview = try await API.myReview(bookId: book.id)
+        XCTAssertNotNil(aReview, "A's review missing before delete test")
+        if let rev = aReview {
+            _ = try? await cB.from("reviews").delete().eq("id", value: rev.id.uuidString).execute()
+            let stillThere = try await API.myReview(bookId: book.id)
+            XCTAssertNotNil(stillThere, "REVIEW DELETE LEAK: a non-author deleted someone else's review")
+            try await API.deleteReview(rev.id)
+            let afterOwnDelete = try await API.myReview(bookId: book.id)
+            XCTAssertNil(afterOwnDelete, "own review delete failed")
+            // restore for downstream history assertions that expect the rating
+            _ = try await API.saveReview(bookId: book.id, rating: 4, body: "solid read")
+        }
 
         // reply gate opened too
         let bLateNow: [ReactionReply] = try await cB.from("reaction_replies").select()
@@ -392,10 +476,138 @@ final class ServiceLayerTests: XCTestCase {
         XCTAssertFalse(booksAfterADelete.contains { $0.id == book2.id },
                        "owner/picker book delete failed")
 
+        // PROGRESS DELETE (reset): a non-owner cannot delete B's progress; the
+        // owner can delete their own, which re-locks reactions past that page.
+        _ = try? await supabase.from("reading_progress")
+            .delete().eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).execute()   // A trying to wipe B's row
+        let bProgressStill: [ReadingProgress] = try await cB.from("reading_progress").select()
+            .eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).execute().value
+        XCTAssertEqual(bProgressStill.count, 1,
+                       "PROGRESS DELETE LEAK: a non-owner wiped another reader's progress")
+
+        // B deletes B's OWN progress via the app API path (owner-only) and then
+        // can no longer see the gated p.200 reaction (spoiler gate re-locks live).
+        let bDeleteOwn: [ReadingProgress] = try await cB.from("reading_progress").delete()
+            .eq("book_id", value: book.id.uuidString)
+            .eq("user_id", value: b.uuidString).select().execute().value
+        XCTAssertEqual(bDeleteOwn.count, 1, "owner progress delete failed")
+        let bSeesAfterReset: [Reaction] = try await cB.from("reactions").select()
+            .eq("book_id", value: book.id.uuidString).execute().value
+        XCTAssertFalse(bSeesAfterReset.map(\.page).contains(200),
+                       "SPOILER LEAK: p.200 still visible after B reset progress")
+
+        // A resets A's own progress through the API under test (owner-only path)
+        try await API.deleteProgress(bookId: book.id)
+        let aProgressGone = try await API.myProgress(bookId: book.id)
+        XCTAssertNil(aProgressGone, "own deleteProgress did not clear the row")
+
         // B leaves
         _ = try await cB.from("club_members").delete()
             .eq("club_id", value: club.id.uuidString)
             .eq("user_id", value: b.uuidString).execute()
+
+        // ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) ----------
+        // B owns a private club A never joins, with a book, a reaction and progress.
+        // A follows B and should see B's SOLO reading there WITHOUT joining — the
+        // additive follow RLS path. Crucially this must NOT be a club-gate bypass:
+        // A is not a member, and it only surfaces B's OWN authored reading.
+        struct NewClubRaw: Encodable { let name: String; let accent: String; let createdBy: UUID }
+        let bClub: Club = try await cB.from("clubs")
+            .insert(NewClubRaw(name: "B Solo Club \(tag)", accent: "yarn-mauve", createdBy: b))
+            .select().single().execute().value
+        struct NewBookRaw: Encodable { let clubId: UUID; let title: String; let pageCount: Int; let pickedBy: UUID; let status: String }
+        let bBook: Book = try await cB.from("books")
+            .insert(NewBookRaw(clubId: bClub.id, title: "B Solo Book \(tag)", pageCount: 400, pickedBy: b, status: "current"))
+            .select().single().execute().value
+        struct BProgress: Encodable { let bookId: UUID; let userId: UUID; let currentPage: Int; let status: String }
+        _ = try await cB.from("reading_progress")
+            .upsert(BProgress(bookId: bBook.id, userId: b, currentPage: 120, status: "reading"),
+                    onConflict: "book_id,user_id").execute()
+        struct BReaction: Encodable { let bookId: UUID; let userId: UUID; let page: Int; let body: String }
+        let bReaction: Reaction = try await cB.from("reactions")
+            .insert(BReaction(bookId: bBook.id, userId: b, page: 90, body: "solo thought \(tag)"))
+            .select().single().execute().value
+        struct BPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
+        let bPost: ClubPost = try await cB.from("club_posts")
+            .insert(BPost(clubId: bClub.id, userId: b, body: "solo post \(tag)"))
+            .select().single().execute().value
+
+        // BEFORE following: A can't read B's solo profile/reactions/progress at all.
+        let preFollowProfiles: [Profile] = try await supabase.from("profiles").select()
+            .eq("id", value: b.uuidString).execute().value
+        XCTAssertTrue(preFollowProfiles.isEmpty, "FOLLOW LEAK: saw a non-co-member profile before following")
+        let preFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(preFollowReactions.isEmpty, "FOLLOW LEAK: saw a non-member's reaction before following")
+
+        // POST MEMBERSHIP GATE: a non-member cannot read a club's posts, and posts
+        // are NOT part of the follow path.
+        let preFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
+            .eq("club_id", value: bClub.id.uuidString).execute().value
+        XCTAssertTrue(preFollowPosts.isEmpty, "POST LEAK: a non-member read a club's posts")
+        _ = bPost // referenced below via the post-follow assertion
+        let preFeed = try await API.followFeed()
+        XCTAssertFalse(preFeed.items.contains { $0.id == bReaction.id },
+                       "FOLLOW LEAK: B's reaction showed in the feed before A followed")
+
+        // A follows B (the app API under test), then the follow paths open up.
+        _ = try await API.follow(b)
+        let isFollowing = try await API.isFollowing(b)
+        XCTAssertTrue(isFollowing, "follow did not register")
+        let following = try await API.following()
+        XCTAssertTrue(following.contains(b), "following() missing the followee")
+        let followingProfiles = try await API.followingProfiles()
+        XCTAssertTrue(followingProfiles.contains { $0.id == b },
+                      "followingProfiles() missing the followee's profile")
+
+        // Now A sees B's SOLO reaction + progress via the additive path.
+        let postFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(postFollowReactions.contains { $0.id == bReaction.id },
+                      "follow path did not expose the followee's solo reaction")
+
+        // Posts are NOT part of the follow path: following B must never expose
+        // the posts of a club A isn't a member of, and A can't insert into it.
+        let postFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
+            .eq("club_id", value: bClub.id.uuidString).execute().value
+        XCTAssertTrue(postFollowPosts.isEmpty, "POST LEAK: following exposed a non-member club's posts")
+        struct IntruderPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
+        var postInsertBlocked = false
+        do {
+            let _: ClubPost = try await supabase.from("club_posts")
+                .insert(IntruderPost(clubId: bClub.id, userId: a, body: "intruder \(tag)"))
+                .select().single().execute().value
+        } catch { postInsertBlocked = true }
+        XCTAssertTrue(postInsertBlocked, "POST LEAK: a non-member inserted a post into a club they're not in")
+        let feed = try await API.followFeed()
+        XCTAssertTrue(feed.followees.contains { $0.id == b }, "feed roster missing the followee")
+        XCTAssertTrue(feed.items.contains { $0.kind == .reaction && $0.id == bReaction.id },
+                      "follow feed missing the followee's reaction")
+        XCTAssertTrue(feed.items.contains { $0.kind == .progress },
+                      "follow feed missing the followee's progress")
+
+        // Only follower A may follow FROM themselves: A can't forge B->A.
+        struct ForgedFollow: Encodable { let followerId: UUID; let followeeId: UUID }
+        var forgeBlocked = false
+        do {
+            _ = try await supabase.from("follows")
+                .insert(ForgedFollow(followerId: b, followeeId: a))
+                .select().single().execute()
+        } catch { forgeBlocked = true }
+        XCTAssertTrue(forgeBlocked, "FOLLOW LEAK: forged a follow edge on someone else's behalf")
+
+        // A unfollows -> the solo view re-locks live (RLS reads the graph each time).
+        try await API.unfollow(b)
+        let stillFollowing = try await API.isFollowing(b)
+        XCTAssertFalse(stillFollowing, "unfollow did not remove the edge")
+        let afterUnfollow: [Reaction] = try await supabase.from("reactions").select()
+            .eq("book_id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(afterUnfollow.isEmpty, "FOLLOW LEAK: solo reaction still visible after unfollowing")
+
+        // Clean up B's solo club (cascades its book/progress/reactions).
+        _ = try await cB.from("clubs").delete().eq("id", value: bClub.id.uuidString).execute()
 
         // ---- announcements: non-admin cannot broadcast ----------------------------
         var broadcastBlocked = false

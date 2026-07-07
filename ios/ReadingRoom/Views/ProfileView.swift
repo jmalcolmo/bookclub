@@ -7,6 +7,10 @@ import PhotosUI
 import Observation
 
 struct ProfileView: View {
+    // When set, this shows ANOTHER reader's read-only profile with a follow
+    // control (reached from the follow feed). When nil, it's MY editable profile.
+    var readerId: UUID? = nil
+
     @Environment(SessionStore.self) private var session
     @Environment(ToastCenter.self) private var toasts
 
@@ -15,14 +19,120 @@ struct ProfileView: View {
     @State private var seeded = false
     @State private var saving = false
     @State private var history: [HistoryBook] = []
+    @State private var activity: [ActivityItem] = []
+    @State private var activityLoaded = false
     @State private var photoItem: PhotosPickerItem?
     @State private var pendingCrop: PendingCrop?
     @State private var confirmSignOut = false
 
+    // Other-reader state.
+    @State private var reader: Profile?
+    @State private var readerLoaded = false
+    @State private var isFollowing = false
+    @State private var followBusy = false
+
+    // Am I looking at someone else? (readerId is nil, or my own, => self view)
+    private var isOther: Bool {
+        guard let readerId else { return false }
+        return readerId != session.userId
+    }
+
     var body: some View {
+        if isOther {
+            otherBody
+        } else {
+            selfBody
+        }
+    }
+
+    // MARK: - Another reader (read-only + follow control)
+
+    private var otherBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let reader {
+                    VStack(alignment: .leading, spacing: 14) {
+                        AvatarView(profile: reader, size: 88)
+                        Text(reader.displayName)
+                            .font(Theme.displaySemiBold(20))
+                            .foregroundStyle(Theme.textPrimary)
+                        if let bio = reader.bio, !bio.isEmpty {
+                            Text(bio)
+                                .font(Theme.displayFont(16))
+                                .foregroundStyle(Theme.textPrimary)
+                        } else {
+                            Text("no bio yet.")
+                                .font(Theme.displayFont(15))
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                        Group {
+                            if isFollowing {
+                                Button("Following \u{2713}") { toggleFollow() }
+                                    .buttonStyle(.ghost)
+                            } else {
+                                Button("Follow") { toggleFollow() }
+                                    .buttonStyle(.primary)
+                            }
+                        }
+                        .disabled(followBusy)
+                        Text("following surfaces their solo reading on your Following feed.")
+                            .font(Theme.monoFont(11))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .patch(accent: Theme.yarnSage, seed: "reader-card")
+                } else if readerLoaded {
+                    EmptyStateView(
+                        title: "this reader isn't visible to you.",
+                        hint: "you can see a reader once you share a club or follow them."
+                    )
+                } else {
+                    ProgressView().tint(Theme.yarnSage)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(16)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("Reader")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await loadReader() }
+    }
+
+    private func loadReader() async {
+        guard let readerId, !readerLoaded else { return }
+        reader = try? await API.getProfile(readerId)
+        isFollowing = (try? await API.isFollowing(readerId)) ?? false
+        readerLoaded = true
+    }
+
+    private func toggleFollow() {
+        guard let readerId, !followBusy else { return }
+        followBusy = true
+        Task {
+            defer { followBusy = false }
+            do {
+                if isFollowing {
+                    try await API.unfollow(readerId)
+                    isFollowing = false
+                    toasts.show("Unfollowed", .success)
+                } else {
+                    try await API.follow(readerId)
+                    isFollowing = true
+                    toasts.show("Following", .success)
+                }
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+
+    // MARK: - My own profile
+
+    private var selfBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 profileCard
+                activitySection
                 shelfSection
             }
             .padding(16)
@@ -33,10 +143,14 @@ struct ProfileView: View {
         .task {
             seedForm()
             history = (try? await API.myReadingHistory()) ?? []
+            activity = (try? await API.myActivity()) ?? []
+            activityLoaded = true
         }
         .refreshable {
             await session.refreshProfile()
             history = (try? await API.myReadingHistory()) ?? []
+            activity = (try? await API.myActivity()) ?? []
+            activityLoaded = true
         }
         .fullScreenCover(item: $pendingCrop) { pending in
             ImageCropperView(image: pending.image, shape: .circle) { data in
@@ -105,6 +219,75 @@ struct ProfileView: View {
                 .buttonStyle(.ghostDanger)
         }
         .patch(accent: Theme.yarnSage, seed: "profile-card")
+    }
+
+    // MARK: - activity (who liked / commented on my stuff)
+
+    @ViewBuilder
+    private var activitySection: some View {
+        StampTitle(text: "Activity", small: true)
+        if !activityLoaded {
+            ProgressView().tint(Theme.yarnSage)
+                .frame(maxWidth: .infinity)
+        } else if activity.isEmpty {
+            EmptyStateView(
+                title: "no activity yet.",
+                hint: "when someone likes or comments on your reactions, it shows up here."
+            )
+        } else {
+            ForEach(activity) { item in
+                NavigationLink(value: item.route) {
+                    activityRow(item)
+                }
+                .buttonStyle(.plain)
+                .patch(seed: item.id.uuidString, padding: 12)
+            }
+        }
+    }
+
+    private func activityRow(_ item: ActivityItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            AvatarView(profile: item.actor, size: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                (Text(item.actor?.displayName ?? "Someone").fontWeight(.semibold)
+                    + Text(" \(verb(item)) \u{00B7} ")
+                    + Text(item.book.title).italic().foregroundColor(Theme.yarnRust))
+                    .font(Theme.displayFont(15))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                if let quote = item.kind == .reply ? item.body : item.snippet,
+                   !quote.isEmpty {
+                    Text("\u{201C}\(quote)\u{201D}")
+                        .font(Theme.displayFont(13))
+                        .foregroundStyle(Theme.textMuted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Text(Format.timeAgo(item.at))
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            Spacer()
+            Text(icon(item))
+                .font(.system(size: 15))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func verb(_ item: ActivityItem) -> String {
+        switch item.kind {
+        case .like: return "liked your \(item.what.rawValue)"
+        case .emoji(let e): return "reacted \(e) to your \(item.what.rawValue)"
+        case .reply: return "commented on your \(item.what.rawValue)"
+        }
+    }
+
+    private func icon(_ item: ActivityItem) -> String {
+        switch item.kind {
+        case .like: return "\u{1F44D}"
+        case .emoji(let e): return e
+        case .reply: return "\u{1F4AC}"
+        }
     }
 
     @ViewBuilder

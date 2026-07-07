@@ -128,8 +128,7 @@ struct ClubView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let desc = club.description, !desc.isEmpty {
                     Text(desc)
-                        .font(Theme.displayFont(16))
-                        .italic()
+                        .font(Theme.displayFont(16).italic())
                         .foregroundStyle(Theme.textMuted)
                 }
 
@@ -247,12 +246,16 @@ struct ClubView: View {
         let pct = ProgressMath.percent(page: p?.currentPage, of: model.book?.pageCount)
 
         return HStack(spacing: 10) {
-            AvatarView(profile: member.profile, size: 34)
+            ReaderLink(userId: member.userId) {
+                AvatarView(profile: member.profile, size: 34)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(member.displayName)
-                        .font(Theme.displaySemiBold(15))
-                        .foregroundStyle(Theme.textPrimary)
+                    ReaderLink(userId: member.userId) {
+                        Text(member.displayName)
+                            .font(Theme.displaySemiBold(15))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
                     if member.role.isOwnerTier {
                         Text(member.role.rawValue)
                             .font(Theme.monoFont(10))
@@ -317,6 +320,7 @@ struct ClubView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showMenu = false }
+                        .font(Theme.monoMedium(15))
                 }
             }
             .confirmationDialog("Leave \(model.club?.name ?? "this club")?",
@@ -446,6 +450,7 @@ struct AddBookSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(Theme.monoMedium(15))
                 }
             }
         }

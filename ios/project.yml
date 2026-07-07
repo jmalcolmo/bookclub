@@ -38,12 +38,23 @@ targets:
     configFiles:
       Debug: Config/Dev.xcconfig
       Release: Config/Prod.xcconfig
+    # Push Notifications capability. XcodeGen generates the entitlements file
+    # from these properties and wires CODE_SIGN_ENTITLEMENTS automatically.
+    # Debug builds get the APNs sandbox ("development"); Release/archive builds
+    # override aps-environment to "production" below for the App Store gateway.
+    entitlements:
+      path: ReadingRoom/Support/ReadingRoom.entitlements
+      properties:
+        aps-environment: development
     settings:
       base:
         INFOPLIST_FILE: ReadingRoom/Support/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: ReadingRoom/Support/ReadingRoom.entitlements.production
     dependencies:
       - package: Supabase
         product: Supabase
@@ -58,6 +69,9 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # XcodeGen derives TEST_HOST from the target name, but Shared.xcconfig
+        # renames the product to "The Reading Room" - point at the real bundle.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/The Reading Room.app/The Reading Room"
 
   ReadingRoomUITests:
     type: bundle.ui-testing

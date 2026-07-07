@@ -15,6 +15,8 @@ import { renderBook } from "./views/book.js";
 import { renderPicker } from "./views/picker.js";
 import { renderHistory } from "./views/history.js";
 import { renderProfile } from "./views/profile.js";
+import { renderPeople } from "./views/people.js";
+import { renderPosts } from "./views/posts.js";
 
 // ---- routes ----
 route("/feed", renderFeed);
@@ -23,7 +25,10 @@ route("/clubs", renderClubs);
 route("/club/:id", renderClub);
 route("/club/:id/picker", renderPicker);
 route("/club/:id/history", renderHistory);
+route("/club/:id/posts", renderPosts);
 route("/club/:id/book/:bookId", renderBook);
+route("/people", renderPeople);
+route("/user/:id", renderProfile);
 route("/profile", renderProfile);
 setNotFound(() => navigate("/feed"));
 
@@ -48,6 +53,7 @@ function paintTabs() {
   let active = "feed";
   if (path.startsWith("/clubs") || path.startsWith("/club/")) active = "clubs";
   else if (path.startsWith("/progress")) active = "progress";
+  else if (path.startsWith("/people")) active = "people";
   else if (path.startsWith("/profile")) active = "profile";
   document.querySelectorAll("[data-tab]").forEach((t) =>
     t.classList.toggle("active", t.dataset.tab === active));
@@ -62,7 +68,16 @@ function wireNav() {
       if (t === "feed") navigate("/feed");
       else if (t === "progress") navigate("/progress");
       else if (t === "clubs") navigate("/clubs");
+      else if (t === "people") navigate("/people");
       else if (t === "profile") navigate("/profile");
+      else if (t === "posts") {
+        // Club posts are club-scoped. When already inside a club (/club/:id/…),
+        // jump straight to that club's posts; otherwise send the reader to their
+        // clubs to pick one first.
+        const m = currentPath().match(/^\/club\/([^/]+)/);
+        if (m) navigate(`/club/${m[1]}/posts`);
+        else { toast("Open a club to see its posts", "info"); navigate("/clubs"); }
+      }
     });
   });
   document.querySelectorAll("[data-action='signout']").forEach((so) => {

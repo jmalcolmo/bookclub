@@ -47,7 +47,7 @@ export async function renderClubs() {
 
 export function createClubModal() {
   const accentBtns = ACCENTS.map(([name, color], i) =>
-    `<button type="button" class="accent-dot ${i === 0 ? "active" : ""}" data-accent="${name}" style="background:${color}"></button>`).join("");
+    `<button type="button" class="accent-dot ${i === 0 ? "active" : ""}" data-accent="${name}" style="background:${color}" aria-label="Color: ${name.replace("yarn-", "")}" aria-pressed="${i === 0}"></button>`).join("");
 
   openModal(`
     <h3>New Club</h3>
@@ -71,8 +71,8 @@ export function createClubModal() {
   `, (modal) => {
     let accent = ACCENTS[0][0];
     modal.querySelectorAll("[data-accent]").forEach((d) => d.addEventListener("click", () => {
-      modal.querySelectorAll("[data-accent]").forEach((x) => x.classList.remove("active"));
-      d.classList.add("active"); accent = d.dataset.accent;
+      modal.querySelectorAll("[data-accent]").forEach((x) => { x.classList.remove("active"); x.setAttribute("aria-pressed", "false"); });
+      d.classList.add("active"); d.setAttribute("aria-pressed", "true"); accent = d.dataset.accent;
     }));
     const days = modal.querySelector(".deadline-days");
     modal.querySelector("[name='deadlines']").addEventListener("change", (e) => {
@@ -138,6 +138,8 @@ export function openModal(innerHTML, after) {
   const back = document.createElement("div");
   back.className = "modal-backdrop";
   back.dataset.modal = "true";
+  back.setAttribute("role", "dialog");
+  back.setAttribute("aria-modal", "true");
   back.innerHTML = `<div class="modal">${innerHTML}</div>`;
   document.body.appendChild(back);
   back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });

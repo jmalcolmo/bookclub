@@ -53,7 +53,11 @@ npm test
 sign-in (password) · Open Library lookup · create club · creator auto-membership (role 'creator') ·
 find-by-code RPC · non-member cannot read club · **profile gate (non-co-member cannot read a
 profile; co-member can)** · join · read club · **my clubs has no duplicates (2-member club appears once)** ·
-edit club settings · **club-update gate (member cannot edit settings)** · add book · edit book
+edit club settings · **club-update gate (member cannot edit settings)** ·
+**club posts (create text+photo post; co-member reads it with NO spoiler gate; edit own; delete own;
+post-update gate (non-author can't edit); post-delete gate (non-author can't delete); post-image
+gate (non-member can't upload to the club folder); membership gate (non-member can't read/insert a
+club's posts, and following does NOT expose them))** · add book · edit book
 deadline · read current book + books list · log
 progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 **reaction→progress sync (logged page can never sit below a reaction you posted)** ·
@@ -69,9 +73,13 @@ after finishing · wheel selection · vote tally · finalize selection (decide w
 **selection gate (non-creator cannot finalize a
 selection)** · **book gate (member cannot finish the
 book for the club)** · creator marks finished → history · profile update ·
+**push: register device token (owner-only) + gates (another user cannot read or forge your token)** ·
 **book-delete gate (member, not owner/picker, cannot delete)** · owner deletes a book ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
+**follows: A follows B and sees B's SOLO reading (progress/reaction/book/profile) on a club A
+isn't in — the additive follow RLS path — while a non-follower sees nothing; follow only from
+self; unfollow re-locks the solo view live** ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
 ## MAINTENANCE RULE (important)

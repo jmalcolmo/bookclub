@@ -15,6 +15,14 @@ struct Profile: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date
 }
 
+// MARK: - follows (a directed follow edge, outside of clubs)
+
+struct Follow: Codable, Hashable, Sendable {
+    let followerId: UUID
+    let followeeId: UUID
+    let createdAt: Date
+}
+
 // MARK: - clubs
 
 struct Club: Codable, Identifiable, Hashable, Sendable {
@@ -124,6 +132,21 @@ struct ReactionReply: Codable, Identifiable, Hashable, Sendable {
     let reactionId: UUID
     let userId: UUID
     let body: String
+    let createdAt: Date
+}
+
+// MARK: - club_posts (lightweight, NON-spoiler-gated, member-scoped)
+
+// A short text update OR a single photo shared to a club. NOT a review, no page
+// number, so NO spoiler gate — but membership-scoped by RLS (only members of the
+// club can read/write). body and imageUrl are each optional; a post carries at
+// least one of them (the table CHECK enforces it).
+struct ClubPost: Codable, Identifiable, Hashable, Sendable {
+    let id: UUID
+    let clubId: UUID
+    let userId: UUID
+    var body: String?
+    var imageUrl: String?
     let createdAt: Date
 }
 
