@@ -162,7 +162,8 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .club-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   flex-wrap: wrap; margin-bottom: 20px; }
 .join-code-chip { font-family: var(--font-mono); font-size: .85rem; background: var(--surface-2);
-  border: 2px dashed var(--yarn-clay); border-radius: 8px; padding: 6px 12px; }
+  border: 2px dashed var(--yarn-clay); border-radius: 8px; padding: 6px 12px;
+  white-space: nowrap; flex-shrink: 1; min-width: 0; }
 .copy-code { border: none; background: none; cursor: pointer; font-size: 1rem; }
 .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
