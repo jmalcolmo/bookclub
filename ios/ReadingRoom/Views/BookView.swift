@@ -81,7 +81,7 @@ final class BookModel {
             let myId = try? await API.currentUserId()
             var events: [FeedEvent] = reactions.map {
                 FeedEvent(id: $0.id.uuidString, ts: $0.reaction.createdAt,
-                          kind: .reaction($0, context: ""))
+                          kind: .reaction($0), eventType: .reaction)
             }
             events += Self.buildNotifications(progress: progress,
                                               memberCount: members.count,
@@ -473,7 +473,7 @@ struct BookView: View {
     @ViewBuilder
     private func feedCard(_ entry: FeedEvent) -> some View {
         switch entry.kind {
-        case .reaction(let item, _):
+        case .reaction(let item):
             ReactionCard(item: item,
                          context: model.context,
                          isMine: item.reaction.userId == session.userId,

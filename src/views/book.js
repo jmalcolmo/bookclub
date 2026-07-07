@@ -47,6 +47,25 @@ export async function renderBook({ params }) {
         </div>
       </aside>
 
+      <!-- MY PROGRESS · right rail on desktop; on mobile it stacks RIGHT BELOW
+           the book so logging pages never means scrolling past the feed. -->
+      <aside class="feed-rail feed-rail-right">
+        <div class="progress-panel patch">
+          <h4>my progress</h4>
+          <form data-progress class="progress-form" aria-label="My reading progress">
+            <label class="inline-field">page
+              <input name="page" type="number" min="0" max="${book.page_count || 100000}"
+                value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
+            ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
+            ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
+            <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
+            <button type="submit" class="btn-primary small">save</button>
+            ${mine ? `<button type="button" class="btn-ghost small progress-reset" data-act="reset-progress">reset progress</button>` : ""}
+          </form>
+          <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
+        </div>
+      </aside>
+
       <!-- CENTER · the feed (scrolls) -->
       <main class="feed-column">
         <div class="reaction-compose patch">
@@ -73,24 +92,6 @@ export async function renderBook({ params }) {
           </div>
         </div>
       </main>
-
-      <!-- RIGHT RAIL · my progress (fixed, mirrors the book) -->
-      <aside class="feed-rail feed-rail-right">
-        <div class="progress-panel patch">
-          <h4>my progress</h4>
-          <form data-progress class="progress-form" aria-label="My reading progress">
-            <label class="inline-field">page
-              <input name="page" type="number" min="0" max="${book.page_count || 100000}"
-                value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
-            ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
-            ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
-            <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
-            <button type="submit" class="btn-primary small">save</button>
-            ${mine ? `<button type="button" class="btn-ghost small progress-reset" data-act="reset-progress">reset progress</button>` : ""}
-          </form>
-          <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
-        </div>
-      </aside>
     </div>
   `, (root) => wire(root, { clubId, book, mine }));
 }
@@ -169,12 +170,14 @@ function notifCardHTML(n, ctx) {
     : "";
   return `
     <div class="feed-item notif-card ${n.highlight ? "notif-highlight" : ""}">
-      <span class="notif-icon" aria-hidden="true">${n.icon}</span>
-      <div class="notif-main">
-        <p class="notif-text">${esc(n.text)}</p>
-        <span class="notif-time faint">${timeAgo(n.ts)}</span>
-        ${bar}
+      <div class="notif-row">
+        <span class="notif-icon" aria-hidden="true">${n.icon}</span>
+        <div class="notif-main">
+          <p class="notif-text">${esc(n.text)}</p>
+          <span class="notif-time faint">${timeAgo(n.ts)}</span>
+        </div>
       </div>
+      ${bar}
     </div>`;
 }
 
