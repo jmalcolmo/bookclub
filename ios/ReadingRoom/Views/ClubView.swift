@@ -6,6 +6,11 @@
 import SwiftUI
 import PhotosUI
 import Observation
+import os
+
+// LAG-PROBE: subsystem + category visible in Console.app. Filter by
+// subsystem "com.readingroom.lag" to isolate these entries.
+private let lagLog = Logger(subsystem: "com.readingroom.lag", category: "ClubLoad")
 
 @MainActor
 @Observable
@@ -24,19 +29,49 @@ final class ClubModel {
     }
 
     func load() async {
+        // LAG-PROBE: wall-clock timing for each fetch phase. Read these in
+        // Console.app (filter subsystem: com.readingroom.lag) or Instruments
+        // (os_log timeline). All durations are in seconds.
+        let totalStart = Date()
+        lagLog.info("[\(self.clubId, privacy: .public)] load() start")
+
         do {
+            // Phase 1 — three requests in parallel (mirrors web Promise.all).
+            let phase1Start = Date()
             async let clubReq = API.getClub(clubId)
             async let membersReq = API.clubMembers(clubId)
             async let bookReq = API.currentBook(clubId)
             let (club, members, book) = try await (clubReq, membersReq, bookReq)
+            let phase1Elapsed = Date().timeIntervalSince(phase1Start)
+            lagLog.info("[\(self.clubId, privacy: .public)] parallel fetch done — \(String(format: "%.3f", phase1Elapsed), privacy: .public)s  members:\(members.count, privacy: .public)  hasBook:\(book != nil ? 1 : 0, privacy: .public)")
+
             self.club = club
             self.members = members
             self.book = book
-            self.progress = book == nil ? [] : try await API.bookProgress(book!.id)
+
+            // Phase 2 — bookProgress is serial (needs book.id from phase 1).
+            // This is the most likely hot-path bottleneck on slow connections.
+            if let book {
+                let phase2Start = Date()
+                // LAG-PROBE: avatar counts help rule out N-image fetches as
+                // the visual lag cause; the actual image loads are async and
+                // do not block load().
+                let avatarCount = members.filter { $0.profile?.avatarUrl != nil }.count
+                lagLog.info("[\(self.clubId, privacy: .public)] avatars-with-url:\(avatarCount, privacy: .public)  coverUrl:\(book.coverUrl != nil ? 1 : 0, privacy: .public) — starting bookProgress fetch")
+                self.progress = try await API.bookProgress(book.id)
+                let phase2Elapsed = Date().timeIntervalSince(phase2Start)
+                lagLog.info("[\(self.clubId, privacy: .public)] bookProgress done — \(String(format: "%.3f", phase2Elapsed), privacy: .public)s  items:\(self.progress.count, privacy: .public)")
+            } else {
+                self.progress = []
+            }
             loadError = nil
         } catch {
+            lagLog.error("[\(self.clubId, privacy: .public)] load() error: \(error.localizedDescription, privacy: .public)")
             loadError = error.localizedDescription
         }
+
+        let totalElapsed = Date().timeIntervalSince(totalStart)
+        lagLog.info("[\(self.clubId, privacy: .public)] load() complete — total \(String(format: "%.3f", totalElapsed), privacy: .public)s")
         loading = false
     }
 }
