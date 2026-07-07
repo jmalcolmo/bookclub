@@ -1,10 +1,14 @@
-// "My Progress" — a full-screen view of MY book reading progress across every
-// club I'm in. On mobile this is a primary tab; on desktop it's reachable from
-// the bottom tab bar too. Display-only and derived entirely from existing api.js
-// reads (myClubs + currentBook + myProgress) — no new DB access, no gating logic.
+// "My Progress" — the logging hub: every current book across my clubs, each
+// with my position AND inline entry forms (update progress / post a reaction)
+// so logging never requires a trip through the club → book pages. The book
+// cover/title still taps through to the full book page. Reads come from
+// existing api.js calls; the reaction→progress gate mirrors book.js: reacting
+// past your logged page prompts you to bump your progress (dismissing still
+// bumps to the reaction page, so you never sit below a reaction you posted).
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, daysUntil } from "../ui.js";
+import { esc, daysUntil, toast } from "../ui.js";
 import * as api from "../api.js";
+import { openModal, closeModal } from "./clubs.js";
 
 export async function renderProgress() {
   render(`
@@ -27,7 +31,7 @@ async function boot(root) {
       const mine = await api.myProgress(book.id);
       return { club, book, mine };
     }));
-    paint(host, rows.filter(Boolean));
+    paint(host, rows.filter(Boolean), load);
   }
 
   await load();
@@ -40,7 +44,7 @@ async function boot(root) {
   onCleanup(() => { clearTimeout(timer); sub(); });
 }
 
-function paint(host, reading) {
+function paint(host, reading, reload) {
   if (!reading.length) {
     host.innerHTML = `
       <div class="empty-state patch">
@@ -52,6 +56,7 @@ function paint(host, reading) {
   host.innerHTML = `<div class="progress-list">${reading.map(card).join("")}</div>`;
   host.querySelectorAll("[data-go]").forEach((el) =>
     el.addEventListener("click", () => navigate(el.dataset.go)));
+  reading.forEach((row) => wireCard(host, row, reload));
 }
 
 function card({ club, book, mine }) {
@@ -61,23 +66,130 @@ function card({ club, book, mine }) {
   const dlChip = book.deadline
     ? `<span class="deadline-badge ${dl < 0 ? "overdue" : dl <= 3 ? "soon" : ""}">${dl < 0 ? `${-dl}d overdue` : `${dl}d left`}</span>`
     : "";
-  const status = mine?.status === "finished" ? "finished ✓"
-    : mine ? `page ${mine.current_page}${book.page_count ? ` / ${book.page_count}` : ""}`
+  const finished = mine?.status === "finished";
+  const myPage = mine?.current_page || 0;
+  const status = finished ? "finished ✓"
+    : mine ? `page ${myPage}${book.page_count ? ` / ${book.page_count}` : ""}`
     : "not started";
   return `
-    <button class="progress-card patch" data-go="/club/${club.id}/book/${book.id}" aria-label="${esc(book.title)} — ${esc(club.name)} — ${status}">
-      ${book.cover_url
-        ? `<img class="book-cover" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
-        : `<div class="book-cover book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
-      <div class="progress-card-info">
-        <strong class="book-title">${esc(book.title)}</strong>
-        <span class="book-author faint">${esc(book.author || "")}</span>
-        <span class="progress-club faint">${esc(club.name)}</span>
-        <span class="progress-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${pct}% read"><span class="progress-fill" style="width:${pct}%"></span></span>
-        <span class="progress-foot">
-          <span class="progress-label faint">${status}</span>${dlChip}
-          <span class="progress-pct">${pct}%</span>
-        </span>
+    <article class="progress-card patch" data-card="${book.id}">
+      <button class="progress-card-top" data-go="/club/${club.id}/book/${book.id}"
+        aria-label="Open ${esc(book.title)} — ${esc(club.name)} — ${status}">
+        ${book.cover_url
+          ? `<img class="book-cover" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
+          : `<div class="book-cover book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
+        <div class="progress-card-info">
+          <strong class="book-title">${esc(book.title)}</strong>
+          <span class="book-author faint">${esc(book.author || "")}</span>
+          <span class="progress-club faint">${esc(club.name)}</span>
+          <span class="progress-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${pct}% read"><span class="progress-fill" style="width:${pct}%"></span></span>
+          <span class="progress-foot">
+            <span class="progress-label faint">${status}</span>${dlChip}
+            <span class="progress-pct">${pct}%</span>
+          </span>
+        </div>
+      </button>
+
+      <div class="progress-card-actions">
+        <form class="progress-form progress-inline-form" data-update aria-label="Update my progress on ${esc(book.title)}">
+          <label class="inline-field">page
+            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}"
+              aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}"></label>
+          ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
+          <button type="submit" class="btn-primary small">Update progress</button>
+          ${finished ? "" : `<button type="button" class="btn-ghost small" data-act="finished">finished ✓</button>`}
+          <button type="button" class="btn-ghost small" data-act="react-toggle" aria-expanded="false">💬 react</button>
+        </form>
+        <form class="react-form progress-react-form" data-react hidden aria-label="Post a reaction on ${esc(book.title)}">
+          <div class="react-page">at page
+            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}" required></div>
+          <textarea name="body" rows="2" maxlength="600" required
+            placeholder="what happened? how'd it hit you? (only visible to people who've read this far)"></textarea>
+          <button type="submit" class="btn-primary small">post reaction</button>
+        </form>
       </div>
-    </button>`;
+    </article>`;
+}
+
+function wireCard(host, { club, book, mine }, reload) {
+  const card = host.querySelector(`[data-card="${book.id}"]`);
+  if (!card) return;
+  const pForm = card.querySelector("[data-update]");
+  const rForm = card.querySelector("[data-react]");
+
+  const applyProgress = async (page, status, { silent } = {}) => {
+    const st = status || (page > 0 ? "reading" : "not_started");
+    await api.setProgress(book.id, page, st);
+    mine = { current_page: page, status: st };
+    if (!silent) toast("Progress saved", "success");
+    reload();
+  };
+
+  pForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { await applyProgress(Number(pForm.page.value) || 0); }
+    catch (err) { toast(err.message, "error"); }
+  });
+
+  pForm.querySelector("[data-act='finished']")?.addEventListener("click", async () => {
+    try { await applyProgress(book.page_count || Number(pForm.page.value) || 0, "finished"); }
+    catch (err) { toast(err.message, "error"); }
+  });
+
+  pForm.querySelector("[data-act='react-toggle']").addEventListener("click", (e) => {
+    rForm.hidden = !rForm.hidden;
+    e.currentTarget.setAttribute("aria-expanded", String(!rForm.hidden));
+    if (!rForm.hidden) rForm.body.focus();
+  });
+
+  // Same gate as the book page: reacting past your logged page offers to bump
+  // your progress; any dismissal still sets you to the reaction's page.
+  rForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const page = Number(rForm.page.value);
+    const body = rForm.body.value.trim();
+    if (!body) return;
+    try {
+      await api.addReaction(book.id, page, body);
+      rForm.body.value = "";
+      toast("Reaction posted", "success");
+      if (page > (mine?.current_page || 0)) promptProgress(page);
+      else reload();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  function promptProgress(reactionPage) {
+    let handled = false;
+    const done = async (page) => {
+      if (handled) return;
+      handled = true;
+      try { await applyProgress(page, "reading", { silent: true }); }
+      catch (err) { toast(err.message, "error"); }
+    };
+    const loggedNow = mine?.current_page || 0;
+    const modal = openModal(`
+      <h3>My progress</h3>
+      <form data-form class="modal-body">
+        <p class="faint">You reacted at page ${reactionPage}, but you're logged at page ${loggedNow}. Update how far you've read?</p>
+        <label class="field"><span class="field-label">page read to</span>
+          <input name="page" type="number" min="${reactionPage}" max="${book.page_count || 100000}" value="${reactionPage}" /></label>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-dismiss>not now</button>
+          <button type="submit" class="btn-primary">Save progress</button>
+        </div>
+      </form>
+    `, (m) => {
+      m.querySelector("[data-form]").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const val = Math.max(reactionPage, Number(e.target.page.value) || reactionPage);
+        await done(val);
+        closeModal();
+      });
+      m.querySelector("[data-dismiss]").addEventListener("click", async () => {
+        await done(reactionPage);
+        closeModal();
+      });
+    });
+    modal.addEventListener("click", (e) => { if (e.target === modal) done(reactionPage); });
+  }
 }

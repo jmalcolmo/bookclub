@@ -22,15 +22,28 @@ struct ClubSnapshot {
 
 // A feed card. Ids are stable across reloads so SwiftUI keeps per-card state
 // (open reply threads, composer drafts) alive through realtime refreshes.
+// Every event carries `club` (header chip; nil = "Following") + `bookTitle`
+// (its own line) instead of baking them into the sentence, and an `eventType`
+// that drives its look (web parity: feed-kind-* classes).
 struct FeedEvent: Identifiable {
     enum Kind {
-        case reaction(ReactionItem, context: String)
+        case reaction(ReactionItem)
         case notif(icon: String, text: String, highlight: Bool)
+    }
+
+    // progress = sage log entry · reaction = slate · milestone = rust ·
+    // pick/vote = ochre · social (likes) = clay · follow = mauve
+    enum EventType {
+        case progress, reaction, milestone, pick, social, follow
     }
 
     let id: String
     let ts: Date
     let kind: Kind
+    var eventType: EventType = .progress
+    var club: String?
+    var bookTitle: String?
+    var isFollow: Bool = false
     var go: Route?
     var targetType: EngagementTarget?
     var targetId: UUID?
@@ -78,6 +91,13 @@ final class FeedModel {
             myId = try await API.currentUserId()
             let clubs = try await API.myClubs()
 
+            // Readers I follow: their solo reading OUTSIDE my clubs (already
+            // RLS-filtered). Items inside a shared club are dropped below —
+            // the club events cover those.
+            let myClubIds = Set(clubs.map(\.id))
+            let followItems = ((try? await API.followFeed())?.items ?? [])
+                .filter { item in item.book.map { !myClubIds.contains($0.clubId) } ?? false }
+
             // One pass over my clubs, fetching everything the screen needs.
             var gathered: [ClubSnapshot] = []
             try await withThrowingTaskGroup(of: (Int, ClubSnapshot).self) { group in
@@ -118,6 +138,7 @@ final class FeedModel {
             announcements = anns
             context = ctx
             events = (Self.buildEvents(snapshots: gathered, myId: myId)
+                      + Self.buildFollowEvents(followItems)
                       + Self.buildLikeNotifications(snapshots: gathered,
                                                     replies: replies,
                                                     engagements: engagements,
@@ -180,20 +201,21 @@ final class FeedModel {
             let club = snap.club
 
             if let book = snap.book {
-                let context = "\(book.title) \u{00B7} \(club.name)"
                 let bookRoute = Route.book(clubId: club.id, bookId: book.id)
 
                 events.append(FeedEvent(
                     id: "book-\(book.id)", ts: book.createdAt,
                     kind: .notif(icon: "\u{1F4DA}",
-                                 text: "\(club.name) started reading \(book.title)",
+                                 text: "The club started a new book",
                                  highlight: false),
+                    eventType: .milestone, club: club.name, bookTitle: book.title,
                     go: bookRoute, targetType: .book, targetId: book.id))
 
                 for r in snap.reactions {
                     events.append(FeedEvent(
                         id: r.id.uuidString, ts: r.reaction.createdAt,
-                        kind: .reaction(r, context: context),
+                        kind: .reaction(r),
+                        eventType: .reaction, club: club.name, bookTitle: book.title,
                         go: bookRoute))
                 }
 
@@ -204,24 +226,27 @@ final class FeedModel {
                         events.append(FeedEvent(
                             id: "progress-\(p.id)", ts: p.progress.finishedAt ?? p.progress.updatedAt,
                             kind: .notif(icon: "\u{1F389}",
-                                         text: "\(name) finished \(book.title)",
+                                         text: "\(name) finished the book",
                                          highlight: false),
+                            eventType: .milestone, club: club.name, bookTitle: book.title,
                             go: bookRoute, targetType: .progress, targetId: p.id))
                     case .reading where p.progress.currentPage > 0:
                         let of = book.pageCount.map { " of \($0)" } ?? ""
                         events.append(FeedEvent(
                             id: "progress-\(p.id)", ts: p.progress.updatedAt,
                             kind: .notif(icon: "\u{1F4D6}",
-                                         text: "\(name) read to page \(p.progress.currentPage)\(of) of \(book.title)",
+                                         text: "\(name) read to page \(p.progress.currentPage)\(of)",
                                          highlight: false),
+                            eventType: .progress, club: club.name, bookTitle: book.title,
                             go: bookRoute, targetType: .progress, targetId: p.id))
                     case .reading, .notStarted:
                         if p.progress.status == .reading || p.progress.startedAt != nil {
                             events.append(FeedEvent(
                                 id: "progress-\(p.id)", ts: p.progress.startedAt ?? p.progress.updatedAt,
                                 kind: .notif(icon: "\u{1F516}",
-                                             text: "\(name) started \(book.title)",
+                                             text: "\(name) started reading",
                                              highlight: false),
+                                eventType: .progress, club: club.name, bookTitle: book.title,
                                 go: bookRoute, targetType: .progress, targetId: p.id))
                         }
                     }
@@ -235,8 +260,9 @@ final class FeedModel {
                     events.append(FeedEvent(
                         id: "trophy-\(book.id)", ts: last,
                         kind: .notif(icon: "\u{1F3C6}",
-                                     text: "Everyone in \(club.name) finished \(book.title)!",
+                                     text: "Everyone finished the book!",
                                      highlight: true),
+                        eventType: .milestone, club: club.name, bookTitle: book.title,
                         go: bookRoute))
                 }
             }
@@ -247,21 +273,57 @@ final class FeedModel {
                     events.append(FeedEvent(
                         id: "selopen-\(s.id)", ts: s.createdAt,
                         kind: .notif(icon: "\u{1F5F3}\u{FE0F}",
-                                     text: "A vote opened in \(club.name) - pick who chooses next",
+                                     text: "A vote opened - pick who chooses next",
                                      highlight: true),
+                        eventType: .pick, club: club.name,
                         go: .picker(clubId: club.id), targetType: .selection, targetId: s.id))
                 case .decided:
                     let winner = snap.members.first { $0.userId == s.resultUser }?.profile?.displayName
-                    let text = winner.map { "\($0) will pick the next book for \(club.name)" }
-                        ?? "\(club.name) decided who picks next"
+                    let text = winner.map { "\($0) will pick the next book" }
+                        ?? "The club decided who picks next"
                     events.append(FeedEvent(
                         id: "seldec-\(s.id)", ts: s.decidedAt ?? s.createdAt,
                         kind: .notif(icon: "\u{1F3AF}", text: text, highlight: false),
+                        eventType: .pick, club: club.name,
                         go: .history(clubId: club.id), targetType: .selection, targetId: s.id))
                 }
             }
         }
         return events
+    }
+
+    // Follow-feed items: solo reading by people I follow, outside my clubs.
+    // They carry a "Following" header chip (club == nil) and tap through to the
+    // reader's profile - their book lives in a club we're not a member of.
+    private static func buildFollowEvents(_ items: [FollowFeedItem]) -> [FeedEvent] {
+        items.compactMap { item in
+            guard let book = item.book else { return nil }
+            let go = item.profile.map { Route.reader($0.id) }
+            switch item.kind {
+            case .reaction:
+                let reaction = Reaction(id: item.id, bookId: book.id,
+                                        userId: item.profile?.id ?? UUID(),
+                                        page: item.page, body: item.body ?? "",
+                                        createdAt: item.at)
+                return FeedEvent(
+                    id: "follow-\(item.id)", ts: item.at,
+                    kind: .reaction(ReactionItem(reaction: reaction, profile: item.profile)),
+                    eventType: .follow, club: nil, bookTitle: book.title,
+                    isFollow: true, go: go)
+            case .progress:
+                let name = item.profile?.displayName ?? "A reader"
+                let of = book.pageCount.map { " of \($0)" } ?? ""
+                let (icon, text): (String, String) =
+                    item.status == .finished ? ("\u{1F389}", "\(name) finished the book")
+                    : item.page > 0 ? ("\u{1F4D6}", "\(name) read to page \(item.page)\(of)")
+                    : ("\u{1F516}", "\(name) started reading")
+                return FeedEvent(
+                    id: "follow-\(item.id)", ts: item.at,
+                    kind: .notif(icon: icon, text: text, highlight: false),
+                    eventType: .follow, club: nil, bookTitle: book.title,
+                    isFollow: true, go: go)
+            }
+        }
     }
 
     // "Someone liked your X" cards, derived from likes others left on my stuff
@@ -278,21 +340,24 @@ final class FeedModel {
             likesByTarget[e.targetId, default: []].append(e)
         }
 
-        // Things I authored, with a human label for the notification.
-        var mine: [(id: UUID, label: String)] = []
+        // Things I authored, with a human label for the notification and the
+        // club it happened in (for the card's header chip).
+        var mine: [(id: UUID, label: String, club: String?, book: String?)] = []
+        var clubByReaction: [UUID: String] = [:]
         for snap in snapshots {
+            for r in snap.reactions { clubByReaction[r.id] = snap.club.name }
             if let book = snap.book, book.pickedBy == myId {
-                mine.append((book.id, "your pick - \(book.title)"))
+                mine.append((book.id, "your pick", snap.club.name, book.title))
             }
             for r in snap.reactions where r.reaction.userId == myId {
-                mine.append((r.id, "your reaction on \(snap.book?.title ?? snap.club.name)"))
+                mine.append((r.id, "your reaction", snap.club.name, snap.book?.title))
             }
             for p in snap.progress where p.progress.userId == myId {
-                mine.append((p.id, "your reading update"))
+                mine.append((p.id, "your reading update", snap.club.name, snap.book?.title))
             }
         }
         for r in replies where r.reply.userId == myId {
-            mine.append((r.id, "your reply"))
+            mine.append((r.id, "your reply", clubByReaction[r.reply.reactionId], nil))
         }
 
         var events: [FeedEvent] = []
@@ -304,7 +369,8 @@ final class FeedModel {
                 id: "likes-\(item.id)", ts: ts,
                 kind: .notif(icon: "\u{1F44D}",
                              text: "\(likeLabel(names)) liked \(item.label)",
-                             highlight: false)))
+                             highlight: false),
+                eventType: .social, club: item.club, bookTitle: item.book))
         }
         return events
     }
@@ -384,12 +450,15 @@ struct FeedView: View {
 
     // MARK: greeting header
 
+    // A welcome mat: centered, roughly the top quarter of the screen, before
+    // the stream starts (web parity with the phone-width greeting).
     private var greetingHeader: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(spacing: 0) {
+            VStack(spacing: 14) {
                 Text(todaysGreeting())
-                    .font(Theme.displayFont(20).italic())
+                    .font(Theme.displayFont(26).italic())
                     .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
                 let recentCount = countRecentEvents(model.events)
@@ -402,10 +471,11 @@ struct FeedView: View {
                         .background(Capsule().fill(Theme.yarnRust))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
                 .overlay(Theme.yarnClay.opacity(0.6))
-                .padding(.top, 10)
         }
+        .containerRelativeFrame(.vertical, count: 4, span: 1, spacing: 0)
         .padding(.bottom, 4)
     }
 
@@ -476,18 +546,71 @@ struct FeedView: View {
     @ViewBuilder
     private func eventCard(_ event: FeedEvent) -> some View {
         switch event.kind {
-        case .reaction(let item, let context):
-            reactionCard(event: event, item: item, contextLine: context)
+        case .reaction(let item):
+            reactionCard(event: event, item: item)
         case .notif(let icon, let text, let highlight):
             notifCard(event: event, icon: icon, text: text, highlight: highlight)
         }
     }
 
-    private func reactionCard(event: FeedEvent, item: ReactionItem, contextLine: String) -> some View {
+    // The yarn accent each event type wears (web parity: feed-kind-* colors).
+    private func accent(for event: FeedEvent, highlight: Bool = false) -> Color {
+        if highlight { return Theme.yarnOchre }
+        switch event.eventType {
+        case .progress: return Theme.yarnSage
+        case .reaction: return Theme.yarnSlate
+        case .milestone: return Theme.yarnRust
+        case .pick: return Theme.yarnOchre
+        case .social: return Theme.yarnClay
+        case .follow: return Theme.yarnMauve
+        }
+    }
+
+    // The small header every card carries: which club this happened in — or
+    // "Following" when it comes from a reader you follow outside your clubs —
+    // with the book it's about right underneath.
+    private func cardHead(_ event: FeedEvent) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(event.club ?? "\u{2727} Following")
+                    .font(Theme.monoFont(10))
+                    .kerning(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(event.club == nil ? Theme.yarnMauve : Theme.yarnBark)
+                    .lineLimit(1)
+                    .padding(.vertical, 2)
+                    .padding(.horizontal, 9)
+                    .background(
+                        Capsule().fill((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.10)))
+                    .overlay(
+                        Capsule().stroke((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.45),
+                                         lineWidth: 1.5))
+                Spacer()
+                Text(Format.timeAgo(event.ts))
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            bookLine(event)
+        }
+    }
+
+    // The book a card is about — its own line, out of the sentence.
+    @ViewBuilder
+    private func bookLine(_ event: FeedEvent) -> some View {
+        if let title = event.bookTitle {
+            Text(title)
+                .font(Theme.displayFont(14).italic())
+                .foregroundStyle(Theme.yarnRust)
+                .lineLimit(1)
+        }
+    }
+
+    private func reactionCard(event: FeedEvent, item: ReactionItem) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            cardHead(event)
             // The author chip links to their profile; the body still links to
-            // the book. Two separate links, so the header sits OUTSIDE the
-            // card-level navigable (nested NavigationLinks don't mix).
+            // the book (or the reader for follow items). Two separate links, so
+            // the header sits OUTSIDE the card-level navigable.
             HStack(spacing: 8) {
                 ReaderLink(userId: item.reaction.userId) {
                     HStack(spacing: 8) {
@@ -497,59 +620,58 @@ struct FeedView: View {
                             .foregroundStyle(Theme.textPrimary)
                     }
                 }
-                Text(contextLine)
-                    .font(Theme.monoFont(11))
-                    .foregroundStyle(Theme.textMuted)
-                    .lineLimit(1)
                 Spacer()
                 pageTag(item.reaction.page)
             }
             navigable(event.go) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(item.reaction.body)
-                        .font(Theme.displayFont(16))
-                        .foregroundStyle(Theme.textPrimary)
-                        .multilineTextAlignment(.leading)
-                    Text(Format.timeAgo(item.reaction.createdAt))
-                        .font(Theme.monoFont(11))
-                        .foregroundStyle(Theme.textMuted)
+                Text(item.reaction.body)
+                    .font(Theme.displayFont(16))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Follow-path reactions are display-only — they live in clubs we're
+            // not members of, so no engagement bar or reply thread.
+            if !event.isFollow {
+                EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
+                    await model.load()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
-                await model.load()
-            }
-            ReplyThreadView(reactionId: item.id, context: model.context) {
-                await model.load()
+                ReplyThreadView(reactionId: item.id, context: model.context) {
+                    await model.load()
+                }
             }
         }
-        .patch(seed: event.id)
+        .patch(accent: accent(for: event), seed: event.id)
     }
 
     private func notifCard(event: FeedEvent, icon: String, text: String, highlight: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            cardHead(event)
             navigable(event.go) {
                 HStack(alignment: .top, spacing: 10) {
                     Text(icon).font(.system(size: 18))
                     VStack(alignment: .leading, spacing: 4) {
+                        // Read updates read like little log entries (mono), the
+                        // rest keep the display face; milestones sit bolder.
                         Text(text)
-                            .font(Theme.displayFont(15))
-                            .foregroundStyle(Theme.textPrimary)
+                            .font(event.eventType == .progress
+                                  ? Theme.monoFont(13)
+                                  : event.eventType == .milestone || event.eventType == .pick
+                                    ? Theme.displaySemiBold(15)
+                                    : Theme.displayFont(15))
+                            .foregroundStyle(event.eventType == .social ? Theme.textMuted : Theme.textPrimary)
                             .multilineTextAlignment(.leading)
-                        Text(Format.timeAgo(event.ts))
-                            .font(Theme.monoFont(11))
-                            .foregroundStyle(Theme.textMuted)
                     }
                     Spacer(minLength: 0)
                 }
             }
-            if let type = event.targetType, let id = event.targetId {
+            if !event.isFollow, let type = event.targetType, let id = event.targetId {
                 EngagementBar(targetType: type, targetId: id, context: model.context) {
                     await model.load()
                 }
             }
         }
-        .patch(accent: highlight ? Theme.yarnOchre : Theme.yarnBark,
+        .patch(accent: accent(for: event, highlight: highlight),
                seed: event.id, padding: 12)
     }
 

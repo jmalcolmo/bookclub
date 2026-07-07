@@ -125,37 +125,6 @@ export async function followFeed({ limit = 40 } = {}) {
   return { items, followees };
 }
 
-// The "following" screen roster: each reader I follow with their latest visible
-// reading — the book they're on and the page they've reached out of its page
-// count. RLS decides which progress rows I can see (shared clubs + the additive
-// follow path), so a followee with no visible reading comes back with
-// progress/book null and the screen says so instead of leaking anything.
-export async function followingReading() {
-  const followees = await followingProfiles();
-  if (!followees.length) return [];
-  const ids = followees.map((p) => p.id);
-
-  const progress = unwrap(
-    await supabase.from("reading_progress").select("*").in("user_id", ids)
-      .order("updated_at", { ascending: false })
-  );
-  // Newest visible row per reader = what they're on right now.
-  const latest = {};
-  for (const p of progress) latest[p.user_id] ||= p;
-
-  const bookIds = [...new Set(Object.values(latest).map((p) => p.book_id))];
-  const books = bookIds.length
-    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
-    : [];
-  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
-
-  return followees.map((profile) => {
-    const p = latest[profile.id];
-    const book = p ? bById[p.book_id] || null : null;
-    return { profile, progress: book ? p : null, book };
-  });
-}
-
 // ---------------------------------------------------------------- ACTIVITY ---
 // Who engaged with MY content: likes/emoji on my reactions, comments (replies),
 // reviews and progress milestones, plus replies posted under my reactions.
