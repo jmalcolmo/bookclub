@@ -49,22 +49,39 @@ struct FeedEvent: Identifiable {
     var targetId: UUID?
 }
 
-// Rotating greeting phrases (port of feed.js GREETINGS).
-private let greetingLines = [
-    "Any new plot twists?",
-    "What are you reading lately?",
-    "Who\u{2019}s ahead on the reading?",
-    "Got strong opinions about chapter 7?",
-    "Someone\u{2019}s been busy turning pages.",
-    "The club awaits your thoughts.",
-    "Anything worth dog-earing?",
-    "Still haunted by that last chapter?",
+// Rotating literary quotes (port of feed.js QUOTES).
+private struct LiteraryQuote {
+    let text: String
+    let author: String
+    let work: String
+    let year: Int
+}
+
+private let literaryQuotes: [LiteraryQuote] = [
+    LiteraryQuote(text: "A reader lives a thousand lives before he dies. The man who never reads lives only one.", author: "George R.R. Martin", work: "A Dance with Dragons", year: 2011),
+    LiteraryQuote(text: "Not all those who wander are lost.", author: "J.R.R. Tolkien", work: "The Fellowship of the Ring", year: 1954),
+    LiteraryQuote(text: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.", author: "Jane Austen", work: "Pride and Prejudice", year: 1813),
+    LiteraryQuote(text: "All happy families are alike; each unhappy family is unhappy in its own way.", author: "Leo Tolstoy", work: "Anna Karenina", year: 1878),
+    LiteraryQuote(text: "It was the best of times, it was the worst of times.", author: "Charles Dickens", work: "A Tale of Two Cities", year: 1859),
+    LiteraryQuote(text: "The most courageous act is still to think for yourself. Aloud.", author: "Coco Chanel", work: "The Gospel According to Coco Chanel", year: 2009),
+    LiteraryQuote(text: "We accept the love we think we deserve.", author: "Stephen Chbosky", work: "The Perks of Being a Wallflower", year: 1999),
+    LiteraryQuote(text: "So it goes.", author: "Kurt Vonnegut", work: "Slaughterhouse-Five", year: 1969),
+    LiteraryQuote(text: "The answer to the ultimate question of life, the universe, and everything is 42.", author: "Douglas Adams", work: "The Hitchhiker's Guide to the Galaxy", year: 1979),
+    LiteraryQuote(text: "Why, sometimes I\u{2019}ve believed as many as six impossible things before breakfast.", author: "Lewis Carroll", work: "Through the Looking-Glass", year: 1871),
+    LiteraryQuote(text: "There is no greater agony than bearing an untold story inside you.", author: "Maya Angelou", work: "I Know Why the Caged Bird Sings", year: 1969),
+    LiteraryQuote(text: "One must always be careful of books, and what is inside them, for words have the power to change us.", author: "Cassandra Clare", work: "City of Bones", year: 2007),
+    LiteraryQuote(text: "That\u{2019}s the thing about books. They let you travel without moving your feet.", author: "Jhumpa Lahiri", work: "The Namesake", year: 2003),
+    LiteraryQuote(text: "I took a deep breath and listened to the old brag of my heart: I am, I am, I am.", author: "Sylvia Plath", work: "The Bell Jar", year: 1963),
+    LiteraryQuote(text: "Until I feared I would lose it, I never loved to read. One does not love breathing.", author: "Harper Lee", work: "To Kill a Mockingbird", year: 1960),
+    LiteraryQuote(text: "Time is a flat circle.", author: "Friedrich Nietzsche", work: "The Gay Science", year: 1882),
+    LiteraryQuote(text: "It does not do to dwell on dreams and forget to live.", author: "J.K. Rowling", work: "Harry Potter and the Philosopher\u{2019}s Stone", year: 1997),
+    LiteraryQuote(text: "We are all just walking each other home.", author: "Ram Dass", work: "Be Here Now", year: 1971),
 ]
 
-/// Pick a greeting by day-of-year so it changes daily but doesn't flicker.
-private func todaysGreeting() -> String {
+/// Pick a quote by day-of-epoch so it changes daily but doesn't flicker.
+private func todaysGreeting() -> LiteraryQuote {
     let day = Int(Date().timeIntervalSince1970) / 86400
-    return greetingLines[day % greetingLines.count]
+    return literaryQuotes[day % literaryQuotes.count]
 }
 
 /// Count events from the last 24 hours as a lightweight "new activity" signal.
@@ -455,9 +472,16 @@ struct FeedView: View {
     private var greetingHeader: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                Text(todaysGreeting())
+                let quote = todaysGreeting()
+                Text(quote.text)
                     .font(Theme.displayFont(26).italic())
                     .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("— \(quote.author), \(quote.work) (\(quote.year))")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 

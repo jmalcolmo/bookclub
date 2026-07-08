@@ -18,23 +18,33 @@ const ACCENTS = {
 };
 const accentColor = (a) => ACCENTS[a] || ACCENTS["yarn-sage"];
 
-// Rotating greeting lines for the feed header.
-const GREETINGS = [
-  "Any new plot twists?",
-  "What are you reading lately?",
-  "Who's ahead on the reading?",
-  "Got strong opinions about chapter 7?",
-  "Someone's been busy turning pages.",
-  "The club awaits your thoughts.",
-  "Anything worth dog-earing?",
-  "Still haunted by that last chapter?",
+// Rotating literary quotes for the feed header.
+const QUOTES = [
+  { text: "A reader lives a thousand lives before he dies. The man who never reads lives only one.", author: "George R.R. Martin", work: "A Dance with Dragons", year: 2011 },
+  { text: "Not all those who wander are lost.", author: "J.R.R. Tolkien", work: "The Fellowship of the Ring", year: 1954 },
+  { text: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.", author: "Jane Austen", work: "Pride and Prejudice", year: 1813 },
+  { text: "All happy families are alike; each unhappy family is unhappy in its own way.", author: "Leo Tolstoy", work: "Anna Karenina", year: 1878 },
+  { text: "It was the best of times, it was the worst of times.", author: "Charles Dickens", work: "A Tale of Two Cities", year: 1859 },
+  { text: "The most courageous act is still to think for yourself. Aloud.", author: "Coco Chanel", work: "The Gospel According to Coco Chanel", year: 2009 },
+  { text: "We accept the love we think we deserve.", author: "Stephen Chbosky", work: "The Perks of Being a Wallflower", year: 1999 },
+  { text: "So it goes.", author: "Kurt Vonnegut", work: "Slaughterhouse-Five", year: 1969 },
+  { text: "The answer to the ultimate question of life, the universe, and everything is 42.", author: "Douglas Adams", work: "The Hitchhiker's Guide to the Galaxy", year: 1979 },
+  { text: "Why, sometimes I've believed as many as six impossible things before breakfast.", author: "Lewis Carroll", work: "Through the Looking-Glass", year: 1871 },
+  { text: "There is no greater agony than bearing an untold story inside you.", author: "Maya Angelou", work: "I Know Why the Caged Bird Sings", year: 1969 },
+  { text: "One must always be careful of books, and what is inside them, for words have the power to change us.", author: "Cassandra Clare", work: "City of Bones", year: 2007 },
+  { text: "That's the thing about books. They let you travel without moving your feet.", author: "Jhumpa Lahiri", work: "The Namesake", year: 2003 },
+  { text: "I took a deep breath and listened to the old brag of my heart: I am, I am, I am.", author: "Sylvia Plath", work: "The Bell Jar", year: 1963 },
+  { text: "Until I feared I would lose it, I never loved to read. One does not love breathing.", author: "Harper Lee", work: "To Kill a Mockingbird", year: 1960 },
+  { text: "Time is a flat circle.", author: "Friedrich Nietzsche", work: "The Gay Science", year: 1882 },
+  { text: "It does not do to dwell on dreams and forget to live.", author: "J.K. Rowling", work: "Harry Potter and the Philosopher's Stone", year: 1997 },
+  { text: "We are all just walking each other home.", author: "Ram Dass", work: "Be Here Now", year: 1971 },
 ];
 
-// Pick a greeting deterministically by day so it changes daily but doesn't
+// Pick a quote deterministically by day so it changes daily but doesn't
 // flicker on every reload within the same session.
 function todaysGreeting() {
   const day = Math.floor(Date.now() / 86_400_000);
-  return GREETINGS[day % GREETINGS.length];
+  return QUOTES[day % QUOTES.length];
 }
 
 // Count events from the past 24 hours as a lightweight "new activity" signal.
@@ -283,18 +293,21 @@ function paintAnnouncements(root, shared, ctx, reload) {
 }
 
 /* ------------------------------------------------------- GREETING HEADER */
-// A rotating one-liner + a lightweight "N new" count derived from the same
-// events the feed already renders. Scrolls past naturally above the stream.
+// A rotating literary quote + attribution + a lightweight "N new" count
+// derived from the same events the feed already renders. Scrolls past naturally
+// above the stream.
 function paintGreeting(root, events) {
   const host = root.querySelector("[data-greeting]");
   if (!host) return;
+  const quote = todaysGreeting();
   const recentCount = countRecentEvents(events);
   const countChip = recentCount > 0
     ? `<span class="greeting-count">${recentCount} new</span>`
     : "";
   host.innerHTML = `
     <div class="feed-greeting-inner">
-      <p class="greeting-line">${esc(todaysGreeting())}</p>
+      <p class="greeting-line">${esc(quote.text)}</p>
+      <p class="greeting-attribution">— ${esc(quote.author)}, <em>${esc(quote.work)}</em> (${esc(String(quote.year))})</p>
       ${countChip}
     </div>`;
 }
