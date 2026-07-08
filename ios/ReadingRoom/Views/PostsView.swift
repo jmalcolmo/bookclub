@@ -292,3 +292,169 @@ struct PostsView: View {
         }
     }
 }
+
+// MARK: - multi-club post composer (the "+" compose hub's "Create post" action)
+
+// The same text + single-photo composer as PostsView (no page numbers, no
+// spoiler gate) but with a CLUB MULTI-SELECT. On submit it uploads the photo
+// ONCE (if any) and fans the post out to every selected club via
+// API.addPostToClubs — one club_posts row per club; RLS still authorizes each
+// insert. Presented as a sheet from the feed's compose hub. `clubs` is the
+// feed's already-loaded club list, so no extra fetch is needed.
+struct MultiClubPostComposerView: View {
+    let clubs: [ClubSummary]
+    var onPosted: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(ToastCenter.self) private var toasts
+
+    @State private var draft = ""
+    @State private var photoItem: PhotosPickerItem?
+    @State private var pendingCrop: PendingCrop?
+    @State private var pendingImageData: Data?
+    @State private var selected: Set<UUID> = []
+    @State private var posting = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Share a thought or a photo. Pick which clubs see it.")
+                        .font(Theme.displayFont(15).italic())
+                        .foregroundStyle(Theme.textMuted)
+
+                    if clubs.isEmpty {
+                        Text("Join or create a club first — posts go to a club.")
+                            .font(Theme.displayFont(15))
+                            .foregroundStyle(Theme.textMuted)
+                    } else {
+                        clubSelect
+                    }
+
+                    if let data = pendingImageData, let img = UIImage(data: data) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: img)
+                                .resizable().scaledToFill()
+                                .frame(height: 160)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Button { pendingImageData = nil } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(.white).shadow(radius: 2).padding(6)
+                            }
+                        }
+                    }
+
+                    TextField("what's on your mind?", text: $draft, axis: .vertical)
+                        .font(Theme.displayFont(17))
+                        .lineLimit(3...6)
+
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        Label(pendingImageData == nil ? "add photo" : "change photo",
+                              systemImage: "photo")
+                            .font(Theme.monoFont(13))
+                    }
+                }
+                .padding(16)
+            }
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("New post")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Post") { submit() }
+                        .disabled(posting || selected.isEmpty ||
+                                  (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                   && pendingImageData == nil))
+                }
+            }
+            .fullScreenCover(item: $pendingCrop) { pending in
+                ImageCropperView(image: pending.image, shape: .rounded) { data in
+                    pendingImageData = data
+                }
+            }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        pendingCrop = PendingCrop(image: image)
+                    }
+                    photoItem = nil
+                }
+            }
+            .onAppear {
+                // Preselect when there's only one club — the common case.
+                if clubs.count == 1, let only = clubs.first { selected = [only.id] }
+            }
+        }
+    }
+
+    private var clubSelect: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("POST TO")
+                .font(Theme.monoFont(10)).kerning(1.2)
+                .foregroundStyle(Theme.textMuted)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)],
+                      alignment: .leading, spacing: 8) {
+                ForEach(clubs) { summary in
+                    clubChip(summary)
+                }
+            }
+        }
+    }
+
+    private func clubChip(_ summary: ClubSummary) -> some View {
+        let isOn = selected.contains(summary.id)
+        return Button {
+            if isOn { selected.remove(summary.id) } else { selected.insert(summary.id) }
+        } label: {
+            HStack(spacing: 7) {
+                ClubAvatarView(club: summary.club, size: 24)
+                Text(summary.club.name)
+                    .font(Theme.monoMedium(13))
+                    .lineLimit(1)
+                    .foregroundStyle(isOn ? Theme.surface : Theme.textPrimary)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Capsule().fill(isOn ? Theme.yarnSage : Theme.surface2))
+            .overlay(
+                Capsule().stroke(isOn ? Theme.yarnSage : Theme.yarnBark, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clubIds = Array(selected)
+        guard !posting, !clubIds.isEmpty,
+              !(text.isEmpty && pendingImageData == nil) else { return }
+        posting = true
+        Task {
+            defer { posting = false }
+            do {
+                // Upload the photo once, then reuse its public URL across clubs.
+                var imageUrl: String?
+                if let data = pendingImageData {
+                    imageUrl = try await API.uploadPostImage(clubId: clubIds[0], jpegData: data)
+                }
+                _ = try await API.addPostToClubs(clubIds: clubIds,
+                                                 body: text.isEmpty ? nil : text,
+                                                 imageUrl: imageUrl)
+                toasts.show(clubIds.count > 1 ? "Posted to \(clubIds.count) clubs" : "Posted", .success)
+                onPosted()
+                dismiss()
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+}

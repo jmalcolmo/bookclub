@@ -8,9 +8,11 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
-import { createClubModal, joinClubModal } from "./clubs.js";
+import { createClubModal, joinClubModal, openModal, closeModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
 import { openStoryViewer, composeStory } from "./stories.js";
+import { composePostToClubs } from "./posts.js";
+import { addBookModal } from "./club.js";
 import { cropImage } from "../imageCropper.js";
 
 const ACCENTS = {
@@ -55,8 +57,51 @@ function countRecentEvents(events) {
   return events.filter((e) => new Date(e.ts).getTime() > cutoff).length;
 }
 
+// Minimal inline styles for the "+" compose hub. These belong in club.css
+// long-term (see the follow-up note in the workstream report); inlined here to
+// keep the FAB + menu self-contained within this view's boundary. All colors
+// come from the design-system tokens so it stays on-theme.
+const composeHubStyles = `
+<style>
+  .feed-fab {
+    position: fixed; right: 22px; bottom: 84px; z-index: 40;
+    width: 58px; height: 58px; border-radius: 50%;
+    background: var(--yarn-rust); color: var(--surface);
+    border: 3px solid var(--surface); box-shadow: var(--shadow-lift);
+    font-size: 30px; line-height: 1; cursor: pointer;
+    display: grid; place-items: center;
+    transition: transform .12s ease;
+  }
+  .feed-fab:hover { transform: scale(1.06) rotate(90deg); }
+  .feed-fab:active { transform: scale(.96); }
+  @media (min-width: 900px) { .feed-fab { bottom: 34px; right: 34px; } }
+
+  .compose-hub { display: flex; flex-direction: column; gap: 10px; }
+  .compose-hub-action {
+    display: flex; align-items: center; gap: 12px; text-align: left;
+    padding: 12px 14px; border-radius: 12px; cursor: pointer;
+    background: var(--surface-2); border: 2px solid var(--yarn-bark);
+    box-shadow: var(--shadow-soft); color: var(--text-primary);
+    font: inherit;
+  }
+  .compose-hub-action:hover { background: var(--surface); }
+  .compose-hub-icon { font-size: 22px; flex: 0 0 auto; }
+  .compose-hub-text { display: flex; flex-direction: column; gap: 2px; }
+
+  .post-club-select { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+  .post-club-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 11px 5px 6px; border-radius: 999px; cursor: pointer;
+    background: var(--surface-2); border: 2px solid var(--yarn-bark);
+    color: var(--text-primary); font: inherit;
+  }
+  .post-club-chip.selected { background: var(--yarn-sage); color: var(--surface); border-color: var(--yarn-sage); }
+  .post-club-chip-name { font-size: 13px; }
+</style>`;
+
 export async function renderFeed() {
   render(`
+    ${composeHubStyles}
     <div class="feed-shell">
       <aside class="feed-rail feed-rail-clubs" data-rail="clubs" aria-label="Your clubs"></aside>
       <main class="feed-column">
@@ -73,6 +118,7 @@ export async function renderFeed() {
       </main>
       <aside class="feed-rail feed-rail-reading" data-rail="reading" aria-label="Your reading"></aside>
       <div class="feed-drawer-backdrop" data-drawer-backdrop hidden></div>
+      <button class="feed-fab" data-fab title="Create" aria-label="Create" aria-haspopup="true" aria-expanded="false">＋</button>
     </div>
   `, (root) => boot(root));
 }
@@ -80,10 +126,15 @@ export async function renderFeed() {
 async function boot(root) {
   wireDrawers(root);
 
+  // The latest snapshot of my clubs (kept fresh by load()) so the "+" compose
+  // hub can offer them in its multi-select without a second fetch.
+  let myClubs = [];
+
   // One pass over my clubs, fetching everything the three regions need. Each
   // region is then painted from the same in-memory snapshot.
   async function load() {
     const clubs = await api.myClubs();
+    myClubs = clubs;
     const [data, followed, stories] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
@@ -134,6 +185,11 @@ async function boot(root) {
   }
 
   await load();
+
+  // The "+" compose hub: a floating action button that opens a small menu of
+  // three create actions (post / story / start a book). Wired once — the shell
+  // stays mounted across live refreshes, and it reads myClubs fresh each open.
+  wireComposeHub(root, () => myClubs, load);
 
   // Live refresh: any reaction or progress change in a book I can see, or any
   // selection change, re-runs the snapshot in place (debounced). The shell stays
@@ -658,4 +714,92 @@ function wireDrawers(root) {
       backdrop.hidden = false;
     }));
   backdrop.addEventListener("click", close);
+}
+
+/* ------------------------------------------------------- COMPOSE HUB ("+") */
+// A floating action button opening a menu of three create actions:
+//   1. Create post  — the multi-club post composer (composePostToClubs)
+//   2. Post a story — the SAME story composer the "＋ Your story" bubble uses
+//   3. Start a book — pick a club, then the existing OpenLibrary addBookModal
+// `getClubs` returns the feed's latest myClubs snapshot; `reload` repaints the
+// feed after a post/story so a fresh item shows immediately.
+function wireComposeHub(root, getClubs, reload) {
+  const fab = root.querySelector("[data-fab]");
+  if (!fab || fab.dataset.wired) return;
+  fab.dataset.wired = "1";
+
+  fab.addEventListener("click", () => {
+    openModal(`
+      <h3>Create</h3>
+      <div class="modal-body compose-hub">
+        <button class="compose-hub-action" data-compose="post">
+          <span class="compose-hub-icon">✎</span>
+          <span class="compose-hub-text"><strong>Create post</strong>
+            <span class="faint">a thought or photo, to one or more clubs</span></span>
+        </button>
+        <button class="compose-hub-action" data-compose="story">
+          <span class="compose-hub-icon">📸</span>
+          <span class="compose-hub-text"><strong>Post a story</strong>
+            <span class="faint">disappears in 72 hours</span></span>
+        </button>
+        <button class="compose-hub-action" data-compose="book">
+          <span class="compose-hub-icon">📚</span>
+          <span class="compose-hub-text"><strong>Start a book</strong>
+            <span class="faint">set a club's current book</span></span>
+        </button>
+        <div class="modal-actions"><button class="btn-ghost" data-close>cancel</button></div>
+      </div>
+    `, (modal) => {
+      modal.querySelector("[data-compose='post']").addEventListener("click", async () => {
+        closeModal();
+        const posted = await composePostToClubs(getClubs());
+        if (posted) reload();
+      });
+      modal.querySelector("[data-compose='story']").addEventListener("click", async () => {
+        closeModal();
+        // Reuse the exact same composer entry point as the stories strip bubble.
+        const posted = await composeStory(cropImage);
+        if (posted) reload();
+      });
+      modal.querySelector("[data-compose='book']").addEventListener("click", () => {
+        closeModal();
+        startBookFlow(getClubs());
+      });
+    });
+  });
+}
+
+// "Start a book": pick which club, then hand off to the existing OpenLibrary
+// search modal (addBookModal from club.js) to set that club's current book. Only
+// clubs where I'm the creator/owner can set the book (books_update/insert is
+// owner-gated server-side); a non-owner pick would fail its insert, so we offer
+// only owner-tier clubs. With exactly one eligible club we skip straight to the
+// book search.
+function startBookFlow(clubs) {
+  const eligible = clubs.filter((c) => c.my_role === "creator" || c.my_role === "owner");
+  if (!eligible.length) {
+    toast("Only a club's owner can set its book", "info");
+    return;
+  }
+  const pick = (club) => addBookModal(club, () => navigate(`/club/${club.id}`));
+  if (eligible.length === 1) { pick(eligible[0]); return; }
+
+  openModal(`
+    <h3>Start a book in…</h3>
+    <div class="modal-body compose-hub">
+      ${eligible.map((c) => `
+        <button class="compose-hub-action" data-club="${esc(c.id)}">
+          ${clubAvatarHTML(c, 28)}
+          <span class="compose-hub-text"><strong>${esc(c.name)}</strong></span>
+        </button>`).join("")}
+      <div class="modal-actions"><button class="btn-ghost" data-close>cancel</button></div>
+    </div>
+  `, (modal) => {
+    modal.querySelectorAll("[data-club]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const club = eligible.find((c) => c.id === btn.dataset.club);
+        closeModal();
+        if (club) pick(club);
+      }));
+  });
 }

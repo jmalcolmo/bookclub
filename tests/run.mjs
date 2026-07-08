@@ -254,6 +254,51 @@ await step("A deletes their own post (deletePost)", async () => {
   postId = null;
 });
 
+// ---- MULTI-CLUB POST: the "+" compose hub fans ONE composed post out to
+//      several clubs at once (api.addPostToClubs). One club_posts row is inserted
+//      per club through the same member-scoped addPost path, and a single shared
+//      image URL is reused across rows (post-images objects are publicly readable).
+await step("MULTI-CLUB POST: A fans one post out to two clubs (addPostToClubs)", async () => {
+  // A second club A owns, so A is a member of both targets.
+  const { data: club2, error: c2err } = await cA.from("clubs")
+    .insert({ name: `Test Club 2 ${tag}`, accent: "yarn-slate", created_by: A.id }).select().single();
+  if (c2err) throw c2err;
+
+  // Upload the photo ONCE (under the first club's folder) and share the URL —
+  // exactly what addPostToClubs' callers do.
+  const sharedImagePath = `${club.id}/multi-${tag}.jpg`;
+  const { error: upErr } = await cA.storage.from("post-images")
+    .upload(sharedImagePath, blobJ(), { upsert: true, contentType: "image/jpeg" });
+  if (upErr) throw upErr;
+  const { data: pub } = cA.storage.from("post-images").getPublicUrl(sharedImagePath);
+
+  // Mirror api.addPostToClubs(clubIds, { body, imageUrl }): one insert per club.
+  const clubIds = [club.id, club2.id];
+  const created = [];
+  for (const cid of clubIds) {
+    const { data, error } = await cA.from("club_posts")
+      .insert({ club_id: cid, user_id: A.id, body: `cross-post ${tag}`, image_url: pub.publicUrl })
+      .select().single();
+    if (error) throw error;
+    created.push(data);
+  }
+  assert(created.length === 2, "expected one post row per club");
+  assert(new Set(created.map((p) => p.club_id)).size === 2, "the two rows landed in different clubs");
+  assert(created.every((p) => p.image_url === pub.publicUrl), "the shared image URL was not reused across clubs");
+
+  // B (co-member of `club`, NOT of club2) sees only the row in the shared club —
+  // the per-club member gate still holds for a fanned-out post.
+  const { data: bSees } = await cB.from("club_posts").select("club_id").eq("body", `cross-post ${tag}`);
+  const bClubIds = new Set((bSees || []).map((p) => p.club_id));
+  assert(bClubIds.has(club.id), "co-member could not see the fanned-out post in the shared club");
+  assert(!bClubIds.has(club2.id), "MULTI-CLUB LEAK: a non-member saw the fanned-out post in a club they're not in");
+
+  // Cleanup: the two posts, the shared image, and the throwaway club (cascades).
+  for (const p of created) await cA.from("club_posts").delete().eq("id", p.id);
+  await cA.storage.from("post-images").remove([sharedImagePath]);
+  await cA.from("clubs").delete().eq("id", club2.id);
+});
+
 // ---- STORIES: ephemeral (72h) personal posts, audience-scoped (follower OR
 //      club-mate), NOT spoiler-gated. A and B currently share `club`, so a story
 //      A posts is visible to B via shares_any_club. Mirrors api.js addStory /

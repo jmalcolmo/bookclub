@@ -423,6 +423,11 @@ final class FeedModel {
 // MARK: - the screen
 
 struct FeedView: View {
+    // The center tab-bar "+" (RootView) drives this: each increment asks the
+    // feed to open its compose hub. Defaults to a constant so FeedView still
+    // works standalone (previews / any other embedding).
+    var composeSignal: Int = 0
+
     @Environment(SessionStore.self) private var session
     @Environment(ToastCenter.self) private var toasts
     @State private var model = FeedModel()
@@ -430,7 +435,20 @@ struct FeedView: View {
     @State private var showJoinClub = false
     @State private var broadcastDraft = ""
     @State private var viewerStart: Int?      // group index the story viewer opens on
-    @State private var showComposer = false
+    @State private var showComposer = false   // story composer (shared with the strip bubble)
+
+    // Compose hub ("+"): the action menu + its destinations.
+    @State private var showComposeMenu = false
+    @State private var showPostComposer = false
+    @State private var showBookClubPicker = false
+    @State private var bookClub: ClubSummary?   // chosen club for "Start a book"
+
+    // My clubs, from the loaded snapshots — feeds the post multi-select and the
+    // start-a-book club picker without a second fetch.
+    private var myClubs: [ClubSummary] { model.snapshots.map(\.summary) }
+    // Only clubs I own can have their current book set (books insert/update is
+    // owner-gated server-side), so the start-a-book flow offers just those.
+    private var ownedClubs: [ClubSummary] { myClubs.filter { $0.myRole.isOwnerTier } }
 
     var body: some View {
         Group {
@@ -449,21 +467,49 @@ struct FeedView: View {
         .navigationTitle("Your Feed")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarLeading) {
                 Menu {
                     Button("Join with code", systemImage: "number") { showJoinClub = true }
                         .font(Theme.monoMedium(15))
                     Button("New club", systemImage: "plus") { showCreateClub = true }
                         .font(Theme.monoMedium(15))
                 } label: {
-                    Image(systemName: "plus.circle")
+                    Image(systemName: "person.2")
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showComposeMenu = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                }
+                .accessibilityLabel("Create")
+            }
+        }
+        .confirmationDialog("Create", isPresented: $showComposeMenu, titleVisibility: .visible) {
+            Button("Create post") { showPostComposer = true }
+            Button("Post a story") { showComposer = true }
+            Button("Start a book") { startBook() }
+            Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $showCreateClub) { CreateClubSheet() }
         .sheet(isPresented: $showJoinClub) { JoinClubSheet() }
         .sheet(isPresented: $showComposer) {
             StoryComposerView { Task { await model.load() } }
+        }
+        .sheet(isPresented: $showPostComposer) {
+            MultiClubPostComposerView(clubs: myClubs) { Task { await model.load() } }
+        }
+        // "Start a book": if I own exactly one club we skip the picker and jump
+        // straight to that club's book search; otherwise pick a club first.
+        .sheet(isPresented: $showBookClubPicker) {
+            BookClubPickerSheet(clubs: ownedClubs) { chosen in
+                // Dismiss the picker first, then present the book search once it's
+                // gone — presenting a new sheet mid-dismissal can drop the second.
+                showBookClubPicker = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { bookClub = chosen }
+            }
+        }
+        .sheet(item: $bookClub) { summary in
+            AddBookSheet(club: summary.club) { _ in Task { await model.load() } }
         }
         .fullScreenCover(item: Binding(
             get: { viewerStart.map { StartIndex(value: $0) } },
@@ -477,8 +523,19 @@ struct FeedView: View {
             await model.load()
             await model.startRealtime()
         }
+        .onChange(of: composeSignal) { _, _ in showComposeMenu = true }
         .onDisappear { model.stopRealtime() }
         .refreshable { await model.load() }
+    }
+
+    // "Start a book": route to a book search for a club I own. Zero → toast,
+    // one → straight to the search, many → pick which club first.
+    private func startBook() {
+        switch ownedClubs.count {
+        case 0: toasts.show("Only a club's owner can set its book")
+        case 1: bookClub = ownedClubs.first
+        default: showBookClubPicker = true
+        }
     }
 
     // The Feed tab is strictly the feed: global announcements + the activity
@@ -879,4 +936,39 @@ struct FeedView: View {
 private struct StartIndex: Identifiable {
     let value: Int
     var id: Int { value }
+}
+
+// The compose hub's "Start a book" step when I own more than one club: pick
+// which club's current book to set, then the caller hands off to AddBookSheet.
+private struct BookClubPickerSheet: View {
+    let clubs: [ClubSummary]
+    var onPick: (ClubSummary) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(clubs) { summary in
+                    Button { onPick(summary) } label: {
+                        HStack(spacing: 10) {
+                            ClubAvatarView(club: summary.club, size: 32)
+                            Text(summary.club.name)
+                                .font(Theme.displaySemiBold(16))
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("Start a book in\u{2026}")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
 }
