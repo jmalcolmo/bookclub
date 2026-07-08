@@ -95,6 +95,7 @@ private func countRecentEvents(_ events: [FeedEvent]) -> Int {
 final class FeedModel {
     var snapshots: [ClubSnapshot] = []
     var announcements: [Announcement] = []
+    var stories: [StoryGroup] = []
     var events: [FeedEvent] = []
     var context: EngageContext = .empty
     var loading = true
@@ -114,6 +115,10 @@ final class FeedModel {
             let myClubIds = Set(clubs.map(\.id))
             let followItems = ((try? await API.followFeed())?.items ?? [])
                 .filter { item in item.book.map { !myClubIds.contains($0.clubId) } ?? false }
+
+            // Active (unexpired, audience-visible) stories, grouped by author.
+            // Already RLS-filtered; a failure just hides the strip.
+            let activeStories = (try? await API.activeStories()) ?? []
 
             // One pass over my clubs, fetching everything the screen needs.
             var gathered: [ClubSnapshot] = []
@@ -153,6 +158,7 @@ final class FeedModel {
 
             snapshots = gathered
             announcements = anns
+            stories = activeStories
             context = ctx
             events = (Self.buildEvents(snapshots: gathered, myId: myId)
                       + Self.buildFollowEvents(followItems)
@@ -200,6 +206,8 @@ final class FeedModel {
             ("feed-engagements", "engagements"),
             ("feed-replies", "reaction_replies"),
             ("feed-announcements", "announcements"),
+            ("feed-stories", "stories"),
+            ("feed-story-views", "story_views"),
         ] {
             bag.add(await API.subscribe(channelName: name, table: table, onChange: reload))
         }
@@ -207,6 +215,17 @@ final class FeedModel {
 
     func stopRealtime() {
         bag.cancelAll()
+    }
+
+    // Optimistically flip a story's seen flag in the in-memory strip so the ring
+    // dims immediately as the viewer plays it (the realtime story_views sub also
+    // triggers a full reload shortly after, which reconciles).
+    func markStorySeenLocally(_ storyId: UUID) {
+        for gi in stories.indices {
+            for si in stories[gi].stories.indices where stories[gi].stories[si].id == storyId {
+                stories[gi].stories[si].seen = true
+            }
+        }
     }
 
     // MARK: event derivation (port of feed.js buildEvents)
@@ -410,6 +429,8 @@ struct FeedView: View {
     @State private var showCreateClub = false
     @State private var showJoinClub = false
     @State private var broadcastDraft = ""
+    @State private var viewerStart: Int?      // group index the story viewer opens on
+    @State private var showComposer = false
 
     var body: some View {
         Group {
@@ -441,6 +462,17 @@ struct FeedView: View {
         }
         .sheet(isPresented: $showCreateClub) { CreateClubSheet() }
         .sheet(isPresented: $showJoinClub) { JoinClubSheet() }
+        .sheet(isPresented: $showComposer) {
+            StoryComposerView { Task { await model.load() } }
+        }
+        .fullScreenCover(item: Binding(
+            get: { viewerStart.map { StartIndex(value: $0) } },
+            set: { viewerStart = $0?.value }
+        )) { start in
+            StoryViewerView(groups: model.stories, groupIndex: start.value) { id in
+                model.markStorySeenLocally(id)
+            }
+        }
         .task {
             await model.load()
             await model.startRealtime()
@@ -456,6 +488,7 @@ struct FeedView: View {
     private var feedList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                storiesStrip
                 greetingHeader
                 announcementsSection
                 feedStream
@@ -463,6 +496,90 @@ struct FeedView: View {
             .padding(16)
         }
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    // MARK: stories strip
+
+    // The ephemeral-stories strip above the greeting. Groups came back already
+    // RLS-filtered + grouped by author from API.activeStories(). My own bubble
+    // is pinned first as "＋ Your story" (tap to compose, or view my live
+    // stories); other bubbles wear a yarn-accent ring when unseen, dimmed when
+    // all seen. Tapping opens the full-screen viewer at that author.
+    @ViewBuilder
+    private var storiesStrip: some View {
+        let mine = model.stories.first { $0.isMine }
+        let others = model.stories.filter { !$0.isMine }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 14) {
+                myStoryBubble(mine)
+                ForEach(others) { group in
+                    storyBubble(group) {
+                        viewerStart = model.stories.firstIndex(of: group) ?? 0
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func myStoryBubble(_ mine: StoryGroup?) -> some View {
+        if let mine {
+            // I have live stories: view them, with a + badge to add more.
+            storyBubble(mine, isMine: true) {
+                viewerStart = model.stories.firstIndex(of: mine) ?? 0
+            }
+        } else {
+            Button { showComposer = true } label: {
+                VStack(spacing: 5) {
+                    ZStack {
+                        Circle().fill(Theme.surface2)
+                            .frame(width: 62, height: 62)
+                            .overlay(Circle().stroke(Theme.yarnSage, lineWidth: 3))
+                        Text("＋").font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(Theme.yarnSage)
+                    }
+                    Text("Your story")
+                        .font(Theme.monoFont(10))
+                        .foregroundStyle(Theme.textMuted)
+                        .lineLimit(1)
+                }
+                .frame(width: 74)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func storyBubble(_ group: StoryGroup, isMine: Bool = false,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                ZStack(alignment: .bottomTrailing) {
+                    AvatarView(profile: group.profile, size: 58)
+                        .padding(3)
+                        .overlay(
+                            Circle().stroke(group.allSeen
+                                            ? Theme.textMuted.opacity(0.5)
+                                            : Theme.yarnRust,
+                                            lineWidth: 3))
+                        .opacity(group.allSeen ? 0.75 : 1)
+                    if isMine {
+                        Text("＋")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Theme.surface)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Theme.yarnSage))
+                            .overlay(Circle().stroke(Theme.bg, lineWidth: 2))
+                    }
+                }
+                Text(isMine ? "Your story" : group.displayName)
+                    .font(Theme.monoFont(10))
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+            }
+            .frame(width: 74)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: greeting header
@@ -756,4 +873,10 @@ struct FeedView: View {
             }
         }
     }
+}
+
+// Identifiable wrapper so an Int group-index can drive a fullScreenCover(item:).
+private struct StartIndex: Identifiable {
+    let value: Int
+    var id: Int { value }
 }

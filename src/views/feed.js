@@ -10,6 +10,8 @@ import { store } from "../store.js";
 import * as api from "../api.js";
 import { createClubModal, joinClubModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
+import { openStoryViewer, composeStory } from "./stories.js";
+import { cropImage } from "../imageCropper.js";
 
 const ACCENTS = {
   "yarn-sage": "#7a9068", "yarn-rust": "#a05838", "yarn-slate": "#587888",
@@ -64,6 +66,7 @@ export async function renderFeed() {
           <button class="btn-ghost small" data-open-rail="reading">📖 Reading</button>
         </div>
         <h1 class="stamp-title small feed-title feed-title-desktop">YOUR FEED</h1>
+        <div class="feed-stories" data-stories></div>
         <div class="feed-greeting" data-greeting></div>
         <div class="feed-announce" data-announce></div>
         <div class="feed-stream" data-feed><p class="faint">loading your feed…</p></div>
@@ -81,12 +84,15 @@ async function boot(root) {
   // region is then painted from the same in-memory snapshot.
   async function load() {
     const clubs = await api.myClubs();
-    const [data, followed] = await Promise.all([
+    const [data, followed, stories] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
       // RLS-filtered). Items inside a shared club are dropped below — the club
       // events cover those.
       api.followFeed().catch(() => ({ items: [] })),
+      // Active (unexpired, audience-visible) stories, grouped by author. Already
+      // RLS-filtered; a failure just hides the strip.
+      api.activeStories().catch(() => []),
     ]);
     const myClubIds = new Set(clubs.map((c) => c.id));
     const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
@@ -120,6 +126,7 @@ async function boot(root) {
 
     paintClubsRail(root, data);
     paintReadingRail(root, data);
+    paintStories(root, stories, load);
     paintGreeting(root, events);
     paintAnnouncements(root, shared, ctx, load);
     paintFeed(root, { ...shared, events }, ctx, load);
@@ -140,6 +147,9 @@ async function boot(root) {
     api.subscribe("feed-engagements", "engagements", undefined, refresh),
     api.subscribe("feed-replies", "reaction_replies", undefined, refresh),
     api.subscribe("feed-announcements", "announcements", undefined, refresh),
+    // Stories strip: a new/removed story or a fresh view (seen ring) repaints.
+    api.subscribe("feed-stories", "stories", undefined, refresh),
+    api.subscribe("feed-story-views", "story_views", undefined, refresh),
   ];
   onCleanup(() => { clearTimeout(timer); subs.forEach((u) => u()); });
 }
@@ -245,6 +255,74 @@ function paintReadingRail(root, data) {
     </div>` : ""}`;
 
   wireGo(host);
+}
+
+/* --------------------------------------------------------- STORIES · strip */
+// The ephemeral-stories strip above the greeting. Groups came back already
+// RLS-filtered + grouped by author from api.activeStories(). Your own bubble is
+// pinned first as "＋ Your story" (tap to compose; if you already have live
+// stories, tap opens your viewer and a small + affordance composes). Each other
+// author bubble wears a yarn-accent ring when it has an unseen story, dimmed
+// when all seen. Tapping opens the full-screen viewer at that author.
+function paintStories(root, groups, reload) {
+  const host = root.querySelector("[data-stories]");
+  if (!host) return;
+
+  // Bubbles for people I follow / club-mates (my own group is handled below).
+  const others = groups.filter((g) => !g.isMine);
+  const mine = groups.find((g) => g.isMine) || null;
+
+  const bubble = (g, i) => {
+    const name = g.profile?.display_name || "Reader";
+    const ringClass = g.allSeen ? "story-seen" : "story-unseen";
+    return `
+      <button class="story-bubble ${ringClass}" data-open-story="${i}"
+        title="${esc(name)}'s story" aria-label="${esc(name)}'s story">
+        <span class="story-ring">${avatarHTML(g.profile, 58)}</span>
+        <span class="story-bubble-name">${esc(name)}</span>
+      </button>`;
+  };
+
+  // "＋ Your story" bubble always leads. If I have live stories it shows my
+  // avatar with a + badge (tap = view mine); otherwise a plain add tile.
+  const myBubble = mine
+    ? `<button class="story-bubble story-mine ${mine.allSeen ? "story-seen" : "story-unseen"}"
+         data-open-mine title="Your story" aria-label="Your story">
+         <span class="story-ring">${avatarHTML(mine.profile, 58)}<span class="story-add-badge">＋</span></span>
+         <span class="story-bubble-name">Your story</span>
+       </button>`
+    : `<button class="story-bubble story-mine story-add" data-compose
+         title="Add to your story" aria-label="Add to your story">
+         <span class="story-ring story-ring-add">＋</span>
+         <span class="story-bubble-name">Your story</span>
+       </button>`;
+
+  host.innerHTML = `<div class="story-strip">${myBubble}${others.map((g, i) => bubble(g, i)).join("")}</div>`;
+
+  // Repaint the strip after the viewer closes so newly-seen rings dim, and after
+  // composing so a fresh story appears.
+  const afterClose = () => reload();
+
+  host.querySelector("[data-compose]")?.addEventListener("click", async () => {
+    const posted = await composeStory(cropImage);
+    if (posted) reload();
+  });
+
+  host.querySelector("[data-open-mine]")?.addEventListener("click", () => {
+    // Open the viewer starting on my own group (index 0 of the full groups list,
+    // since api.activeStories() pins mine first).
+    openStoryViewer(groups, 0, afterClose);
+  });
+
+  host.querySelectorAll("[data-open-story]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      // btn index is into `others`; map it to the index within the full groups
+      // list the viewer walks.
+      const other = others[Number(btn.dataset.openStory)];
+      const gi = groups.indexOf(other);
+      openStoryViewer(groups, gi < 0 ? 0 : gi, afterClose);
+    });
+  });
 }
 
 /* --------------------------------------------------------- ANNOUNCEMENTS */

@@ -879,6 +879,111 @@ export async function deletePost(id) {
   return unwrap(await supabase.from("club_posts").delete().eq("id", id));
 }
 
+// ---------------------------------------------------------------- STORIES ---
+// Ephemeral (72h) personal posts: a single photo and/or a short caption that
+// self-expires. NOT tied to a club and NOT spoiler-gated. RLS (stories_select_
+// audience) only ever returns UNEXPIRED stories the reader is entitled to — the
+// author's own, or those of someone they follow, or of someone they share a
+// club with — so whatever comes back is already safe to show; the client never
+// re-implements that gate. Photos reuse the user-scoped 'avatars' storage bucket
+// under `${user.id}/stories/...` (avatars_insert_own scopes writes by uid).
+
+// Upload a story photo to the 'avatars' bucket under the author's own folder
+// (user-scoped by storage RLS) and return its public URL. Keyed by the uploader's
+// uid so it passes avatars_insert_own; a `stories/` sub-path keeps it distinct
+// from the profile avatar object.
+export async function uploadStoryImage(blob) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const path = `${user.id}/stories/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from("avatars")
+    .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// Post a story. At least one of body / imageUrl must be non-empty (the table
+// CHECK enforces it too). body is trimmed to null when blank so a photo-only
+// story stores no empty string. expires_at is set server-side (created_at + 72h).
+export async function addStory({ body, imageUrl } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const text = (body || "").trim();
+  return unwrap(
+    await supabase.from("stories")
+      .insert({ user_id: user.id, body: text || null, image_url: imageUrl || null })
+      .select().single()
+  );
+}
+
+// Delete my own story (take it down early). RLS (stories_delete_own) restricts
+// this to the author.
+export async function deleteStory(id) {
+  return unwrap(await supabase.from("stories").delete().eq("id", id));
+}
+
+// The active (unexpired, audience-visible) stories, GROUPED BY AUTHOR and ready
+// for the feed strip. RLS returns only stories I may see and only the unexpired
+// ones, so no client-side expiry/visibility filtering is needed. Each group is
+// { user_id, profile, stories:[…oldest→newest], isMine, allSeen, latest } where
+// allSeen is true when I've viewed every story in the group (drives the dimmed
+// vs yarn-accent ring). Groups are ordered: mine first, then groups with any
+// unseen story (newest first), then fully-seen groups.
+export async function activeStories() {
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = unwrap(
+    await supabase.from("stories").select("*")
+      .order("created_at", { ascending: true })
+  );
+  if (!rows.length) return [];
+
+  // Which of these stories have I already seen? Only my own view rows come back
+  // (story_views_select_own), scoped to the visible story ids.
+  const ids = rows.map((r) => r.id);
+  const views = unwrap(
+    await supabase.from("story_views").select("story_id")
+      .eq("viewer_id", user.id).in("story_id", ids)
+  );
+  const seen = new Set(views.map((v) => v.story_id));
+
+  const profiles = await getProfiles([...new Set(rows.map((r) => r.user_id))]);
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+
+  // Group by author, preserving the oldest→newest order within each group.
+  const byAuthor = new Map();
+  for (const r of rows) {
+    if (!byAuthor.has(r.user_id)) byAuthor.set(r.user_id, []);
+    byAuthor.get(r.user_id).push({ ...r, seen: seen.has(r.id) });
+  }
+
+  const groups = [...byAuthor.entries()].map(([userId, stories]) => ({
+    user_id: userId,
+    profile: pById[userId] || null,
+    stories,
+    isMine: userId === user.id,
+    allSeen: stories.every((s) => s.seen),
+    latest: stories[stories.length - 1].created_at, // newest story, for ordering
+  }));
+
+  groups.sort((a, b) => {
+    if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;     // mine first
+    if (a.allSeen !== b.allSeen) return a.allSeen ? 1 : -1;   // unseen before seen
+    return new Date(b.latest) - new Date(a.latest);          // newest first
+  });
+
+  return groups;
+}
+
+// Record that I've viewed a story (idempotent upsert on the unique
+// (story_id, viewer_id)). RLS (story_views_insert_own) forces viewer_id to me.
+export async function markStoryViewed(storyId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("story_views")
+      .upsert({ story_id: storyId, viewer_id: user.id },
+              { onConflict: "story_id,viewer_id" })
+  );
+}
+
 // ------------------------------------------------------- DEVICE TOKENS ---
 // Store an APNs device token for the signed-in user so the push Edge Function
 // can find who to notify. Owner-only under RLS; unique on token, so re-register
