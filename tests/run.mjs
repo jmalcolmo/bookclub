@@ -542,10 +542,25 @@ await step("INVOLVEMENT (self): A sees A's own reactions/replies/progress on the
     "self involvement did not return A's own progress row");
 });
 
-await step("INVOLVEMENT SPOILER GATE: B only sees A's reactions up to B's logged page", async () => {
-  // Keyed by bookId + A's id, but still routed through the SELECT gate: at this
-  // point B is at page 250 (set in the REVIEW GATE step just below runs after —
-  // here B has finished from earlier 300). Re-assert the invariant cleanly:
+await step("CROSS-READER SHELF: co-member B resolves A's finished shelf (readingHistoryFor)", async () => {
+  // Mirror api.readingHistoryFor(A.id) from B's perspective — the entry point
+  // for the shelf on ANOTHER reader's profile. B is a co-member of the club, so
+  // progress_select_member returns A's finished rows and the book resolves.
+  const { data: prog } = await cB.from("reading_progress").select("book_id,finished_at,updated_at")
+    .eq("user_id", A.id).eq("status", "finished")
+    .order("finished_at", { ascending: false });
+  assert((prog || []).some((p) => p.book_id === book.id),
+    "co-member could not see A's finished progress for the shared-club book");
+  const ids = (prog || []).map((p) => p.book_id);
+  const { data: books } = await cB.from("books").select("id").in("id", ids);
+  assert((books || []).some((b) => b.id === book.id),
+    "co-member could not resolve the book row for A's shelf entry");
+});
+
+await step("INVOLVEMENT SPOILER GATE: B opens A's involvement — only gate-visible reactions", async () => {
+  // The cross-reader path end-to-end: from A's shelf entry (previous step) B
+  // opens A's involvement view for this book. Keyed by bookId + A's id, but
+  // still routed through the SELECT gate. Re-assert the invariant cleanly:
   // drop B to page 100 so the page-200 reaction is gated, page-30 is visible.
   await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: 100, status: "reading" }, { onConflict: "book_id,user_id" });

@@ -452,22 +452,26 @@ export async function deleteProgress(bookId) {
   );
 }
 
-// My personal reading history: every book I've marked finished, across all my
-// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
-// "books read" shelf but scoped to me. RLS still applies (I only see books in
-// clubs I belong to, and only my own progress/reviews).
-export async function myReadingHistory() {
-  const user = (await supabase.auth.getUser()).data.user;
+// One reader's reading history: every book THAT reader marked finished, newest
+// first — with their rating where the viewer may see the review. Powers both my
+// own shelf and the shelf on another reader's profile. RLS does all the gating:
+//   - their reading_progress rows return only where the viewer is a co-member
+//     of the book's club (progress_select_member) or via the additive follow path;
+//   - books resolve only in clubs the viewer can see;
+//   - the owner's review returns only when the VIEWER has finished that book
+//     (the review gate), so a hidden rating simply renders as "not rated".
+// Whatever RLS hides just doesn't appear — an invisible reader yields [].
+export async function readingHistoryFor(userId) {
   const progress = unwrap(
     await supabase.from("reading_progress").select("*")
-      .eq("user_id", user.id).eq("status", "finished")
+      .eq("user_id", userId).eq("status", "finished")
       .order("finished_at", { ascending: false })
   );
   const bookIds = progress.map((p) => p.book_id);
   if (!bookIds.length) return [];
   const [books, reviews] = await Promise.all([
     supabase.from("books").select("*").in("id", bookIds).then(unwrap),
-    supabase.from("reviews").select("*").in("book_id", bookIds).eq("user_id", user.id).then(unwrap),
+    supabase.from("reviews").select("*").in("book_id", bookIds).eq("user_id", userId).then(unwrap),
   ]);
   const bById = Object.fromEntries(books.map((b) => [b.id, b]));
   const rById = Object.fromEntries(reviews.map((r) => [r.book_id, r]));
@@ -476,6 +480,14 @@ export async function myReadingHistory() {
     if (!b) return null; // book deleted or no longer visible
     return { ...b, my_finished_at: p.finished_at || p.updated_at, my_rating: rById[p.book_id]?.rating || null };
   }).filter(Boolean);
+}
+
+// My personal reading history: every book I've marked finished, across all my
+// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
+// "books read" shelf but scoped to me (the self case of readingHistoryFor).
+export async function myReadingHistory() {
+  const user = (await supabase.auth.getUser()).data.user;
+  return readingHistoryFor(user.id);
 }
 
 // ---------------------------------------------------- PERSONAL INVOLVEMENT ---

@@ -20,21 +20,7 @@ export async function renderProfile({ params } = {}) {
   let history = [];
   try { history = await api.myReadingHistory(); } catch { /* show empty shelf */ }
 
-  const historyRows = history.map((b) => `
-    <button class="history-row" data-book="${b.id}">
-      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
-                    : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
-      <div class="history-info">
-        <strong class="book-title">${esc(b.title)}</strong>
-        <span class="book-author faint">${esc(b.author || "")}</span>
-        <span class="history-meta faint">finished ${fmtDate(b.my_finished_at)}</span>
-      </div>
-      <div class="history-rating">
-        ${b.my_rating
-          ? `<span class="rating-num">${b.my_rating}</span><span class="rating-stars">★</span>`
-          : `<span class="faint">not rated</span>`}
-      </div>
-    </button>`);
+  const historyRows = history.map(shelfRowHTML);
 
   render(`
     <div class="screen-pad profile-screen">
@@ -66,6 +52,27 @@ export async function renderProfile({ params } = {}) {
     });
     paintProfileCard(root.querySelector("[data-profile-card]"));
   });
+}
+
+// One shelf row (a finished book from readingHistoryFor / myReadingHistory).
+// Shared by my own shelf and the shelf on another reader's profile — tapping a
+// row opens the owner's PERSONAL involvement view (wired by the caller).
+function shelfRowHTML(b) {
+  return `
+    <button class="history-row" data-book="${b.id}">
+      ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
+                    : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
+      <div class="history-info">
+        <strong class="book-title">${esc(b.title)}</strong>
+        <span class="book-author faint">${esc(b.author || "")}</span>
+        <span class="history-meta faint">finished ${fmtDate(b.my_finished_at)}</span>
+      </div>
+      <div class="history-rating">
+        ${b.my_rating
+          ? `<span class="rating-num">${b.my_rating}</span><span class="rating-stars">★</span>`
+          : `<span class="faint">not rated</span>`}
+      </div>
+    </button>`;
 }
 
 // A boxed, collapsed list: at most three rows show, with a toggle that expands
@@ -231,6 +238,13 @@ async function renderOtherProfile(userId) {
   let followed = false;
   try { followed = await api.isFollowing(userId); } catch { /* default false */ }
 
+  // Their shelf: only the rows RLS lets ME see (their finished progress in
+  // clubs we share, or via the follow path). An empty result just hides the
+  // section — no client-side gating is ever added here. (Named shelfBooks, not
+  // `history`, so window.history.back() below isn't shadowed.)
+  let shelfBooks = [];
+  try { shelfBooks = await api.readingHistoryFor(userId); } catch { /* hide shelf */ }
+
   if (!p) {
     render(`
       <div class="screen-pad profile-screen">
@@ -241,7 +255,7 @@ async function renderOtherProfile(userId) {
           <p class="faint">you can see a reader once you share a club or follow them.</p></div>
       </div>
     `, (root) => {
-      root.querySelector("[data-back]").addEventListener("click", () => history.back());
+      root.querySelector("[data-back]").addEventListener("click", () => window.history.back());
     });
     return;
   }
@@ -261,9 +275,23 @@ async function renderOtherProfile(userId) {
         </button>
         <p class="faint follow-hint">following surfaces their solo reading on your feed.</p>
       </div>
+
+      ${shelfBooks.length ? `
+        <section class="profile-history">
+          <h3 class="stamp-title small">THEIR SHELF — BOOKS THEY'VE READ</h3>
+          <div class="patch section-box" data-shelf></div>
+        </section>` : ""}
     </div>
   `, (root) => {
-    root.querySelector("[data-back]").addEventListener("click", () => history.back());
+    root.querySelector("[data-back]").addEventListener("click", () => window.history.back());
+    const shelf = root.querySelector("[data-shelf]");
+    if (shelf) paintCollapsible(shelf, shelfBooks.map(shelfRowHTML), "books", (box) => {
+      // Tapping a shelf book opens THEIR personal involvement view for it (their
+      // own reactions/replies/progress) — keyed by this reader's id. What shows
+      // inside is still spoiler-gated to ME by RLS.
+      box.querySelectorAll("[data-book]").forEach((b) =>
+        b.addEventListener("click", () => navigate(`/reader/${userId}/book/${b.dataset.book}`)));
+    });
     const btn = root.querySelector("[data-follow]");
     btn.addEventListener("click", async () => {
       btn.disabled = true;

@@ -33,6 +33,11 @@ struct ProfileView: View {
     @State private var readerLoaded = false
     @State private var isFollowing = false
     @State private var followBusy = false
+    // Their shelf: only the rows RLS lets ME see (their finished progress in
+    // clubs we share, or via the follow path). Empty just hides the section -
+    // no client-side gating is ever added here.
+    @State private var otherHistory: [HistoryBook] = []
+    @State private var showAllOtherShelf = false
 
     // Am I looking at someone else? (readerId is nil, or my own, => self view)
     private var isOther: Bool {
@@ -83,6 +88,8 @@ struct ProfileView: View {
                             .foregroundStyle(Theme.textMuted)
                     }
                     .patch(accent: Theme.yarnSage, seed: "reader-card")
+
+                    otherShelfSection
                 } else if readerLoaded {
                     EmptyStateView(
                         title: "this reader isn't visible to you.",
@@ -105,7 +112,38 @@ struct ProfileView: View {
         guard let readerId, !readerLoaded else { return }
         reader = try? await API.getProfile(readerId)
         isFollowing = (try? await API.isFollowing(readerId)) ?? false
+        otherHistory = (try? await API.readingHistoryFor(readerId)) ?? []
         readerLoaded = true
+    }
+
+    // Their shelf (web parity: renderOtherProfile's "BOOKS THEY'VE READ").
+    // Tapping a book opens THEIR personal involvement view - keyed by this
+    // reader's id; what shows inside is still spoiler-gated to ME by RLS.
+    @ViewBuilder
+    private var otherShelfSection: some View {
+        if let readerId, !otherHistory.isEmpty {
+            StampTitle(text: "Their Shelf - Books They've Read", small: true)
+            VStack(spacing: 0) {
+                let shown = showAllOtherShelf ? otherHistory : Array(otherHistory.prefix(3))
+                ForEach(shown.indices, id: \.self) { i in
+                    if i > 0 { Divider().overlay(Theme.yarnClay.opacity(0.5)) }
+                    NavigationLink(value: Route.bookInvolvement(ownerId: readerId,
+                                                                bookId: shown[i].book.id)) {
+                        shelfRow(shown[i])
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 10)
+                }
+                if otherHistory.count > 3 {
+                    Button(showAllOtherShelf ? "show less" : "show all \(otherHistory.count) books") {
+                        withAnimation { showAllOtherShelf.toggle() }
+                    }
+                    .buttonStyle(.ghostSmall)
+                    .padding(.top, 8)
+                }
+            }
+            .patch(seed: "other-shelf-box", padding: 14)
+        }
     }
 
     private func toggleFollow() {

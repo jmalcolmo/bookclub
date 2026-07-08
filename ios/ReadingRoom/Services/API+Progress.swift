@@ -73,14 +73,19 @@ extension API {
             .execute()
     }
 
-    // My personal reading history: every book I've marked finished, across all
-    // my clubs, newest first - with my own rating if I reviewed it. RLS still
-    // applies (only books in clubs I belong to, only my progress/reviews).
-    static func myReadingHistory() async throws -> [HistoryBook] {
-        let uid = try await currentUserId()
+    // One reader's reading history: every book THAT reader marked finished,
+    // newest first - with their rating where the viewer may see the review.
+    // Powers both my own shelf and the shelf on another reader's profile (port
+    // of api.js readingHistoryFor). RLS does all the gating: their progress
+    // rows return only where the viewer is a co-member (progress_select_member)
+    // or via the follow path; books resolve only in clubs the viewer can see;
+    // and the owner's review returns only when the VIEWER has finished that
+    // book (the review gate), so a hidden rating just renders as "not rated".
+    // Whatever RLS hides simply doesn't appear - an invisible reader yields [].
+    static func readingHistoryFor(_ userId: UUID) async throws -> [HistoryBook] {
         let progress: [ReadingProgress] = try await supabase.from("reading_progress")
             .select()
-            .eq("user_id", value: uid.uuidString)
+            .eq("user_id", value: userId.uuidString)
             .eq("status", value: ProgressStatus.finished.rawValue)
             .order("finished_at", ascending: false)
             .execute().value
@@ -95,7 +100,7 @@ extension API {
         async let reviewsReq: [Review] = supabase.from("reviews")
             .select()
             .in("book_id", values: bookIds.map { $0.uuidString })
-            .eq("user_id", value: uid.uuidString)
+            .eq("user_id", value: userId.uuidString)
             .execute().value
 
         let (books, reviews) = try await (booksReq, reviewsReq)
@@ -108,6 +113,13 @@ extension API {
                                myFinishedAt: p.finishedAt ?? p.updatedAt,
                                myRating: reviewByBook[p.bookId]?.rating)
         }
+    }
+
+    // My personal reading history: every book I've marked finished, across all
+    // my clubs, newest first - with my own rating if I reviewed it (the self
+    // case of readingHistoryFor).
+    static func myReadingHistory() async throws -> [HistoryBook] {
+        try await readingHistoryFor(currentUserId())
     }
 
     // The clubs where the VIEWER and the OWNER are both members AND this work
