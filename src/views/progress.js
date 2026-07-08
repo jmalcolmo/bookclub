@@ -71,8 +71,40 @@ function card({ club, book, mine }) {
   const status = finished ? "finished ✓"
     : mine ? `page ${myPage}${book.page_count ? ` / ${book.page_count}` : ""}`
     : "not started";
+  // Finished books stay listed but lock editing: no page input / "Update
+  // progress" button. We show a clear ✓ Finished state, keep a tap-through to
+  // the book page (to add reactions), and offer a reversible "still reading".
+  const actions = finished
+    ? `
+      <div class="progress-card-actions progress-actions-finished">
+        <div class="finished-state" role="status">
+          <span class="finished-badge">✓ Finished</span>
+          <button type="button" class="btn-ghost small" data-act="unfinish">Mark as still reading</button>
+        </div>
+        <button type="button" class="btn-ghost small progress-add-reaction"
+          data-go="/club/${club.id}/book/${book.id}">💬 add a reaction</button>
+      </div>`
+    : `
+      <div class="progress-card-actions">
+        <form class="progress-form progress-inline-form" data-update aria-label="Update my progress on ${esc(book.title)}">
+          <label class="inline-field">page
+            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}"
+              aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}"></label>
+          ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
+          <button type="submit" class="btn-primary small">Update progress</button>
+          <button type="button" class="btn-ghost small" data-act="finished">finished ✓</button>
+          <button type="button" class="btn-ghost small" data-act="react-toggle" aria-expanded="false">💬 react</button>
+        </form>
+        <form class="react-form progress-react-form" data-react hidden aria-label="Post a reaction on ${esc(book.title)}">
+          <div class="react-page">at page
+            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}" required></div>
+          <textarea name="body" rows="2" maxlength="600" required
+            placeholder="what happened? how'd it hit you? (only visible to people who've read this far)"></textarea>
+          <button type="submit" class="btn-primary small">post reaction</button>
+        </form>
+      </div>`;
   return `
-    <article class="progress-card patch" data-card="${book.id}">
+    <article class="progress-card patch ${finished ? "progress-card-finished" : ""}" data-card="${book.id}">
       <button class="progress-card-top" data-go="/club/${club.id}/book/${book.id}"
         aria-label="Open ${esc(book.title)} — ${esc(club.name)} — ${status}">
         ${book.cover_url
@@ -89,33 +121,13 @@ function card({ club, book, mine }) {
           </span>
         </div>
       </button>
-
-      <div class="progress-card-actions">
-        <form class="progress-form progress-inline-form" data-update aria-label="Update my progress on ${esc(book.title)}">
-          <label class="inline-field">page
-            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}"
-              aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}"></label>
-          ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
-          <button type="submit" class="btn-primary small">Update progress</button>
-          ${finished ? "" : `<button type="button" class="btn-ghost small" data-act="finished">finished ✓</button>`}
-          <button type="button" class="btn-ghost small" data-act="react-toggle" aria-expanded="false">💬 react</button>
-        </form>
-        <form class="react-form progress-react-form" data-react hidden aria-label="Post a reaction on ${esc(book.title)}">
-          <div class="react-page">at page
-            <input name="page" type="number" min="0" max="${book.page_count || 100000}" value="${myPage}" required></div>
-          <textarea name="body" rows="2" maxlength="600" required
-            placeholder="what happened? how'd it hit you? (only visible to people who've read this far)"></textarea>
-          <button type="submit" class="btn-primary small">post reaction</button>
-        </form>
-      </div>
+      ${actions}
     </article>`;
 }
 
 function wireCard(host, { club, book, mine }, reload) {
   const card = host.querySelector(`[data-card="${book.id}"]`);
   if (!card) return;
-  const pForm = card.querySelector("[data-update]");
-  const rForm = card.querySelector("[data-react]");
 
   const applyProgress = async (page, status, { silent } = {}) => {
     const st = status || (page > 0 ? "reading" : "not_started");
@@ -125,10 +137,33 @@ function wireCard(host, { club, book, mine }, reload) {
     reload();
   };
 
+  // Finished card: editing is locked. Only wire the reversible "still reading"
+  // control (keeps current_page, flips status back to reading) — the "add a
+  // reaction" button rides the shared [data-go] handler to the book page.
+  if (mine?.status === "finished") {
+    card.querySelector("[data-act='unfinish']")?.addEventListener("click", async () => {
+      try {
+        await applyProgress(mine?.current_page || 0, "reading");
+        toast("Marked as still reading", "success");
+      } catch (err) { toast(err.message, "error"); }
+    });
+    return;
+  }
+
+  const pForm = card.querySelector("[data-update]");
+  const rForm = card.querySelector("[data-react]");
+
   pForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    try { await applyProgress(Number(pForm.page.value) || 0); }
-    catch (err) { toast(err.message, "error"); }
+    const page = Number(pForm.page.value) || 0;
+    try {
+      // Reached (or passed) the last page? Offer to mark the book complete.
+      if (book.page_count && page >= book.page_count && mine?.status !== "finished") {
+        promptComplete(page);
+      } else {
+        await applyProgress(page);
+      }
+    } catch (err) { toast(err.message, "error"); }
   });
 
   pForm.querySelector("[data-act='finished']")?.addEventListener("click", async () => {
@@ -191,5 +226,41 @@ function wireCard(host, { club, book, mine }, reload) {
       });
     });
     modal.addEventListener("click", (e) => { if (e.target === modal) done(reactionPage); });
+  }
+
+  // Entered a page at/past the last page: ask whether the book is complete.
+  // Yes → finished at page_count. Dismiss → just save the reading progress.
+  function promptComplete(page) {
+    let handled = false;
+    const done = async (status) => {
+      if (handled) return;
+      handled = true;
+      try {
+        if (status === "finished") await applyProgress(book.page_count, "finished");
+        else await applyProgress(page);
+      } catch (err) { toast(err.message, "error"); }
+    };
+    const modal = openModal(`
+      <h3>Did you complete this book?</h3>
+      <form data-form class="modal-body">
+        <p class="faint">You're at page ${page} of ${book.page_count}. Mark <strong>${esc(book.title)}</strong> as finished?</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-dismiss>Not yet</button>
+          <button type="submit" class="btn-primary">Yes, finished ✓</button>
+        </div>
+      </form>
+    `, (m) => {
+      m.querySelector("[data-form]").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await done("finished");
+        closeModal();
+      });
+      m.querySelector("[data-dismiss]").addEventListener("click", async () => {
+        await done("reading");
+        closeModal();
+      });
+    });
+    // Backdrop click = "not yet": still save the entered reading progress.
+    modal.addEventListener("click", (e) => { if (e.target === modal) done("reading"); });
   }
 }

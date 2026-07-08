@@ -127,6 +127,10 @@ private struct ProgressBookCard: View {
     @State private var prompt: ProgressPrompt?
     @State private var promptHandled = false
 
+    // "Did you complete this book?" confirmation (page reached the last page).
+    @State private var confirmComplete = false
+    @State private var pendingPage: Int = 0
+
     private var myPage: Int { row.mine?.currentPage ?? 0 }
     private var finished: Bool { row.mine?.status == .finished }
 
@@ -134,9 +138,27 @@ private struct ProgressBookCard: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             Divider().overlay(Theme.yarnClay.opacity(0.5))
-            updateForm
-            if showReact {
-                reactForm
+            if finished {
+                finishedForm
+            } else {
+                updateForm
+                if showReact {
+                    reactForm
+                }
+            }
+        }
+        .confirmationDialog("Did you complete this book?",
+                            isPresented: $confirmComplete, titleVisibility: .visible) {
+            Button("Yes, finished \u{2713}") {
+                let target = row.book.pageCount ?? pendingPage
+                page = target
+                save(page: target, status: .finished)
+            }
+            Button("Not yet") { save(page: pendingPage, status: nil) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            if let pages = row.book.pageCount {
+                Text("You're at page \(pendingPage) of \(pages). Mark \(row.book.title) as finished?")
             }
         }
         .onAppear {
@@ -213,25 +235,62 @@ private struct ProgressBookCard: View {
                 }
                 Spacer()
                 Button(saving ? "saving\u{2026}" : "Update progress") {
-                    save(page: max(0, page), status: nil)
+                    updateProgress()
                 }
                 .buttonStyle(.primarySmall)
                 .disabled(saving)
             }
             HStack(spacing: 8) {
-                if !finished {
-                    Button("finished \u{2713}") {
-                        let target = row.book.pageCount ?? max(0, page)
-                        page = target
-                        save(page: target, status: .finished)
-                    }
-                    .buttonStyle(.ghostSmall)
+                Button("finished \u{2713}") {
+                    let target = row.book.pageCount ?? max(0, page)
+                    page = target
+                    save(page: target, status: .finished)
                 }
+                .buttonStyle(.ghostSmall)
                 Button(showReact ? "\u{1F4AC} close" : "\u{1F4AC} react") {
                     withAnimation { showReact.toggle() }
                 }
                 .buttonStyle(.ghostSmall)
             }
+        }
+    }
+
+    // Finished books stay listed but lock editing: no page field / Update
+    // button. A clear "Finished" badge, a reversible "still reading" control,
+    // and a tap-through to the book page (header) to add reactions.
+    private var finishedForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("\u{2713} Finished")
+                    .font(Theme.monoMedium(13))
+                    .foregroundStyle(Theme.positive)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.yarnMoss.opacity(0.22)))
+                    .overlay(Capsule().stroke(Theme.yarnMoss, lineWidth: 2))
+                Spacer()
+                Button("Mark as still reading") {
+                    save(page: myPage, status: .reading)
+                }
+                .buttonStyle(.ghostSmall)
+            }
+            NavigationLink(value: Route.book(clubId: row.club.id, bookId: row.book.id)) {
+                Text("\u{1F4AC} add a reaction")
+                    .font(Theme.monoFont(13))
+                    .foregroundStyle(Theme.yarnSlate)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // Update button: reaching (or passing) the last page asks whether the book
+    // is complete; otherwise just save the reading progress.
+    private func updateProgress() {
+        let p = max(0, page)
+        if let pages = row.book.pageCount, p >= pages, row.mine?.status != .finished {
+            pendingPage = p
+            confirmComplete = true
+        } else {
+            save(page: p, status: nil)
         }
     }
 
