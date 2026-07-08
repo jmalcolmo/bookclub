@@ -3,6 +3,15 @@
 import Foundation
 import Supabase
 
+// A club the viewer and a shelf's owner both belong to that also has a given
+// work (matched by open_library_id), with the specific books row to open
+// (API.sharedClubsForWork). Powers "Show complete reactions".
+struct SharedClubBook: Identifiable, Hashable, Sendable {
+    let club: Club
+    let book: Book
+    var id: UUID { book.id }
+}
+
 extension API {
     // Everyone's progress on a book, with profiles (powers "who's where").
     static func bookProgress(_ bookId: UUID) async throws -> [ProgressItem] {
@@ -98,6 +107,48 @@ extension API {
             return HistoryBook(book: book,
                                myFinishedAt: p.finishedAt ?? p.updatedAt,
                                myRating: reviewByBook[p.bookId]?.rating)
+        }
+    }
+
+    // The clubs where the VIEWER and the OWNER are both members AND this work
+    // exists (matched by open_library_id across club-scoped books rows). Powers
+    // the "Show complete reactions" affordance on the personal involvement view:
+    // one shared club -> jump straight to that club's full book history; several
+    // -> the caller shows a chooser. Empty open_library_id can't correlate the
+    // same work across clubs, so returns [] (button stays hidden). RLS applies:
+    // club_members and books SELECT only return rows the viewer may read.
+    // Port of api.js sharedClubsForWork.
+    static func sharedClubsForWork(openLibraryId: String?, ownerId: UUID) async throws -> [SharedClubBook] {
+        guard let openLibraryId, !openLibraryId.isEmpty else { return [] }
+        let me = try await currentUserId()
+
+        struct ClubIdRow: Codable { let clubId: UUID }
+        async let mineReq: [ClubIdRow] = supabase.from("club_members")
+            .select("club_id").eq("user_id", value: me.uuidString).execute().value
+        async let theirsReq: [ClubIdRow] = supabase.from("club_members")
+            .select("club_id").eq("user_id", value: ownerId.uuidString).execute().value
+        let (mine, theirs) = try await (mineReq, theirsReq)
+
+        let mineSet = Set(mine.map(\.clubId))
+        let sharedIds = Array(Set(theirs.map(\.clubId)).intersection(mineSet))
+        guard !sharedIds.isEmpty else { return [] }
+
+        let books: [Book] = try await supabase.from("books")
+            .select()
+            .in("club_id", values: sharedIds.map { $0.uuidString })
+            .eq("open_library_id", value: openLibraryId)
+            .execute().value
+        guard !books.isEmpty else { return [] }
+
+        let clubs: [Club] = try await supabase.from("clubs")
+            .select()
+            .in("id", values: Array(Set(books.map(\.clubId))).map { $0.uuidString })
+            .execute().value
+        let clubById = Dictionary(uniqueKeysWithValues: clubs.map { ($0.id, $0) })
+
+        return books.compactMap { b in
+            guard let club = clubById[b.clubId] else { return nil }
+            return SharedClubBook(club: club, book: b)
         }
     }
 }

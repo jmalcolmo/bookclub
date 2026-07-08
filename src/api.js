@@ -478,6 +478,103 @@ export async function myReadingHistory() {
   }).filter(Boolean);
 }
 
+// ---------------------------------------------------- PERSONAL INVOLVEMENT ---
+// One reader's OWN footprint on a single book: the reactions they authored, the
+// replies they wrote, and their reading-progress events. Keyed by bookId +
+// ownerId — this is a "just their stuff" view reached from a profile shelf.
+//
+// SPOILER GATE: every row here still comes back through RLS. If the viewer is a
+// co-member of the owner's club, they can only see the owner's reactions/replies
+// up to the pages the VIEWER has read (the reactions_select_spoiler_gated gate),
+// and can always read the owner's reading_progress row (progress_select_member
+// lets any co-member read a member's progress). If the viewer follows the owner
+// on a book in a club the viewer is NOT in, the additive follow path applies.
+// Either way the client never re-implements gating — whatever rows return here
+// are already safe to render. Returns:
+//   { book, owner, reactions:[…], replies:[…], progress: row|null }
+// where reactions are the owner's, replies are the owner's (each decorated with
+// the parent reaction so the view can show what they replied to), and progress
+// is the owner's single reading_progress row for this book (or null if hidden).
+export async function userBookInvolvement(bookId, userId) {
+  const [book, owner] = await Promise.all([
+    getBook(bookId),
+    getProfile(userId).catch(() => null),
+  ]);
+
+  const [reactions, progressRows] = await Promise.all([
+    supabase.from("reactions").select("*")
+      .eq("book_id", bookId).eq("user_id", userId)
+      .order("page", { ascending: true }).order("created_at", { ascending: true })
+      .then(unwrap),
+    supabase.from("reading_progress").select("*")
+      .eq("book_id", bookId).eq("user_id", userId)
+      .then(unwrap),
+  ]);
+
+  // The owner's replies on THIS book. Replies aren't book-scoped, so resolve them
+  // via the reactions they hang under; RLS only returns replies whose parent
+  // reaction is visible to the viewer (they inherit the parent's spoiler gate),
+  // so the parent is guaranteed readable too. We fetch the parents to show the
+  // reaction each reply is answering. Parents may be by the owner or anyone.
+  const myReplies = unwrap(
+    await supabase.from("reaction_replies").select("*")
+      .eq("user_id", userId).order("created_at", { ascending: true })
+  );
+  const parentIds = [...new Set(myReplies.map((r) => r.reaction_id))];
+  const parents = parentIds.length
+    ? unwrap(await supabase.from("reactions").select("*").in("id", parentIds).eq("book_id", bookId))
+    : [];
+  const parentById = Object.fromEntries(parents.map((r) => [r.id, r]));
+  const replies = myReplies
+    .filter((r) => parentById[r.reaction_id]) // only replies whose parent is on THIS book
+    .map((r) => ({ ...r, parent: parentById[r.reaction_id] }));
+
+  const owned = reactions.map((r) => ({ ...r, profile: owner }));
+
+  return { book, owner, reactions: owned, replies, progress: progressRows[0] || null };
+}
+
+// The clubs where the VIEWER and the OWNER are both members AND this work exists
+// (matched by open_library_id across club-scoped books rows). Powers the "Show
+// complete reactions" affordance on the personal involvement view: with exactly
+// one shared club we can jump straight into that club's full book history; with
+// several the caller shows a chooser. Returns [{ club, book }] — the club plus
+// the specific books row for that work in that club (the id book.js routes to).
+//
+// Empty open_library_id means we can't correlate the same work across clubs, so
+// we return [] (the button stays hidden). RLS still applies: club_members and
+// books SELECT only return rows the viewer may read, so a returned club is one
+// the viewer genuinely belongs to.
+export async function sharedClubsForWork(openLibraryId, ownerId) {
+  if (!openLibraryId) return [];
+  const me = (await supabase.auth.getUser()).data.user;
+
+  // Clubs I'm in and clubs the owner is in — intersect for co-membership.
+  const [mine, theirs] = await Promise.all([
+    supabase.from("club_members").select("club_id").eq("user_id", me.id).then(unwrap),
+    supabase.from("club_members").select("club_id").eq("user_id", ownerId).then(unwrap),
+  ]);
+  const mineSet = new Set(mine.map((m) => m.club_id));
+  const sharedIds = [...new Set(theirs.map((m) => m.club_id))].filter((id) => mineSet.has(id));
+  if (!sharedIds.length) return [];
+
+  // The books rows for this work in those shared clubs.
+  const books = unwrap(
+    await supabase.from("books").select("*")
+      .in("club_id", sharedIds).eq("open_library_id", openLibraryId)
+  );
+  if (!books.length) return [];
+
+  const clubs = unwrap(
+    await supabase.from("clubs").select("*").in("id", [...new Set(books.map((b) => b.club_id))])
+  );
+  const clubById = Object.fromEntries(clubs.map((c) => [c.id, c]));
+
+  return books
+    .map((b) => ({ club: clubById[b.club_id], book: b }))
+    .filter((x) => x.club);
+}
+
 // ------------------------------------------------------------- REACTIONS ---
 // SELECT here only returns rows RLS lets us see (spoiler gate). So whatever
 // comes back is already safe to display.

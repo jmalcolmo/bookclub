@@ -846,6 +846,27 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .post-edit-form .edit-actions { display: flex; gap: 8px; }
 
 /* ============================================================================
+   PERSONAL INVOLVEMENT (one reader's own footprint on a book)
+   Reached from a profile shelf tap: their reactions/replies/progress only.
+   Reuses the granny-square .patch + feed-card look; nothing spoiler-related is
+   styled here — the gate is entirely server-side (RLS).
+   ============================================================================ */
+.book-cover.md { width: 72px; height: 108px; }
+.involvement-book { display: flex; flex-direction: row; align-items: center; gap: 18px;
+  padding: 18px; margin-bottom: 18px; }
+.involvement-book-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.involvement-progress { margin: 6px 0 0; font-family: var(--font-display); }
+.involvement-cta { margin: 0 2px 20px; display: flex; flex-direction: column; gap: 8px;
+  align-items: flex-start; }
+.involvement-cta .feed-head { margin: 4px 2px 0; }
+.involvement-cta p { margin: 0; }
+.involvement-club-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.involvement-club-pick { width: fit-content; }
+.involvement-section { margin-bottom: 22px; }
+.involvement-reply { border-left: 4px solid var(--yarn-slate); }
+.involvement-reply-parent { margin: 0 0 6px; font-style: italic; }
+
+/* ============================================================================
    REDUCED MOTION (book-club additions)
    Strips card hover lifts, feed-pop entrance, and club-specific rotations when
    the user has prefers-reduced-motion: reduce. Complements the global block in

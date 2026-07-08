@@ -21,7 +21,7 @@ export async function renderProfile({ params } = {}) {
   try { history = await api.myReadingHistory(); } catch { /* show empty shelf */ }
 
   const historyRows = history.map((b) => `
-    <button class="history-row" data-book="${b.id}" data-club="${b.club_id}">
+    <button class="history-row" data-book="${b.id}">
       ${b.cover_url ? `<img class="book-cover sm" src="${esc(b.cover_url)}" alt="${esc(b.title)} cover">`
                     : `<div class="book-cover sm book-cover-blank" role="img" aria-label="${esc(b.title)} cover">📖</div>`}
       <div class="history-info">
@@ -59,8 +59,10 @@ export async function renderProfile({ params } = {}) {
     loadActivity(root); // async — don't block the profile paint
     const shelf = root.querySelector("[data-shelf]");
     if (shelf) paintCollapsible(shelf, historyRows, "books", (box) => {
+      // Tapping a shelf book opens MY personal involvement view for it (my own
+      // reactions/replies/progress), not the whole club feed — keyed by my id.
       box.querySelectorAll("[data-book]").forEach((b) =>
-        b.addEventListener("click", () => navigate(`/club/${b.dataset.club}/book/${b.dataset.book}`)));
+        b.addEventListener("click", () => navigate(`/reader/${store.user.id}/book/${b.dataset.book}`)));
     });
     paintProfileCard(root.querySelector("[data-profile-card]"));
   });

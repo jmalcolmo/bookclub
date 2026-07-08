@@ -364,7 +364,11 @@ struct ProfileView: View {
                 let shown = showAllShelf ? history : Array(history.prefix(3))
                 ForEach(shown.indices, id: \.self) { i in
                     if i > 0 { Divider().overlay(Theme.yarnClay.opacity(0.5)) }
-                    NavigationLink(value: Route.book(clubId: shown[i].book.clubId, bookId: shown[i].book.id)) {
+                    // Tapping a shelf book opens MY personal involvement view for
+                    // it (my own reactions/replies/progress), not the whole club
+                    // feed - keyed by my id.
+                    NavigationLink(value: Route.bookInvolvement(ownerId: session.userId ?? shown[i].book.clubId,
+                                                                bookId: shown[i].book.id)) {
                         shelfRow(shown[i])
                     }
                     .buttonStyle(.plain)
