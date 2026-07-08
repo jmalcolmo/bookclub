@@ -489,9 +489,26 @@ await step("B advances to p.250 and now sees p.200", async () => {
   assert((data || []).map((r) => r.page).includes(200), "B should see p.200 after reading past it");
 });
 
-await step("A finishes the book and writes a review", async () => {
-  await cA.from("reading_progress").upsert(
-    { book_id: book.id, user_id: A.id, current_page: 300, status: "finished" }, { onConflict: "book_id,user_id" });
+await step("COMPLETE-VIA-MAX-PAGE: entering page >= page_count + confirming finishes at page_count", async () => {
+  // New client behavior (progress.js / book.js promptComplete + iOS confirmComplete):
+  // when a reader enters a page at/past book.page_count, we prompt "Did you
+  // complete this book?" and on Yes call setProgress(finished, page=page_count).
+  // Model that end state: A types page 305 (past 300), confirms, lands at 300/finished.
+  const { data: b } = await cA.from("books").select("page_count").eq("id", book.id).single();
+  const enteredPage = b.page_count + 5;              // reader typed past the last page
+  assert(enteredPage >= b.page_count, "test setup: entered page should be >= page_count");
+  const { error } = await cA.from("reading_progress").upsert(
+    { book_id: book.id, user_id: A.id, current_page: b.page_count, status: "finished" },
+    { onConflict: "book_id,user_id" });
+  if (error) throw error;
+  const { data: after } = await cA.from("reading_progress").select("current_page,status")
+    .eq("book_id", book.id).eq("user_id", A.id).single();
+  assert(after.status === "finished", "complete-via-max-page did not set status finished");
+  assert(after.current_page === b.page_count,
+    `complete-via-max-page should clamp to page_count (${b.page_count}), got ${after.current_page}`);
+});
+
+await step("A writes a review (unlocked by finishing)", async () => {
   const { error } = await cA.from("reviews").upsert(
     { book_id: book.id, user_id: A.id, rating: 4, body: "solid read" }, { onConflict: "book_id,user_id" });
   if (error) throw error;
@@ -519,6 +536,30 @@ await step("B finishes and now sees A's review", async () => {
     { book_id: book.id, user_id: B.id, current_page: 300, status: "finished" }, { onConflict: "book_id,user_id" });
   const { data } = await cB.from("reviews").select("id").eq("book_id", book.id);
   assert((data || []).length >= 1, "B should see reviews after finishing");
+});
+
+await step("UN-FINISH: B marks 'still reading' → status reading, current_page kept", async () => {
+  // New client behavior (progress.js/book.js unfinish + iOS unfinish): flip
+  // status back to reading without touching current_page. Reversible; the
+  // review gate re-locks. Round-trip so downstream (B finished) stays valid.
+  const { data: before } = await cB.from("reading_progress").select("current_page")
+    .eq("book_id", book.id).eq("user_id", B.id).single();
+  const { error } = await cB.from("reading_progress").upsert(
+    { book_id: book.id, user_id: B.id, current_page: before.current_page, status: "reading" },
+    { onConflict: "book_id,user_id" });
+  if (error) throw error;
+  const { data: after } = await cB.from("reading_progress").select("current_page,status")
+    .eq("book_id", book.id).eq("user_id", B.id).single();
+  assert(after.status === "reading", "un-finish did not revert status to reading");
+  assert(after.current_page === before.current_page,
+    `un-finish must keep current_page (${before.current_page}), got ${after.current_page}`);
+  // Reviews re-lock while reading.
+  const { data: revs } = await cB.from("reviews").select("id").eq("book_id", book.id);
+  assert((revs || []).length === 0, "REVIEW LEAK: reviews still visible after un-finishing");
+  // Re-finish B so later steps that assume B finished still hold.
+  await cB.from("reading_progress").upsert(
+    { book_id: book.id, user_id: B.id, current_page: 300, status: "finished" },
+    { onConflict: "book_id,user_id" });
 });
 
 await step("REVIEW DELETE GATE: B cannot delete A's review (RLS)", async () => {

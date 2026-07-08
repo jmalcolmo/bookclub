@@ -622,6 +622,21 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .progress-pct { margin-left: auto; font-family: var(--font-mono); font-weight: 700;
   color: var(--yarn-rust); font-size: .9rem; }
 
+/* ---- FINISHED BOOKS (progress tab + book page) ---- */
+/* Finished cards stay listed but read as "done": a sage tint, a checked
+   border, and no editable page form — just a badge and a way back in. */
+.progress-card-finished { border-color: var(--yarn-moss);
+  background: color-mix(in srgb, var(--yarn-sage) 12%, var(--surface)); }
+.progress-actions-finished { flex-direction: column; gap: 10px; }
+.finished-state { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.finished-badge { font-family: var(--font-mono); font-weight: 700; font-size: .8rem;
+  letter-spacing: .04em; color: var(--positive);
+  background: color-mix(in srgb, var(--yarn-moss) 22%, var(--surface));
+  border: 2px solid var(--yarn-moss); border-radius: 999px; padding: 4px 12px; }
+.progress-add-reaction { align-self: flex-start; }
+.progress-panel-finished { border-color: var(--yarn-moss); }
+.finished-actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+
 /* ---- PROFILE ---- */
 .profile-card { align-items: center; text-align: center; gap: 14px; min-height: 0; padding: 28px; }
 .profile-avatar-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
