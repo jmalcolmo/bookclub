@@ -82,10 +82,15 @@ struct MainTabView: View {
     @State private var clubsPath = NavigationPath()
     @State private var progressPath = NavigationPath()
 
+    // The center "+" compose affordance: bumping this asks the Feed to open its
+    // compose hub. A plain counter (rather than a Bool) so repeat taps re-fire
+    // even if the feed already handled the last one.
+    @State private var composeSignal = 0
+
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack(path: $feedPath) {
-                FeedView()
+                FeedView(composeSignal: composeSignal)
                     .appDestinations()
             }
             .tabItem { Label("Feed", systemImage: "sparkles.rectangle.stack") }
@@ -113,5 +118,23 @@ struct MainTabView: View {
             .tag(Tab.profile)
         }
         .tint(Theme.yarnSage)
+        // A raised center "+" floating over the tab bar. Tapping it switches to
+        // the Feed and opens the compose hub (create post / story / start book).
+        .overlay(alignment: .bottom) {
+            Button {
+                if tab != .feed { tab = .feed }
+                composeSignal += 1
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Theme.surface)
+                    .frame(width: 54, height: 54)
+                    .background(Circle().fill(Theme.yarnRust))
+                    .overlay(Circle().stroke(Theme.bg, lineWidth: 4))
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+            }
+            .accessibilityLabel("Create")
+            .offset(y: -6)
+        }
     }
 }

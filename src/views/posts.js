@@ -4,7 +4,7 @@
 // scoped: RLS only ever returns/accepts posts for members of the club, so the
 // view relies entirely on the server for access control (never re-implements it).
 import { render, navigate, onCleanup } from "../router.js";
-import { esc, toast, avatarHTML, timeAgo, userLinkHTML, wireUserLinks } from "../ui.js";
+import { esc, toast, avatarHTML, clubAvatarHTML, timeAgo, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { cropImage } from "../imageCropper.js";
@@ -188,4 +188,101 @@ function postCardHTML(p, myId) {
         </div>
       </form>` : ""}
     </div>`;
+}
+
+// The "+" compose hub's "Create post" action: the same text + single-photo
+// composer as renderPosts (no page numbers, no spoiler gate) but with a CLUB
+// MULTI-SELECT. On submit it uploads the photo ONCE (if any) and fans the post
+// out to every selected club via api.addPostToClubs (one club_posts row per
+// club; RLS still authorizes each insert). This is an OVERLAY, not a route, so
+// it reuses the story-compose backdrop styling. Resolves true if a post went
+// out (so the feed can refresh), false if the user cancelled or posted nothing.
+//
+// `clubs` is the caller's already-loaded club list (api.myClubs()); passing it in
+// avoids a second round-trip. A member of zero clubs sees a gentle empty state.
+export async function composePostToClubs(clubs = []) {
+  return new Promise((resolve) => {
+    let pendingBlob = null;
+    const selected = new Set(clubs.length === 1 ? [clubs[0].id] : []);
+
+    const back = document.createElement("div");
+    back.className = "story-compose-backdrop";
+    const clubChips = clubs.map((c) => `
+      <button type="button" class="post-club-chip ${selected.has(c.id) ? "selected" : ""}"
+        data-club="${esc(c.id)}" aria-pressed="${selected.has(c.id)}">
+        ${clubAvatarHTML(c, 24)}<span class="post-club-chip-name">${esc(c.name)}</span>
+      </button>`).join("");
+
+    back.innerHTML = `
+      <div class="story-compose patch">
+        <h3 class="story-compose-title stamp-title small">✎ New post</h3>
+        <p class="faint story-compose-blurb">Share a thought or a photo. Pick which clubs see it.</p>
+        ${clubs.length
+          ? `<div class="post-club-select" data-clubs>${clubChips}</div>`
+          : `<p class="faint">Join or create a club first — posts go to a club.</p>`}
+        <div data-preview class="story-compose-preview" hidden></div>
+        <label class="btn-ghost small story-compose-photo">📷 add photo
+          <input type="file" accept="image/*" data-photo hidden></label>
+        <textarea data-body rows="3" maxlength="800"
+          placeholder="what's on your mind? (a book haul, a meetup pic, a hot take…)"></textarea>
+        <div class="story-compose-actions">
+          <button class="btn-ghost small" data-cancel>cancel</button>
+          <button class="btn-primary small" data-post>post</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    document.body.classList.add("story-viewer-open");
+
+    const preview = back.querySelector("[data-preview]");
+    const fileInput = back.querySelector("[data-photo]");
+    const bodyEl = back.querySelector("[data-body]");
+    const postBtn = back.querySelector("[data-post]");
+
+    const done = (posted) => {
+      back.remove();
+      document.body.classList.remove("story-viewer-open");
+      resolve(posted);
+    };
+
+    back.querySelectorAll("[data-club]").forEach((chip) =>
+      chip.addEventListener("click", () => {
+        const id = chip.dataset.club;
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        chip.classList.toggle("selected", selected.has(id));
+        chip.setAttribute("aria-pressed", selected.has(id));
+      }));
+
+    fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        // Reuse the shared square cropper, matching renderPosts' post photos.
+        const blob = await cropImage(file, { shape: "square" });
+        if (!blob) return; // cancelled
+        pendingBlob = blob;
+        preview.style.backgroundImage = `url('${URL.createObjectURL(blob)}')`;
+        preview.hidden = false;
+      } catch (err) { toast(err.message, "error"); }
+    });
+
+    back.querySelector("[data-cancel]").addEventListener("click", () => done(false));
+    back.addEventListener("click", (e) => { if (e.target === back) done(false); });
+
+    postBtn.addEventListener("click", async () => {
+      const body = bodyEl.value.trim();
+      const clubIds = [...selected];
+      if (!clubIds.length) { toast("Pick at least one club", "error"); return; }
+      if (!body && !pendingBlob) { toast("Add some text or a photo", "error"); return; }
+      postBtn.disabled = true;
+      try {
+        // Upload the photo once, then reuse its public URL across every club.
+        let imageUrl = null;
+        if (pendingBlob) imageUrl = await api.uploadPostImage(clubIds[0], pendingBlob);
+        await api.addPostToClubs(clubIds, { body, imageUrl });
+        toast(clubIds.length > 1 ? `Posted to ${clubIds.length} clubs` : "Posted", "success");
+        done(true);
+      } catch (err) { toast(err.message, "error"); postBtn.disabled = false; }
+    });
+  });
 }

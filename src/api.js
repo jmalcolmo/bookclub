@@ -868,6 +868,25 @@ export async function addPost(clubId, { body, imageUrl } = {}) {
   );
 }
 
+// Fan a single composed post out to several clubs at once (the "+" compose hub's
+// "Create post" action, which carries a club multi-select). One club_posts row is
+// inserted per club via the existing addPost path, so RLS (posts_insert_member)
+// still authorizes each write independently — a non-member club id simply fails
+// its own insert. The image, if any, is uploaded ONCE by the caller and the
+// resulting public URL is shared across all rows (post-images objects are publicly
+// readable, so the shared URL renders for every club's members). Returns the array
+// of created rows. A per-club failure rejects (earlier rows are not rolled back;
+// callers surface the error).
+export async function addPostToClubs(clubIds, { body, imageUrl } = {}) {
+  const ids = [...new Set((clubIds || []).filter(Boolean))];
+  if (!ids.length) throw new Error("Pick at least one club");
+  const rows = [];
+  for (const clubId of ids) {
+    rows.push(await addPost(clubId, { body, imageUrl }));
+  }
+  return rows;
+}
+
 // Edit my own post's text. RLS (posts_update_own) only lets the author update.
 export async function updatePost(id, changes) {
   return unwrap(
