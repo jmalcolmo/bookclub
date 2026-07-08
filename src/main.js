@@ -16,6 +16,7 @@ import { renderPicker } from "./views/picker.js";
 import { renderHistory } from "./views/history.js";
 import { renderProfile } from "./views/profile.js";
 import { renderPosts } from "./views/posts.js";
+import { renderBookInvolvement } from "./views/bookInvolvement.js";
 
 // ---- routes ----
 route("/feed", renderFeed);
@@ -26,6 +27,9 @@ route("/club/:id/picker", renderPicker);
 route("/club/:id/history", renderHistory);
 route("/club/:id/posts", renderPosts);
 route("/club/:id/book/:bookId", renderBook);
+// A reader's PERSONAL involvement with a book (their own reactions/replies/
+// progress), keyed by ownerId + bookId. Reached from a profile shelf tap.
+route("/reader/:ownerId/book/:bookId", renderBookInvolvement);
 route("/user/:id", renderProfile);
 route("/profile", renderProfile);
 setNotFound(() => navigate("/feed"));

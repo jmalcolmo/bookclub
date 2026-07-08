@@ -524,6 +524,83 @@ await step("A's personal reading history includes the finished book (myReadingHi
   assert((books || []).some((b) => b.id === book.id), "reading history did not resolve the finished book");
 });
 
+// ---- personal involvement (profile shelf tap): a reader's OWN footprint ------
+// Mirrors api.userBookInvolvement(bookId, ownerId): the owner's reactions +
+// replies + progress on one book, all returned through RLS (the spoiler gate is
+// never re-implemented client-side). And api.sharedClubsForWork(openLibraryId,
+// ownerId): clubs the viewer + owner co-share that also have this work.
+await step("INVOLVEMENT (self): A sees A's own reactions/replies/progress on the book", async () => {
+  // A's own footprint: A can always read their own reactions (spoiler gate lets
+  // authors see their own), their own progress row, and any replies they wrote.
+  const { data: rx } = await cA.from("reactions").select("id,page")
+    .eq("book_id", book.id).eq("user_id", A.id).order("page");
+  assert((rx || []).some((r) => r.id === r30) && (rx || []).some((r) => r.id === r200),
+    "self involvement missing A's own reactions (both pages)");
+  const { data: prog } = await cA.from("reading_progress").select("current_page,status")
+    .eq("book_id", book.id).eq("user_id", A.id);
+  assert((prog || []).length === 1 && prog[0].status === "finished",
+    "self involvement did not return A's own progress row");
+});
+
+await step("CROSS-READER SHELF: co-member B resolves A's finished shelf (readingHistoryFor)", async () => {
+  // Mirror api.readingHistoryFor(A.id) from B's perspective — the entry point
+  // for the shelf on ANOTHER reader's profile. B is a co-member of the club, so
+  // progress_select_member returns A's finished rows and the book resolves.
+  const { data: prog } = await cB.from("reading_progress").select("book_id,finished_at,updated_at")
+    .eq("user_id", A.id).eq("status", "finished")
+    .order("finished_at", { ascending: false });
+  assert((prog || []).some((p) => p.book_id === book.id),
+    "co-member could not see A's finished progress for the shared-club book");
+  const ids = (prog || []).map((p) => p.book_id);
+  const { data: books } = await cB.from("books").select("id").in("id", ids);
+  assert((books || []).some((b) => b.id === book.id),
+    "co-member could not resolve the book row for A's shelf entry");
+});
+
+await step("INVOLVEMENT SPOILER GATE: B opens A's involvement — only gate-visible reactions", async () => {
+  // The cross-reader path end-to-end: from A's shelf entry (previous step) B
+  // opens A's involvement view for this book. Keyed by bookId + A's id, but
+  // still routed through the SELECT gate. Re-assert the invariant cleanly:
+  // drop B to page 100 so the page-200 reaction is gated, page-30 is visible.
+  await cB.from("reading_progress").upsert(
+    { book_id: book.id, user_id: B.id, current_page: 100, status: "reading" }, { onConflict: "book_id,user_id" });
+  const { data: seen } = await cB.from("reactions").select("id,page")
+    .eq("book_id", book.id).eq("user_id", A.id);
+  const ids = (seen || []).map((r) => r.id);
+  assert(ids.includes(r30), "co-member could not see A's page-30 reaction they've read past");
+  assert(!ids.includes(r200), "INVOLVEMENT LEAK: co-member saw A's page-200 reaction before reading that far");
+  // Restore B to finished so later steps that assume it still hold.
+  await cB.from("reading_progress").upsert(
+    { book_id: book.id, user_id: B.id, current_page: 300, status: "finished" }, { onConflict: "book_id,user_id" });
+});
+
+await step("SHARED CLUBS: sharedClubsForWork returns the co-shared club for this work", async () => {
+  // Give the book an open_library_id so the same work can be correlated across
+  // clubs (empty id => api returns [] and the "Show complete reactions" button
+  // stays hidden). A and B are co-members of `club`, so B (viewer) resolves it.
+  const olid = `/works/OLTEST${tag}W`;
+  await cA.from("books").update({ open_library_id: olid }).eq("id", book.id);
+
+  // Mirror api.sharedClubsForWork from B's (viewer) perspective, owner = A.
+  const { data: mine } = await cB.from("club_members").select("club_id").eq("user_id", B.id);
+  const { data: theirs } = await cB.from("club_members").select("club_id").eq("user_id", A.id);
+  const mineSet = new Set((mine || []).map((m) => m.club_id));
+  const sharedIds = [...new Set((theirs || []).map((m) => m.club_id))].filter((id) => mineSet.has(id));
+  assert(sharedIds.includes(club.id), "co-shared club not found in the intersection");
+  const { data: books } = await cB.from("books").select("id,club_id")
+    .in("club_id", sharedIds).eq("open_library_id", olid);
+  assert((books || []).some((b) => b.id === book.id),
+    "sharedClubsForWork did not match the work by open_library_id in the shared club");
+});
+
+await step("SHARED CLUBS: empty open_library_id yields no shared clubs (button hidden)", async () => {
+  // The api short-circuits to [] when the work has no open_library_id — nothing
+  // to correlate across clubs, so the "Show complete reactions" button hides.
+  const { data } = await cB.from("books").select("id")
+    .in("club_id", [club.id]).eq("open_library_id", "");
+  assert((data || []).length === 0, "empty open_library_id should not match any book row");
+});
+
 await step("REVIEW GATE: B (not finished) cannot see A's review", async () => {
   await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: 250, status: "reading" }, { onConflict: "book_id,user_id" });
