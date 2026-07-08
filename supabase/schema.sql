@@ -95,6 +95,30 @@ as $$
   );
 $$;
 
+-- Does the current user share AT LEAST ONE club with _other? (No specific club
+-- id — is_club_member() takes a club id and can't answer "any club".) Powers
+-- STORIES visibility: an ephemeral personal story is visible to the author, to
+-- anyone who follows them, OR to anyone who shares any club with them. This is
+-- the same club-graph question shares_club_with() answers for profile
+-- visibility; kept as a distinct name so the callers read clearly and either can
+-- evolve independently. SECURITY DEFINER so it doesn't recurse on the
+-- club_members SELECT policy.
+create or replace function public.shares_any_club(_other uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from club_members me
+    join club_members them on them.club_id = me.club_id
+    where me.user_id = auth.uid()
+      and them.user_id = _other
+  );
+$$;
+
 -- Does the current user follow _other? Powers the FOLLOW system: a follower gets
 -- an additive, consensual view of a followee's SOLO reading — their own
 -- progress/reactions on books in clubs the FOLLOWER is NOT a member of. The
@@ -800,6 +824,112 @@ create policy "posts_delete_own" on club_posts
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
+-- STORIES  (ephemeral 72h personal posts — photo + text)
+-- ============================================================================
+-- A personal, self-expiring post: a single photo and/or a short caption that
+-- disappears 72h after it was created. Unlike club_posts, a story is NOT tied to
+-- a club — it belongs to the author and is shown to their audience: the author
+-- themselves, anyone who FOLLOWS them, OR anyone who shares ANY club with them
+-- (shares_any_club). There is NO spoiler gate (stories carry no page number).
+-- Expiry is server-computed as created_at + 72h and enforced in the SELECT
+-- policy (expires_at > now()), so an expired story can never be read even before
+-- a cleanup job removes it. Photos reuse the user-scoped 'avatars' storage bucket
+-- under `${user.id}/stories/...` (avatars_insert_own scopes writes by uid).
+create table if not exists stories (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  body       text,                     -- short caption (nullable when it's a photo-only story)
+  image_url  text,                     -- public URL of the single photo (nullable)
+  created_at timestamptz not null default now(),
+  -- expires 72h after creation. Defaulted here and (idempotently) pinned by the
+  -- trigger below so it can never drift from created_at.
+  expires_at timestamptz not null default (now() + interval '72 hours'),
+  -- a story must carry SOMETHING: a caption or a photo (or both)
+  check (
+    (body is not null and length(btrim(body)) > 0)
+    or (image_url is not null and length(image_url) > 0)
+  )
+);
+
+create index if not exists stories_user_idx on stories(user_id);
+create index if not exists stories_expires_idx on stories(expires_at);
+
+-- Pin expires_at to exactly created_at + 72h on every insert, regardless of what
+-- (if anything) the client sent — the 72h window is a server invariant, not a
+-- client choice.
+create or replace function public.set_story_expiry()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.expires_at := new.created_at + interval '72 hours';
+  return new;
+end;
+$$;
+
+drop trigger if exists on_story_created on stories;
+create trigger on_story_created
+  before insert on stories
+  for each row execute function public.set_story_expiry();
+
+alter table stories enable row level security;
+
+-- AUDIENCE-SCOPED (no spoiler gate), and only while UNEXPIRED. A story is visible
+-- iff it hasn't expired AND (you wrote it OR you follow the author OR you share a
+-- club with them). The expires_at guard means the ephemeral window is enforced
+-- server-side — the client never decides who may read a story, or for how long.
+drop policy if exists "stories_select_audience" on stories;
+create policy "stories_select_audience" on stories
+  for select using (
+    expires_at > now()
+    and (
+      user_id = auth.uid()
+      or is_following(user_id)
+      or shares_any_club(user_id)
+    )
+  );
+
+-- Only the author may post a story, and only as themselves.
+drop policy if exists "stories_insert_own" on stories;
+create policy "stories_insert_own" on stories
+  for insert with check (user_id = auth.uid());
+
+-- The author may delete their own story (take it down early). There is NO UPDATE
+-- policy — stories are immutable once posted (edit = delete + repost).
+drop policy if exists "stories_delete_own" on stories;
+create policy "stories_delete_own" on stories
+  for delete using (user_id = auth.uid());
+
+-- Per-viewer "seen" record, so the unseen/seen ring persists across devices. One
+-- row per (story, viewer); unique so marking-seen is an idempotent upsert.
+create table if not exists story_views (
+  story_id  uuid not null references stories(id) on delete cascade,
+  viewer_id uuid not null references auth.users(id) on delete cascade,
+  seen_at   timestamptz not null default now(),
+  primary key (story_id, viewer_id),
+  unique (story_id, viewer_id)
+);
+
+create index if not exists story_views_viewer_idx on story_views(viewer_id);
+
+alter table story_views enable row level security;
+
+-- A viewer sees and writes ONLY their own view records (scoped to viewer_id =
+-- auth.uid()). This never reveals who else viewed a story — it's a private
+-- per-viewer seen flag, not a public view count.
+drop policy if exists "story_views_select_own" on story_views;
+create policy "story_views_select_own" on story_views
+  for select using (viewer_id = auth.uid());
+
+drop policy if exists "story_views_insert_own" on story_views;
+create policy "story_views_insert_own" on story_views
+  for insert with check (viewer_id = auth.uid());
+
+drop policy if exists "story_views_delete_own" on story_views;
+create policy "story_views_delete_own" on story_views
+  for delete using (viewer_id = auth.uid());
+
+-- ============================================================================
 -- ANNOUNCEMENTS  (global broadcasts the app admin pushes to every user)
 -- ============================================================================
 create table if not exists announcements (
@@ -931,6 +1061,8 @@ begin
   begin execute 'alter publication supabase_realtime add table reaction_replies'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table announcements'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table club_posts'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table stories'; exception when others then null; end;
+  begin execute 'alter publication supabase_realtime add table story_views'; exception when others then null; end;
 end $$;
 
 -- ============================================================================
