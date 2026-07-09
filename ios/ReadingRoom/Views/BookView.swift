@@ -147,12 +147,20 @@ final class BookModel {
         return items
     }
 
+    // Count of reactions the most recent forward bump opened (drives the banner);
+    // the view resets it to 0 once shown/dismissed.
+    var justUnlocked = 0
+
     // Persist progress, update local state, refresh the feed (newly unlocked
-    // reactions + updated activity). Port of applyProgress.
+    // reactions + updated activity). Port of applyProgress. Passes the old page so
+    // setProgress can detect + record the reactions the bump unlocks.
     func applyProgress(page: Int, status: ProgressStatus?) async throws {
         let st = status ?? (page > 0 ? .reading : .notStarted)
-        let saved = try await API.setProgress(bookId: bookId, currentPage: page, status: st)
-        mine = saved
+        let prev = mine?.currentPage ?? 0
+        let saved = try await API.setProgress(bookId: bookId, currentPage: page, status: st,
+                                              prevPage: prev)
+        mine = saved.progress
+        if !saved.unlocked.isEmpty { justUnlocked = saved.unlocked.count }
         await loadFeed()
     }
 
@@ -244,6 +252,13 @@ struct BookView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .top) {
+            if model.justUnlocked > 0 {
+                UnlockBanner(count: model.justUnlocked, bookId: bookId) {
+                    model.justUnlocked = 0
+                }
+            }
+        }
         .navigationTitle(model.book?.title ?? "Book")
         .navigationBarTitleDisplayMode(.inline)
         .task {

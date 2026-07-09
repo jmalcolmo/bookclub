@@ -340,8 +340,14 @@ private struct ProgressBookCard: View {
             defer { saving = false }
             do {
                 let st = status ?? (page > 0 ? .reading : .notStarted)
-                _ = try await API.setProgress(bookId: row.book.id, currentPage: page, status: st)
+                let prev = row.mine?.currentPage ?? 0
+                let saved = try await API.setProgress(bookId: row.book.id, currentPage: page,
+                                                      status: st, prevPage: prev)
                 if !silent { toasts.show("Progress saved", .success) }
+                if !saved.unlocked.isEmpty {
+                    let n = saved.unlocked.count
+                    toasts.show("\u{2728} \(n) reaction\(n == 1 ? "" : "s") unlocked — see the Unlocked tab on your feed", .success)
+                }
                 await onChange()
             } catch {
                 toasts.error(error)

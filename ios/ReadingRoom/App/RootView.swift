@@ -16,6 +16,9 @@ enum Route: Hashable {
     // A reader's PERSONAL involvement with a book (their own reactions/replies/
     // progress), keyed by ownerId + bookId. Reached from a profile shelf tap.
     case bookInvolvement(ownerId: UUID, bookId: UUID)
+    // The "Unlocked" space: reactions the spoiler gate opened as I read. nil book
+    // = global inbox (feed bell); a bookId = the per-book filter (post-bump banner).
+    case unlocked(bookId: UUID?)
 }
 
 extension View {
@@ -37,6 +40,8 @@ extension View {
                 ProfileView(readerId: userId)
             case .bookInvolvement(let ownerId, let bookId):
                 BookInvolvementView(ownerId: ownerId, bookId: bookId)
+            case .unlocked(let bookId):
+                UnlockedView(bookId: bookId)
             }
         }
     }
@@ -74,7 +79,7 @@ struct RootView: View {
 
 struct MainTabView: View {
     enum Tab: Hashable {
-        case feed, clubs, progress, profile
+        case feed, clubs, create, progress, profile
     }
 
     @State private var tab: Tab = .feed
@@ -82,13 +87,31 @@ struct MainTabView: View {
     @State private var clubsPath = NavigationPath()
     @State private var progressPath = NavigationPath()
 
-    // The center "+" compose affordance: bumping this asks the Feed to open its
-    // compose hub. A plain counter (rather than a Bool) so repeat taps re-fire
-    // even if the feed already handled the last one.
+    // The "+" compose affordance lives as a real tab item so it matches the other
+    // hotbar icons (same sage tint, same label). Selecting it isn't a destination:
+    // we intercept the binding, jump to the Feed, and bump this counter to open the
+    // compose hub. A plain counter (rather than a Bool) so repeat taps re-fire even
+    // if the feed already handled the last one.
     @State private var composeSignal = 0
 
+    // Intercepts a tap on the "Create" tab: never actually select it — switch to
+    // the Feed and fire the compose hub instead. Any other tab selects normally.
+    private var tabSelection: Binding<Tab> {
+        Binding(
+            get: { tab },
+            set: { newValue in
+                if newValue == .create {
+                    if tab != .feed { tab = .feed }
+                    composeSignal += 1
+                } else {
+                    tab = newValue
+                }
+            }
+        )
+    }
+
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: tabSelection) {
             NavigationStack(path: $feedPath) {
                 FeedView(composeSignal: composeSignal)
                     .appDestinations()
@@ -102,6 +125,13 @@ struct MainTabView: View {
             }
             .tabItem { Label("Clubs", systemImage: "books.vertical") }
             .tag(Tab.clubs)
+
+            // Not a real destination — selecting it is intercepted by tabSelection
+            // to open the compose hub. Content never shows; it exists only so the
+            // "+" renders as a native tab item matching the others.
+            Color.clear
+                .tabItem { Label("Create", systemImage: "plus.circle") }
+                .tag(Tab.create)
 
             NavigationStack(path: $progressPath) {
                 MyProgressView()
@@ -118,23 +148,5 @@ struct MainTabView: View {
             .tag(Tab.profile)
         }
         .tint(Theme.yarnSage)
-        // A raised center "+" floating over the tab bar. Tapping it switches to
-        // the Feed and opens the compose hub (create post / story / start book).
-        .overlay(alignment: .bottom) {
-            Button {
-                if tab != .feed { tab = .feed }
-                composeSignal += 1
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Theme.surface)
-                    .frame(width: 54, height: 54)
-                    .background(Circle().fill(Theme.yarnRust))
-                    .overlay(Circle().stroke(Theme.bg, lineWidth: 4))
-                    .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
-            }
-            .accessibilityLabel("Create")
-            .offset(y: -6)
-        }
     }
 }

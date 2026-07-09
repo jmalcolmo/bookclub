@@ -4,6 +4,7 @@ import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
+import { unlockToast } from "./unlocked.js";
 
 export async function renderBook({ params }) {
   const { id: clubId, bookId } = params;
@@ -338,12 +339,13 @@ function wire(root, { clubId, book, mine }) {
   // reaction→progress popup. `silent` skips the toast (popup shows its own flow).
   const applyProgress = async (page, status, { silent } = {}) => {
     const st = status || (page > 0 ? "reading" : "not_started");
-    await api.setProgress(book.id, page, st);
+    const saved = await api.setProgress(book.id, page, st, { prevPage: mine?.current_page ?? 0 });
     mine = { current_page: page, status: st };
     if (pForm) pForm.page.value = page;
     // First progress logged makes "mark started" redundant — drop it for good.
     if (st === "reading" || st === "finished" || page > 0) startedBtn?.remove();
     if (!silent) toast("Progress saved", "success");
+    if (saved?.unlocked?.length) unlockToast(saved.unlocked.length);
     loadFeed(root, clubId, book); // newly unlocked reactions + updated activity
   };
 

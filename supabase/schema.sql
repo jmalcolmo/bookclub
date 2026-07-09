@@ -1210,5 +1210,80 @@ create policy "postimg_delete_member" on storage.objects
   );
 
 -- ============================================================================
+-- UNLOCKED REACTIONS  (notify a reader when a progress bump opens the gate)
+-- ----------------------------------------------------------------------------
+-- Purely additive; changes NO existing table or policy. See
+-- docs/unlocked-notifications-design.md. The server-side spoiler gate stays the
+-- sole authority — nothing here can surface a reaction the reactions SELECT
+-- policy wouldn't already return to this reader.
+-- ============================================================================
+
+-- Reactions by OTHER users whose page falls in (_from_page, _to_page], that the
+-- CALLER is now allowed to see. SECURITY INVOKER (the default) — the reactions
+-- SELECT policy (the spoiler gate) still applies inside this function, so it can
+-- never leak a reaction the caller couldn't already SELECT directly.
+-- _from_page/_to_page only narrow the scan to the window just crossed; they never
+-- widen visibility. Called AFTER the setProgress upsert commits, so has_read_to
+-- already reflects the new page.
+create or replace function public.unlocked_reactions(
+  _book_id uuid, _from_page int, _to_page int
+)
+returns setof reactions
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select r.*
+  from reactions r
+  where r.book_id = _book_id
+    and r.user_id <> auth.uid()
+    and r.page >  _from_page
+    and r.page <= _to_page
+  order by r.page asc, r.created_at asc;
+$$;
+
+-- One row per (user, reaction) the first time that reaction becomes visible to
+-- the user via a progress bump. unlocked_at = when we recorded it; seen_at = when
+-- the user viewed it in the Unlocked space (null = unseen → drives the badge).
+-- Modeled on announcement_reads.
+create table if not exists reaction_unlocks (
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  reaction_id uuid not null references reactions(id)  on delete cascade,
+  unlocked_at timestamptz not null default now(),
+  seen_at     timestamptz,
+  primary key (user_id, reaction_id)
+);
+
+create index if not exists reaction_unlocks_user_unseen_idx
+  on reaction_unlocks(user_id) where seen_at is null;
+
+alter table reaction_unlocks enable row level security;
+
+-- Owner-only, like announcement_reads: you see only your own unlock rows.
+drop policy if exists "reaction_unlocks_select_own" on reaction_unlocks;
+create policy "reaction_unlocks_select_own" on reaction_unlocks
+  for select using (user_id = auth.uid());
+
+-- INSERT guarded by reaction_visible() — the SAME gate as the reactions SELECT
+-- policy — so you can only record an unlock for a reaction you can currently see.
+-- This stops the table from ever confirming a hidden reaction's existence.
+drop policy if exists "reaction_unlocks_insert_own_visible" on reaction_unlocks;
+create policy "reaction_unlocks_insert_own_visible" on reaction_unlocks
+  for insert with check (
+    user_id = auth.uid()
+    and reaction_visible(reaction_id)
+  );
+
+-- The only mutation is marking rows seen; owner-only.
+drop policy if exists "reaction_unlocks_update_own" on reaction_unlocks;
+create policy "reaction_unlocks_update_own" on reaction_unlocks
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "reaction_unlocks_delete_own" on reaction_unlocks;
+create policy "reaction_unlocks_delete_own" on reaction_unlocks
+  for delete using (user_id = auth.uid());
+
+-- ============================================================================
 -- DONE
 -- ============================================================================

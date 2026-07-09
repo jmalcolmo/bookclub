@@ -43,9 +43,23 @@ extension API {
         var finishedAt: Date?
     }
 
-    // Upsert my progress row; stamps started_at / finished_at like the web.
+    // The result of a progress save: the upserted row plus any reactions the bump
+    // just unlocked (empty unless this was a forward bump). Lets a caller show the
+    // "N reactions unlocked" banner without a second query.
+    struct ProgressSave: Sendable {
+        let progress: ReadingProgress
+        let unlocked: [ReactionItem]
+    }
+
+    // Upsert my progress row; stamps started_at / finished_at like the web. A
+    // forward bump (currentPage > prevPage) may open the spoiler gate on other
+    // members' reactions in the crossed pages; detection lives here (one place) so
+    // every caller records for free, and the newly-unlocked list rides back in the
+    // result so a caller can show the banner without a second fetch. Recording never
+    // fails the save — a bookkeeping error just means no banner this time.
     @discardableResult
-    static func setProgress(bookId: UUID, currentPage: Int, status: ProgressStatus) async throws -> ReadingProgress {
+    static func setProgress(bookId: UUID, currentPage: Int, status: ProgressStatus,
+                            prevPage: Int? = nil) async throws -> ProgressSave {
         let uid = try await currentUserId()
         let now = Date()
         var row = ProgressUpsert(bookId: bookId, userId: uid,
@@ -53,11 +67,21 @@ extension API {
                                  updatedAt: now)
         if status == .reading { row.startedAt = now }
         if status == .finished { row.finishedAt = now }
-        return try await supabase.from("reading_progress")
+        let saved: ReadingProgress = try await supabase.from("reading_progress")
             .upsert(row, onConflict: "book_id,user_id")
             .select()
             .single()
             .execute().value
+
+        var unlocked: [ReactionItem] = []
+        if let prevPage, currentPage > prevPage {
+            do {
+                unlocked = try await unlockedReactions(bookId: bookId,
+                                                        fromPage: prevPage, toPage: currentPage)
+                try await recordUnlocks(unlocked.map(\.id))
+            } catch { unlocked = [] }
+        }
+        return ProgressSave(progress: saved, unlocked: unlocked)
     }
 
     // Reset my progress on a book (delete the row). RLS (progress_delete_own)
@@ -70,6 +94,18 @@ extension API {
             .delete()
             .eq("book_id", value: bookId.uuidString)
             .eq("user_id", value: uid.uuidString)
+            .execute()
+        // Resetting re-locks this book's reactions, so my unlock rows for it are
+        // stale — drop them (mirrors api.js deleteProgress).
+        let rx: [IdRow] = try await supabase.from("reactions")
+            .select("id")
+            .eq("book_id", value: bookId.uuidString)
+            .execute().value
+        guard !rx.isEmpty else { return }
+        try await supabase.from("reaction_unlocks")
+            .delete()
+            .eq("user_id", value: uid.uuidString)
+            .in("reaction_id", values: rx.map { $0.id.uuidString })
             .execute()
     }
 

@@ -460,6 +460,80 @@ await step("author sees all own reactions (A sees p.30 and p.200)", async () => 
   assert(pages.includes(30) && pages.includes(200), "author cannot see own reactions");
 });
 
+// ---- UNLOCKED REACTIONS: the notification layer on top of the spoiler gate ----
+// B is at p.40, so A's p.30 reaction is visible and the p.200 is still gated.
+// This is exactly the scenario the feature targets: a bump crosses pages and
+// surfaces the reactions that opened up — WITHOUT ever weakening the gate.
+await step("UNLOCK RPC: window (0,40] returns others' now-visible reactions, not gated ones", async () => {
+  const { data, error } = await cB.rpc("unlocked_reactions",
+    { _book_id: book.id, _from_page: 0, _to_page: 40 });
+  if (error) throw error;
+  const ids = (data || []).map((r) => r.id);
+  assert(ids.includes(r30), "unlocked window should include the p.30 reaction B just crossed");
+  assert(!ids.includes(r200), "UNLOCK LEAK: window returned the gated p.200 reaction");
+  assert((data || []).every((r) => r.user_id !== B.id), "window should exclude the reader's own reactions");
+});
+
+await step("UNLOCK RPC: an over-wide to_page can't reveal past the reader's real page", async () => {
+  // B is at p.40; even asking for (0,250] must NOT reveal the p.200 reaction — the
+  // SECURITY INVOKER RPC is subject to the same spoiler gate, which bounds visibility
+  // to the reader's actual current_page. The window can only narrow, never widen.
+  const { data, error } = await cB.rpc("unlocked_reactions",
+    { _book_id: book.id, _from_page: 0, _to_page: 250 });
+  if (error) throw error;
+  const ids = (data || []).map((r) => r.id);
+  assert(!ids.includes(r200), "UNLOCK LEAK: over-wide window revealed a reaction past the reader's page");
+});
+
+await step("UNLOCK RECORD: B records the unlocked reaction (unseen)", async () => {
+  const { error } = await cB.from("reaction_unlocks")
+    .upsert({ user_id: B.id, reaction_id: r30 }, { onConflict: "user_id,reaction_id" });
+  if (error) throw error;
+  const { data } = await cB.from("reaction_unlocks")
+    .select("reaction_id,seen_at").eq("user_id", B.id).eq("reaction_id", r30);
+  assert((data || []).length === 1 && data[0].seen_at === null, "recorded unlock should exist and be unseen");
+});
+
+await step("UNLOCK INSERT GATE: B cannot record an unlock for a reaction it can't see (RLS)", async () => {
+  // reaction_unlocks_insert_own_visible re-checks reaction_visible() — the same gate
+  // — so the table can never be coaxed into confirming a hidden reaction's existence.
+  const { error } = await cB.from("reaction_unlocks").insert({ user_id: B.id, reaction_id: r200 });
+  assert(error, "UNLOCK LEAK: recorded an unlock for a spoiler-gated reaction");
+});
+
+await step("UNLOCK INSERT GATE: B cannot forge an unlock as another user (RLS)", async () => {
+  const { error } = await cB.from("reaction_unlocks").insert({ user_id: A.id, reaction_id: r30 });
+  assert(error, "UNLOCK LEAK: forged an unlock row on someone else's behalf");
+});
+
+await step("UNLOCK SELECT GATE: A cannot read B's unlock rows (owner-only RLS)", async () => {
+  const { data } = await cA.from("reaction_unlocks").select("reaction_id").eq("user_id", B.id);
+  assert((data || []).length === 0, "UNLOCK LEAK: read another user's unlock rows");
+});
+
+await step("UNLOCK MARK SEEN: B marks the unlock seen; it leaves the unseen set", async () => {
+  const { error } = await cB.from("reaction_unlocks")
+    .update({ seen_at: new Date().toISOString() })
+    .eq("user_id", B.id).eq("reaction_id", r30).is("seen_at", null);
+  if (error) throw error;
+  const { data } = await cB.from("reaction_unlocks")
+    .select("reaction_id").eq("user_id", B.id).is("seen_at", null);
+  assert(!(data || []).some((u) => u.reaction_id === r30), "seen unlock should not appear in the unseen set");
+});
+
+await step("UNLOCK PRUNE ON RESET: the api.js reset prune drops this book's unlock rows", async () => {
+  // Mirror what api.js/iOS deleteProgress does after re-locking (delete my unlock
+  // rows for this book's reactions). Don't actually reset B's progress — later steps
+  // still expect B's position; just exercise the prune query and assert it clears.
+  const { data: rx } = await cB.from("reactions").select("id").eq("book_id", book.id);
+  const ids = (rx || []).map((r) => r.id);
+  const { error } = await cB.from("reaction_unlocks").delete().eq("user_id", B.id).in("reaction_id", ids);
+  if (error) throw error;
+  const { data } = await cB.from("reaction_unlocks")
+    .select("reaction_id").eq("user_id", B.id).in("reaction_id", ids);
+  assert((data || []).length === 0, "prune should remove this book's unlock rows");
+});
+
 await step("DELETE REACTION: A posts then deletes a throwaway reaction", async () => {
   const { data: tmp, error } = await cA.from("reactions")
     .insert({ book_id: book.id, user_id: A.id, page: 5, body: "oops, delete me" }).select().single();

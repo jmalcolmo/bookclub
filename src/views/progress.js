@@ -9,6 +9,7 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, daysUntil, toast } from "../ui.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
+import { unlockToast } from "./unlocked.js";
 
 export async function renderProgress() {
   render(`
@@ -131,9 +132,10 @@ function wireCard(host, { club, book, mine }, reload) {
 
   const applyProgress = async (page, status, { silent } = {}) => {
     const st = status || (page > 0 ? "reading" : "not_started");
-    await api.setProgress(book.id, page, st);
+    const saved = await api.setProgress(book.id, page, st, { prevPage: mine?.current_page ?? 0 });
     mine = { current_page: page, status: st };
     if (!silent) toast("Progress saved", "success");
+    if (saved?.unlocked?.length) unlockToast(saved.unlocked.length);
     reload();
   };
 
