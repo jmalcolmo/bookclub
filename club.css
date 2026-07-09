@@ -1046,3 +1046,73 @@ body.story-viewer-open { overflow: hidden; }
   .story-bubble:hover .story-ring { transform: none; }
   .story-bar.active .story-bar-fill { animation: none !important; width: 100%; }
 }
+
+/* ============================================================================
+   UNLOCKED REACTIONS — the feed's Feed/✨Unlocked tab strip + post-bump toast.
+   The Unlocked tab reuses the feed's own card styles; only the strip and the
+   actionable toast are new. Yarn-ochre = the "something opened up" signal.
+   ========================================================================== */
+
+.feed-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  border-bottom: 2px dashed color-mix(in srgb, var(--yarn-bark) 40%, var(--surface));
+  padding: 8px 0;
+}
+.feed-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.feed-tab-btn:hover { transform: translateY(-1px); color: var(--text-primary); }
+.feed-tab-btn.active {
+  border-color: var(--yarn-ochre);
+  background: color-mix(in srgb, var(--yarn-ochre) 14%, var(--surface));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-soft);
+}
+.feed-tab-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--yarn-rust);
+  color: var(--surface);
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* Post-bump actionable toast (built in unlocked.js, sits in the toast container
+   which is pointer-events:none — re-enable clicks on our toast). */
+.toast-unlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: var(--yarn-ochre);
+  pointer-events: auto;
+}
+.unlock-toast-view {
+  flex: none;
+  border: 2px solid var(--yarn-ochre);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.unlock-toast-view:hover { background: color-mix(in srgb, var(--yarn-ochre) 20%, var(--surface-2)); }

@@ -1,7 +1,9 @@
 # Design: "Unlocked reactions" notifications
 
-**Status:** DESIGN ONLY (2026-07-07). No code or schema is changed by this doc; it is a
-proposal for human review. Nothing here has runtime behavior yet.
+**Status:** IMPLEMENTED (2026-07-08) on web + iOS, per this design. Schema
+(`unlocked_reactions` RPC + `reaction_unlocks` table) is in `supabase/schema.sql` — apply that
+additive tail to dev, then prod at release (idempotent). The DEFERRED push path (§5) remains
+unbuilt. This doc is retained as the reference for the design.
 
 **Goal:** When a reader bumps their reading progress on a book, reactions that *other*
 members wrote in the pages they just crossed become newly visible to them (the spoiler

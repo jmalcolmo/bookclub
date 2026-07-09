@@ -114,6 +114,15 @@ struct Reaction: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date
 }
 
+// A per-user record that a reaction became visible via a progress bump.
+// seenAt == nil means it's still unseen (drives the badge). Owner-only under RLS.
+struct ReactionUnlock: Codable, Hashable, Sendable {
+    let userId: UUID
+    let reactionId: UUID
+    let unlockedAt: Date
+    var seenAt: Date?
+}
+
 // MARK: - reviews
 
 struct Review: Codable, Identifiable, Hashable, Sendable {

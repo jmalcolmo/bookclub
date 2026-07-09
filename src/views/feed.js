@@ -99,7 +99,7 @@ const composeHubStyles = `
   .post-club-chip-name { font-size: 13px; }
 </style>`;
 
-export async function renderFeed() {
+export async function renderFeed({ tab = "feed" } = {}) {
   render(`
     ${composeHubStyles}
     <div class="feed-shell">
@@ -111,6 +111,12 @@ export async function renderFeed() {
           <button class="btn-ghost small" data-open-rail="reading">📖 Reading</button>
         </div>
         <h1 class="stamp-title small feed-title feed-title-desktop">YOUR FEED</h1>
+        <div class="feed-tabs" role="tablist" aria-label="Feed">
+          <button class="feed-tab-btn" role="tab" data-feed-tab="feed">Feed</button>
+          <button class="feed-tab-btn" role="tab" data-feed-tab="unlocked">
+            ✨ Unlocked<span class="feed-tab-badge" data-unlock-badge hidden></span>
+          </button>
+        </div>
         <div class="feed-stories" data-stories></div>
         <div class="feed-greeting" data-greeting></div>
         <div class="feed-announce" data-announce></div>
@@ -120,22 +126,31 @@ export async function renderFeed() {
       <div class="feed-drawer-backdrop" data-drawer-backdrop hidden></div>
       <button class="feed-fab" data-fab title="Create" aria-label="Create" aria-haspopup="true" aria-expanded="false">＋</button>
     </div>
-  `, (root) => boot(root));
+  `, (root) => boot(root, tab));
 }
 
-async function boot(root) {
+async function boot(root, initialTab = "feed") {
   wireDrawers(root);
 
   // The latest snapshot of my clubs (kept fresh by load()) so the "+" compose
   // hub can offer them in its multi-select without a second fetch.
   let myClubs = [];
 
+  // Which stream the center column shows: the mixed feed, or the reactions my
+  // progress bumps have unlocked (TikTok-style "For You / Following" split — here
+  // "Feed / Unlocked"). Both render through the SAME card painter.
+  let activeTab = initialTab;
+  let feedEvents = [];        // the mixed feed
+  let unlockedEvents = [];    // unlock items as feed-shaped reaction events
+  let unseenUnlockIds = [];   // reaction ids not yet marked seen (badge + mark-on-view)
+  let sharedCtx = null;       // render context (engagements/replies/names)
+
   // One pass over my clubs, fetching everything the three regions need. Each
   // region is then painted from the same in-memory snapshot.
   async function load() {
     const clubs = await api.myClubs();
     myClubs = clubs;
-    const [data, followed, stories] = await Promise.all([
+    const [data, followed, stories, unlocks] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
       // RLS-filtered). Items inside a shared club are dropped below — the club
@@ -144,13 +159,21 @@ async function boot(root) {
       // Active (unexpired, audience-visible) stories, grouped by author. Already
       // RLS-filtered; a failure just hides the strip.
       api.activeStories().catch(() => []),
+      // Everything my progress bumps have unlocked (feeds the Unlocked tab).
+      // Already RLS-filtered; a failure just empties the tab.
+      api.myUnlocks().catch(() => []),
     ]);
     const myClubIds = new Set(clubs.map((c) => c.id));
     const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
 
     // Bulk-load (in three queries, not per-club) the reply threads, the global
-    // announcements, and every engagement on anything visible on this screen.
-    const reactionIds = data.flatMap((d) => d.reactions.map((r) => r.id));
+    // announcements, and every engagement on anything visible on this screen —
+    // including the Unlocked tab's reactions, so its cards carry the same live
+    // engagement bars + reply threads as the mixed feed.
+    const reactionIds = [...new Set([
+      ...data.flatMap((d) => d.reactions.map((r) => r.id)),
+      ...unlocks.map((u) => u.reaction.id),
+    ])];
     const [replies, announcements] = await Promise.all([
       api.reactionReplies(reactionIds),
       api.activeAnnouncements(),
@@ -164,7 +187,7 @@ async function boot(root) {
       ...announcements.map((a) => a.id),
     ];
     const engagements = await api.engagementsFor(targetIds);
-    const shared = { data, followItems, replies, announcements, engagements };
+    const shared = { data, followItems, replies, announcements, engagements, unlocks };
     const ctx = buildContext(shared);
 
     // Build events once so the greeting can derive the "new activity" count
@@ -175,14 +198,70 @@ async function boot(root) {
       ...buildLikeNotifications(shared, ctx),
     ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
+    feedEvents = events;
+    unlockedEvents = buildUnlockedEvents(unlocks, data);
+    unseenUnlockIds = unlocks.filter((u) => !u.seen_at).map((u) => u.reaction_id);
+    sharedCtx = ctx;
+
     paintClubsRail(root, data);
     paintReadingRail(root, data);
     paintStories(root, stories, load);
     paintGreeting(root, events);
     paintAnnouncements(root, shared, ctx, load);
-    paintFeed(root, { ...shared, events }, ctx, load);
+    paintTabBar();
+    paintStream();
     return data;
   }
+
+  // ---- Feed / Unlocked tabs -------------------------------------------------
+  function paintTabBar() {
+    root.querySelectorAll("[data-feed-tab]").forEach((b) =>
+      b.classList.toggle("active", b.dataset.feedTab === activeTab));
+    const badge = root.querySelector("[data-unlock-badge]");
+    if (badge) {
+      badge.hidden = unseenUnlockIds.length === 0;
+      badge.textContent = unseenUnlockIds.length || "";
+    }
+  }
+
+  // Paint whichever stream the active tab shows — both go through the same
+  // eventCardHTML painter, so the Unlocked tab reads exactly like the feed.
+  // Stories, the greeting, and announcements belong to the mixed feed; the
+  // Unlocked tab is just the caught-up reactions.
+  function paintStream() {
+    for (const sel of ["[data-stories]", "[data-greeting]", "[data-announce]"]) {
+      const el = root.querySelector(sel);
+      if (el) el.style.display = activeTab === "unlocked" ? "none" : "";
+    }
+    if (activeTab === "unlocked") {
+      paintFeed(root, { events: unlockedEvents, emptyHTML: `
+        <div class="feed-empty patch">
+          <p>nothing unlocked yet.</p>
+          <p class="faint">reactions club-mates left in pages you've read appear here
+          once you log progress past them — spoiler-free until you get there.</p>
+        </div>` }, sharedCtx, load);
+      markUnlockedSeen();
+    } else {
+      paintFeed(root, { events: feedEvents }, sharedCtx, load);
+    }
+  }
+
+  // Viewing the Unlocked tab marks its rows seen (server-side, cross-device —
+  // same semantics as dismissing an announcement) and clears the badge.
+  function markUnlockedSeen() {
+    if (!unseenUnlockIds.length) return;
+    api.markUnlocksSeen(unseenUnlockIds).catch(() => {});
+    unseenUnlockIds = [];
+    paintTabBar();
+  }
+
+  root.querySelectorAll("[data-feed-tab]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (activeTab === b.dataset.feedTab) return;
+      activeTab = b.dataset.feedTab;
+      paintTabBar();
+      paintStream();
+    }));
 
   await load();
 
@@ -459,14 +538,36 @@ function paintFeed(root, shared, ctx, reload) {
 
   host.innerHTML = events.length
     ? events.map((e) => eventCardHTML(e, ctx)).join("")
-    : `<div class="feed-empty patch">
+    : (shared.emptyHTML || `<div class="feed-empty patch">
          <p>your feed is quiet.</p>
          <p class="faint">join or create a club, set a book, and activity from every club you're in will show up here.</p>
-       </div>`;
+       </div>`);
 
   wireGo(host);
   wireUserLinks(host);
   wireEngagementUI(host, reload);
+}
+
+// Unlock rows (api.myUnlocks) reshaped into the feed's own reaction-event form,
+// so the Unlocked tab renders through eventCardHTML like everything else. Sorted
+// newest-unlock first, then by page within a batch (walk forward through the
+// pages you just crossed). Club names resolve from the loaded snapshots; a book
+// from a club not in the snapshot (e.g. finished long ago) still renders — the
+// chip just falls back to the book line alone.
+function buildUnlockedEvents(unlocks, data) {
+  const clubNameById = {};
+  for (const d of data) clubNameById[d.club.id] = d.club.name;
+  return unlocks
+    .slice()
+    .sort((a, b) => (new Date(b.unlocked_at) - new Date(a.unlocked_at))
+      || (a.reaction.page - b.reaction.page))
+    .map((u) => ({
+      kind: "reaction", type: "reaction", ts: u.unlocked_at,
+      reaction: u.reaction,
+      club: clubNameById[u.book.club_id] || "Unlocked",
+      bookTitle: u.book.title,
+      go: `/club/${u.book.club_id}/book/${u.book.id}`,
+    }));
 }
 
 // Group rows by a key into { keyValue: rows[] }.
@@ -479,7 +580,7 @@ function groupBy(rows, key) {
 // Build the shared render context: engagement lookup, reply lookup, and a name
 // resolver for like/emoji hover tooltips.
 function buildContext(shared) {
-  const { data, replies, engagements } = shared;
+  const { data, replies, engagements, unlocks = [] } = shared;
   const engByTarget = groupBy(engagements, "target_id");
   const pById = {};
   for (const d of data) {
@@ -487,6 +588,7 @@ function buildContext(shared) {
     for (const r of d.reactions) if (r.profile) pById[r.user_id] = r.profile;
   }
   for (const r of replies) if (r.profile) pById[r.user_id] = r.profile;
+  for (const u of unlocks) if (u.reaction.profile) pById[u.reaction.user_id] = u.reaction.profile;
   return {
     myId: store.user.id,
     engOf: (id) => engByTarget[id] || [],

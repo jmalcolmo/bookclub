@@ -264,7 +264,7 @@ async function ensureMembers(club, members, ownerId) {
 }
 
 // ---- seed one club's books / progress / reactions / reviews -----------------
-async function seedClub(club, meta, members, ownerId, totals) {
+async function seedClub(club, meta, members, ownerId, totals, { unlockDemo = false } = {}) {
   // Everyone who can post in THIS club: its members + (optionally) the owner.
   const cast = ownerId ? [...members, { id: ownerId, name: "You" }] : members;
 
@@ -291,9 +291,17 @@ async function seedClub(club, meta, members, ownerId, totals) {
     for (const u of cast) {
       let page, status;
       if (u.id === ownerId) {
-        // Make sure YOU see everything: deep on current, finished on history.
-        page = pages;
-        status = isCurrent ? "reading" : "finished";
+        if (unlockDemo && isCurrent) {
+          // The unlock demo: start YOU near the beginning so members' reactions
+          // sit ahead of your page. Log progress past them on the site/app and
+          // they'll unlock (the ✨ badge + banner appear).
+          page = Math.floor(pages * 0.1);
+          status = "reading";
+        } else {
+          // Otherwise make sure YOU see everything: deep on current, finished on history.
+          page = pages;
+          status = isCurrent ? "reading" : "finished";
+        }
       } else if (isCurrent) {
         const roll = rnd();
         if (roll < 0.12) { page = 0; status = "not_started"; }
@@ -391,7 +399,10 @@ async function main() {
     const members = sample(allMembers, rint(6, 8)); // overlapping subset per club
     await ensureMembers(club, members, ownerId);
     const books = meta.slice(ci * 3, ci * 3 + 3);
-    await seedClub(club, books, members, ownerId, totals);
+    // The FIRST club is the "unlocked reactions" demo: leave YOU at the start of
+    // its current book (not deep) so members' reactions sit ahead of your page.
+    // Bumping your progress there then unlocks them, exercising the feature live.
+    await seedClub(club, books, members, ownerId, totals, { unlockDemo: ci === 0 });
     await seedSelections(club, members, ownerId, spec.vote);
     summaries.push({ name: spec.name, code: club.join_code, current: books[0].title,
       shelf: books.slice(1).map((b) => b.title), vote: spec.vote });

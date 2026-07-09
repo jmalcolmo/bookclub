@@ -33,6 +33,17 @@ struct ReactionItem: Identifiable, Hashable, Sendable {
     var id: UUID { reaction.id }
 }
 
+// A recorded unlock decorated with its reaction, author, and book — the shape the
+// Unlocked inbox groups by book (api.js myUnlocks). Reaction/book come back
+// RLS-filtered; a row whose reaction is no longer visible is dropped upstream.
+struct UnlockItem: Identifiable, Hashable, Sendable {
+    let unlock: ReactionUnlock
+    let reaction: Reaction
+    let profile: Profile?
+    let book: Book
+    var id: UUID { reaction.id }
+}
+
 struct ReplyItem: Identifiable, Hashable, Sendable {
     let reply: ReactionReply
     let profile: Profile?

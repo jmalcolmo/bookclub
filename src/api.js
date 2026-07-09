@@ -421,7 +421,7 @@ export async function myProgress(bookId) {
   return rows[0] || null;
 }
 
-export async function setProgress(bookId, currentPage, status) {
+export async function setProgress(bookId, currentPage, status, { prevPage } = {}) {
   const user = (await supabase.auth.getUser()).data.user;
   const now = new Date().toISOString();
   const row = {
@@ -433,11 +433,25 @@ export async function setProgress(bookId, currentPage, status) {
   };
   if (status === "reading") row.started_at = now;
   if (status === "finished") row.finished_at = now;
-  return unwrap(
+  const saved = unwrap(
     await supabase.from("reading_progress")
       .upsert(row, { onConflict: "book_id,user_id" })
       .select().single()
   );
+  // A forward bump may open the spoiler gate on other members' reactions in the
+  // pages just crossed. Detection lives here (one place) so every caller records
+  // for free; the newly-unlocked list is attached to the return so a caller can
+  // show the "N reactions unlocked" banner without a second RPC. Never fatal —
+  // a bookkeeping failure just means no banner this time.
+  saved.unlocked = [];
+  if (prevPage != null && currentPage > prevPage) {
+    try {
+      const rx = await unlockedReactions(bookId, prevPage, currentPage);
+      await recordUnlocks(rx.map((r) => r.id));
+      saved.unlocked = rx;
+    } catch { /* leave unlocked empty */ }
+  }
+  return saved;
 }
 
 // Reset my own progress on a book (delete the row). RLS (progress_delete_own)
@@ -446,9 +460,86 @@ export async function setProgress(bookId, currentPage, status) {
 // reading_progress, so it stays correct.
 export async function deleteProgress(bookId) {
   const user = (await supabase.auth.getUser()).data.user;
-  return unwrap(
+  const res = unwrap(
     await supabase.from("reading_progress").delete()
       .eq("book_id", bookId).eq("user_id", user.id)
+  );
+  // Resetting re-locks this book's reactions, so any unlock rows I recorded for it
+  // are now stale. Drop them (RLS scopes reactions to what I can see; a re-locked
+  // reaction just won't match, which is fine — the row goes either way on reset).
+  const rx = unwrap(await supabase.from("reactions").select("id").eq("book_id", bookId));
+  if (rx.length) {
+    await supabase.from("reaction_unlocks").delete()
+      .eq("user_id", user.id).in("reaction_id", rx.map((r) => r.id));
+  }
+  return res;
+}
+
+// ---------------------------------------------------- UNLOCKED REACTIONS ---
+// Reactions by OTHER members that fall in (fromPage, toPage] and are now visible
+// to me — i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
+// RPC, so RLS (the spoiler gate) still decides what comes back; fromPage/toPage
+// only bound the window. Decorated with the author profile like bookReactions().
+export async function unlockedReactions(bookId, fromPage, toPage) {
+  const rows = unwrap(await supabase.rpc("unlocked_reactions", {
+    _book_id: bookId, _from_page: fromPage, _to_page: toPage,
+  }));
+  const profiles = await getProfiles(rows.map((r) => r.user_id));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
+}
+
+// Record that a set of reactions unlocked for me (unseen). Idempotent on
+// (user_id, reaction_id). RLS re-checks each reaction is actually visible to me.
+export async function recordUnlocks(reactionIds) {
+  if (!reactionIds.length) return;
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = reactionIds.map((id) => ({ user_id: user.id, reaction_id: id }));
+  return unwrap(
+    await supabase.from("reaction_unlocks")
+      .upsert(rows, { onConflict: "user_id,reaction_id", ignoreDuplicates: true })
+  );
+}
+
+// My unlock rows, optionally only unseen (for the badge / inbox). Newest first.
+// Decorated with the reaction, book and author so the inbox can group by book.
+// Reactions/books come back RLS-filtered; anything no longer visible is dropped.
+export async function myUnlocks({ unseenOnly = false } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  let q = supabase.from("reaction_unlocks").select("*").eq("user_id", user.id)
+    .order("unlocked_at", { ascending: false });
+  if (unseenOnly) q = q.is("seen_at", null);
+  const unlocks = unwrap(await q);
+  if (!unlocks.length) return [];
+  const reactions = unwrap(
+    await supabase.from("reactions").select("*")
+      .in("id", unlocks.map((u) => u.reaction_id))
+  );
+  const rById = Object.fromEntries(reactions.map((r) => [r.id, r]));
+  const bookIds = [...new Set(reactions.map((r) => r.book_id))];
+  const [books, profiles] = await Promise.all([
+    supabase.from("books").select("*").in("id", bookIds).then(unwrap),
+    getProfiles(reactions.map((r) => r.user_id)),
+  ]);
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return unlocks
+    .map((u) => {
+      const r = rById[u.reaction_id];
+      if (!r) return null;            // reaction deleted or re-locked → drop
+      return { ...u, reaction: { ...r, profile: pById[r.user_id] }, book: bById[r.book_id] };
+    })
+    .filter((x) => x && x.book);
+}
+
+// Mark specific unlock rows seen (on viewing the Unlocked tab). Owner-only RLS.
+export async function markUnlocksSeen(reactionIds) {
+  if (!reactionIds.length) return;
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("reaction_unlocks")
+      .update({ seen_at: new Date().toISOString() })
+      .eq("user_id", user.id).in("reaction_id", reactionIds).is("seen_at", null)
   );
 }
 

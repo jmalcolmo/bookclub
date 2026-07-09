@@ -20,6 +20,9 @@ import { renderBookInvolvement } from "./views/bookInvolvement.js";
 
 // ---- routes ----
 route("/feed", renderFeed);
+// The feed's ✨ Unlocked tab (reactions the spoiler gate opened as you read),
+// addressable so the post-bump toast can land directly on it.
+route("/feed/unlocked", (args) => renderFeed({ ...args, tab: "unlocked" }));
 route("/progress", renderProgress);
 route("/clubs", renderClubs);
 route("/club/:id", renderClub);
