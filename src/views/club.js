@@ -11,15 +11,29 @@ export async function renderClub({ params }) {
   const clubId = params.id;
   render(`<div class="screen-pad"><p class="faint">loading club…</p></div>`);
 
+  // LAG-PROBE: measure how long the network round-trips take so we can
+  // distinguish simulator/network lag from JS rendering cost.
+  console.time("[club-lag] total load");
+  console.time("[club-lag] parallel fetch (club+members+book)");
   const [club, members, book] = await Promise.all([
     api.getClub(clubId),
     api.clubMembers(clubId),
     api.currentBook(clubId),
   ]);
+  console.timeEnd("[club-lag] parallel fetch (club+members+book)");
+  console.log(`[club-lag] members: ${members.length}, has book: ${!!book}`);
 
   let progress = [];
-  if (book) progress = await api.bookProgress(book.id);
+  if (book) {
+    console.time("[club-lag] bookProgress fetch");
+    progress = await api.bookProgress(book.id);
+    console.timeEnd("[club-lag] bookProgress fetch");
+  }
   const progById = Object.fromEntries(progress.map((p) => [p.user_id, p]));
+  // LAG-PROBE: count avatar URLs so we know how many <img> fetches the browser
+  // will fire. Each is a separate network round-trip on cold load.
+  const avatarCount = members.filter((m) => m.profile?.avatar_url).length;
+  console.log(`[club-lag] avatar imgs to fetch: ${avatarCount}, cover: ${!!book?.cover_url}`);
 
   const myRole = members.find((m) => m.user_id === store.user.id)?.role;
   const isOwner = myRole === "creator" || myRole === "owner";
@@ -79,6 +93,7 @@ export async function renderClub({ params }) {
       </li>`;
   }).join("");
 
+  console.time("[club-lag] render + DOM wiring");
   render(`
     <div class="screen-pad club-detail" style="--accent:var(--${accentVar(club.accent)})">
       <div class="screen-header">
@@ -121,6 +136,8 @@ export async function renderClub({ params }) {
     });
     root.querySelector("[data-action='club-menu']").addEventListener("click", () => clubMenu(club, isOwner));
     wireUserLinks(root);
+    console.timeEnd("[club-lag] render + DOM wiring");
+    console.timeEnd("[club-lag] total load");
   });
 }
 

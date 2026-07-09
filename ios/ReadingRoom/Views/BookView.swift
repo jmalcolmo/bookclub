@@ -147,12 +147,20 @@ final class BookModel {
         return items
     }
 
+    // Count of reactions the most recent forward bump opened (drives the banner);
+    // the view resets it to 0 once shown/dismissed.
+    var justUnlocked = 0
+
     // Persist progress, update local state, refresh the feed (newly unlocked
-    // reactions + updated activity). Port of applyProgress.
+    // reactions + updated activity). Port of applyProgress. Passes the old page so
+    // setProgress can detect + record the reactions the bump unlocks.
     func applyProgress(page: Int, status: ProgressStatus?) async throws {
         let st = status ?? (page > 0 ? .reading : .notStarted)
-        let saved = try await API.setProgress(bookId: bookId, currentPage: page, status: st)
-        mine = saved
+        let prev = mine?.currentPage ?? 0
+        let saved = try await API.setProgress(bookId: bookId, currentPage: page, status: st,
+                                              prevPage: prev)
+        mine = saved.progress
+        if !saved.unlocked.isEmpty { justUnlocked = saved.unlocked.count }
         await loadFeed()
     }
 
@@ -219,6 +227,10 @@ struct BookView: View {
     @State private var confirmResetProgress = false
     @State private var reviewToDelete: ReviewItem?
 
+    // "Did you complete this book?" confirmation (page reached the last page).
+    @State private var confirmComplete = false
+    @State private var pendingCompletePage = 0
+
     init(clubId: UUID, bookId: UUID) {
         self.clubId = clubId
         self.bookId = bookId
@@ -240,6 +252,13 @@ struct BookView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .top) {
+            if model.justUnlocked > 0 {
+                UnlockBanner(count: model.justUnlocked, bookId: bookId) {
+                    model.justUnlocked = 0
+                }
+            }
+        }
         .navigationTitle(model.book?.title ?? "Book")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -279,6 +298,18 @@ struct BookView: View {
             isPresented: $confirmResetProgress, titleVisibility: .visible
         ) {
             Button("Reset progress", role: .destructive) { resetProgress() }
+        }
+        .confirmationDialog(
+            "Did you complete this book?",
+            isPresented: $confirmComplete, titleVisibility: .visible
+        ) {
+            Button("Yes, finished \u{2713}") { completeBook() }
+            Button("Not yet") { saveProgress(nil) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            if let pages = model.book?.pageCount {
+                Text("You're at page \(pendingCompletePage) of \(pages). Mark this book as finished?")
+            }
         }
         .confirmationDialog(
             "Delete your review?",
@@ -395,45 +426,79 @@ struct BookView: View {
             Text("my progress")
                 .font(Theme.displaySemiBold(16))
                 .foregroundStyle(Theme.textPrimary)
-            HStack(spacing: 8) {
-                Text("page")
+            if model.finished {
+                finishedPanel(book)
+            } else {
+                editablePanel(book)
+            }
+        }
+        .patch(accent: model.finished ? Theme.yarnMoss : Theme.yarnSlate, seed: "progress-panel")
+    }
+
+    @ViewBuilder
+    private func editablePanel(_ book: Book) -> some View {
+        HStack(spacing: 8) {
+            Text("page")
+                .font(Theme.monoFont(13))
+                .foregroundStyle(Theme.textMuted)
+            TextField("0", value: $progressPage, format: .number)
+                .keyboardType(.numberPad)
+                .font(Theme.monoMedium(15))
+                .frame(width: 70)
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.surface2))
+                .multilineTextAlignment(.center)
+            if let pages = book.pageCount {
+                Text("/ \(pages)")
                     .font(Theme.monoFont(13))
                     .foregroundStyle(Theme.textMuted)
-                TextField("0", value: $progressPage, format: .number)
-                    .keyboardType(.numberPad)
-                    .font(Theme.monoMedium(15))
-                    .frame(width: 70)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.surface2))
-                    .multilineTextAlignment(.center)
-                if let pages = book.pageCount {
-                    Text("/ \(pages)")
-                        .font(Theme.monoFont(13))
-                        .foregroundStyle(Theme.textMuted)
-                }
-                Spacer()
-                Button("save") { saveProgress(nil) }
-                    .buttonStyle(.primarySmall)
             }
-            HStack(spacing: 8) {
-                if !model.hasStarted {
-                    Button("mark started") { saveProgress(.reading) }
-                        .buttonStyle(.ghostSmall)
-                }
-                Button("mark finished \u{2713}") { markFinished(book) }
-                    .buttonStyle(.ghostSmall)
-                // Reset only shows when there's a progress row to clear (web parity).
-                if model.mine != nil {
-                    Button("reset progress") { confirmResetProgress = true }
-                        .buttonStyle(.ghostSmall)
-                        .tint(Theme.negative)
-                }
-            }
-            Text("reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.")
-                .font(Theme.monoFont(11))
-                .foregroundStyle(Theme.textMuted)
+            Spacer()
+            Button("save") { updateProgress(book) }
+                .buttonStyle(.primarySmall)
         }
-        .patch(accent: Theme.yarnSlate, seed: "progress-panel")
+        HStack(spacing: 8) {
+            if !model.hasStarted {
+                Button("mark started") { saveProgress(.reading) }
+                    .buttonStyle(.ghostSmall)
+            }
+            Button("mark finished \u{2713}") { markFinished(book) }
+                .buttonStyle(.ghostSmall)
+            // Reset only shows when there's a progress row to clear (web parity).
+            if model.mine != nil {
+                Button("reset progress") { confirmResetProgress = true }
+                    .buttonStyle(.ghostSmall)
+                    .tint(Theme.negative)
+            }
+        }
+        Text("reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.")
+            .font(Theme.monoFont(11))
+            .foregroundStyle(Theme.textMuted)
+    }
+
+    // Finished books lock editing: no page field / save. A clear badge, a
+    // reversible "still reading" control, and reactions stay open below.
+    @ViewBuilder
+    private func finishedPanel(_ book: Book) -> some View {
+        HStack(spacing: 10) {
+            Text("\u{2713} Finished")
+                .font(Theme.monoMedium(13))
+                .foregroundStyle(Theme.positive)
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                .background(Capsule().fill(Theme.yarnMoss.opacity(0.22)))
+                .overlay(Capsule().stroke(Theme.yarnMoss, lineWidth: 2))
+            if let pages = book.pageCount {
+                Text("page \(model.myPage) / \(pages)")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
+            }
+            Spacer()
+        }
+        Button("Mark as still reading") { unfinish() }
+            .buttonStyle(.ghostSmall)
+        Text("you can still post reactions below.")
+            .font(Theme.monoFont(11))
+            .foregroundStyle(Theme.textMuted)
     }
 
     // MARK: reaction composer
@@ -645,6 +710,39 @@ struct BookView: View {
                 try await model.applyProgress(page: max(0, progressPage), status: status)
                 progressPage = model.myPage
                 toasts.show("Progress saved", .success)
+            } catch {
+                toasts.error(error)
+            }
+        }
+    }
+
+    // Save button: reaching (or passing) the last page asks whether the book is
+    // complete; otherwise just save the reading progress.
+    private func updateProgress(_ book: Book) {
+        let p = max(0, progressPage)
+        if let pages = book.pageCount, p >= pages, !model.finished {
+            pendingCompletePage = p
+            confirmComplete = true
+        } else {
+            saveProgress(nil)
+        }
+    }
+
+    // "Yes, finished" from the complete prompt: finish at page_count and unlock
+    // reviews (mirrors markFinished's post-finish reseed).
+    private func completeBook() {
+        guard let book = model.book else { return }
+        markFinished(book)
+    }
+
+    // Reversible un-finish: flip status back to reading, keep current_page, and
+    // reseed so the locked panel becomes the editable form again.
+    private func unfinish() {
+        Task {
+            do {
+                try await model.applyProgress(page: model.myPage, status: .reading)
+                progressPage = model.myPage
+                toasts.show("Marked as still reading", .success)
             } catch {
                 toasts.error(error)
             }

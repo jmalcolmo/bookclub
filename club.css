@@ -162,7 +162,8 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .club-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   flex-wrap: wrap; margin-bottom: 20px; }
 .join-code-chip { font-family: var(--font-mono); font-size: .85rem; background: var(--surface-2);
-  border: 2px dashed var(--yarn-clay); border-radius: 8px; padding: 6px 12px; }
+  border: 2px dashed var(--yarn-clay); border-radius: 8px; padding: 6px 12px;
+  white-space: nowrap; flex-shrink: 1; min-width: 0; }
 .copy-code { border: none; background: none; cursor: pointer; font-size: 1rem; }
 .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -621,6 +622,21 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .progress-pct { margin-left: auto; font-family: var(--font-mono); font-weight: 700;
   color: var(--yarn-rust); font-size: .9rem; }
 
+/* ---- FINISHED BOOKS (progress tab + book page) ---- */
+/* Finished cards stay listed but read as "done": a sage tint, a checked
+   border, and no editable page form — just a badge and a way back in. */
+.progress-card-finished { border-color: var(--yarn-moss);
+  background: color-mix(in srgb, var(--yarn-sage) 12%, var(--surface)); }
+.progress-actions-finished { flex-direction: column; gap: 10px; }
+.finished-state { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.finished-badge { font-family: var(--font-mono); font-weight: 700; font-size: .8rem;
+  letter-spacing: .04em; color: var(--positive);
+  background: color-mix(in srgb, var(--yarn-moss) 22%, var(--surface));
+  border: 2px solid var(--yarn-moss); border-radius: 999px; padding: 4px 12px; }
+.progress-add-reaction { align-self: flex-start; }
+.progress-panel-finished { border-color: var(--yarn-moss); }
+.finished-actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+
 /* ---- PROFILE ---- */
 .profile-card { align-items: center; text-align: center; gap: 14px; min-height: 0; padding: 28px; }
 .profile-avatar-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -830,6 +846,166 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .post-edit-form .edit-actions { display: flex; gap: 8px; }
 
 /* ============================================================================
+   PERSONAL INVOLVEMENT (one reader's own footprint on a book)
+   Reached from a profile shelf tap: their reactions/replies/progress only.
+   Reuses the granny-square .patch + feed-card look; nothing spoiler-related is
+   styled here — the gate is entirely server-side (RLS).
+   ============================================================================ */
+.book-cover.md { width: 72px; height: 108px; }
+.involvement-book { display: flex; flex-direction: row; align-items: center; gap: 18px;
+  padding: 18px; margin-bottom: 18px; }
+.involvement-book-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.involvement-progress { margin: 6px 0 0; font-family: var(--font-display); }
+.involvement-cta { margin: 0 2px 20px; display: flex; flex-direction: column; gap: 8px;
+  align-items: flex-start; }
+.involvement-cta .feed-head { margin: 4px 2px 0; }
+.involvement-cta p { margin: 0; }
+.involvement-club-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.involvement-club-pick { width: fit-content; }
+.involvement-section { margin-bottom: 22px; }
+.involvement-reply { border-left: 4px solid var(--yarn-slate); }
+.involvement-reply-parent { margin: 0 0 6px; font-style: italic; }
+
+/* ============================================================================
+   STORIES  (ephemeral 72h personal posts)
+   A horizontal strip of author bubbles above the greeting, and a full-screen
+   viewer. On-theme: yarn-accent "unseen" rings, warm parchment surfaces, the
+   granny-square crochet feel. See src/views/feed.js + src/views/stories.js.
+   ============================================================================ */
+.feed-stories { margin: 4px 0 12px; }
+.story-strip {
+  display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 8px;
+  scrollbar-width: thin;
+}
+.story-strip::-webkit-scrollbar { height: 6px; }
+.story-strip::-webkit-scrollbar-thumb { background: var(--yarn-bark); border-radius: 3px; opacity: 0.4; }
+
+.story-bubble {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+  gap: 5px; width: 74px; background: none; border: none; cursor: pointer;
+  padding: 0; font-family: var(--font-mono);
+}
+/* The ring: a thick yarn-colored border for unseen, dimmed grey for seen. */
+.story-ring {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 68px; height: 68px; border-radius: 50%; position: relative;
+  padding: 3px; box-sizing: border-box;
+  border: 3px solid var(--yarn-ochre);
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.12s ease;
+}
+.story-bubble:hover .story-ring { transform: translate(-1px, -1px); }
+.story-unseen .story-ring { border-color: var(--yarn-rust); }
+.story-seen .story-ring { border-color: color-mix(in srgb, var(--text-muted) 55%, transparent); }
+.story-seen .avatar { opacity: 0.7; }
+.story-ring .avatar { width: 58px; height: 58px; border-radius: 50%; }
+
+/* "＋ Your story" add tile (no live stories yet). */
+.story-ring-add {
+  border-color: var(--yarn-sage); color: var(--yarn-sage);
+  font-size: 1.7rem; font-weight: 700; background: var(--surface-2);
+}
+/* + badge over my avatar when I already have live stories. */
+.story-add-badge {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--yarn-sage); color: var(--surface);
+  border: 2px solid var(--surface); font-size: 0.9rem; font-weight: 700;
+}
+.story-bubble-name {
+  font-size: 0.68rem; color: var(--text-muted); max-width: 74px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---- full-screen viewer ---- */
+body.story-viewer-open { overflow: hidden; }
+.story-viewer-backdrop {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(20, 16, 12, 0.94);
+  display: flex; align-items: center; justify-content: center;
+}
+.story-stage {
+  position: relative; width: min(440px, 100vw); height: 100vh;
+  max-height: 100dvh; display: flex; flex-direction: column;
+  background: var(--yarn-bark);
+}
+.story-progress {
+  display: flex; gap: 4px; padding: 10px 10px 6px; z-index: 3;
+}
+.story-bar {
+  flex: 1; height: 3px; border-radius: 2px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.3);
+}
+.story-bar-fill { display: block; height: 100%; width: 0; background: var(--surface); }
+.story-bar.done .story-bar-fill { width: 100%; }
+@keyframes story-fill { from { width: 0; } to { width: 100%; } }
+
+.story-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 12px 10px; z-index: 3;
+}
+.story-author { display: inline-flex; align-items: center; gap: 8px; }
+.story-author .avatar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--surface); }
+.story-author-name { color: var(--surface); font-family: var(--font-mono); font-size: 0.85rem; }
+.story-time { color: rgba(255, 255, 255, 0.6); font-family: var(--font-mono); font-size: 0.72rem; }
+.story-close {
+  background: none; border: none; color: var(--surface); font-size: 1.8rem;
+  line-height: 1; cursor: pointer; padding: 0 6px;
+}
+
+.story-content {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; overflow: hidden; position: relative;
+}
+.story-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+.story-content-textonly {
+  background: color-mix(in srgb, var(--yarn-mauve) 55%, var(--yarn-bark));
+}
+.story-caption {
+  position: absolute; bottom: 0; left: 0; right: 0; margin: 0;
+  padding: 28px 18px 22px; color: var(--surface);
+  font-family: var(--font-display); font-size: 1.1rem;
+  background: linear-gradient(transparent, rgba(20, 16, 12, 0.75));
+}
+.story-caption-big {
+  position: static; background: none; text-align: center;
+  font-size: 1.6rem; padding: 24px; line-height: 1.4;
+}
+
+/* Tap zones: left third = back, right two-thirds = forward. */
+.story-tap {
+  position: absolute; top: 60px; bottom: 0; background: none; border: none;
+  cursor: pointer; z-index: 2;
+}
+.story-tap-prev { left: 0; width: 33%; }
+.story-tap-next { right: 0; width: 67%; }
+
+/* ---- compose sheet ---- */
+.story-compose-backdrop {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(20, 16, 12, 0.7);
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+}
+.story-compose {
+  width: min(420px, 100%); background: var(--surface); display: flex;
+  flex-direction: column; gap: 12px;
+}
+.story-compose-title { margin: 0; }
+.story-compose-blurb { margin: 0; font-size: 0.85rem; }
+.story-compose-preview {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: 12px;
+  background-size: cover; background-position: center;
+  border: 3px solid var(--yarn-ochre);
+}
+.story-compose-photo { align-self: flex-start; }
+.story-compose textarea {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--font-display); font-size: 1rem;
+  padding: 10px; border-radius: 8px;
+  border: 2px solid var(--yarn-bark); background: var(--surface-2);
+}
+.story-compose-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ============================================================================
    REDUCED MOTION (book-club additions)
    Strips card hover lifts, feed-pop entrance, and club-specific rotations when
    the user has prefers-reduced-motion: reduce. Complements the global block in
@@ -864,4 +1040,79 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
   /* Feed-shell notif card entrances */
   .feed-shell .feed-stream .notif-card,
   .feed-shell .feed-stream .feed-reaction { transition: none; }
+
+  /* Stories: no bubble lift, and the progress bar fills instantly (the JS timer
+     still advances at the same pace). */
+  .story-bubble:hover .story-ring { transform: none; }
+  .story-bar.active .story-bar-fill { animation: none !important; width: 100%; }
 }
+
+/* ============================================================================
+   UNLOCKED REACTIONS — the feed's Feed/✨Unlocked tab strip + post-bump toast.
+   The Unlocked tab reuses the feed's own card styles; only the strip and the
+   actionable toast are new. Yarn-ochre = the "something opened up" signal.
+   ========================================================================== */
+
+.feed-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  border-bottom: 2px dashed color-mix(in srgb, var(--yarn-bark) 40%, var(--surface));
+  padding: 8px 0;
+}
+.feed-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.feed-tab-btn:hover { transform: translateY(-1px); color: var(--text-primary); }
+.feed-tab-btn.active {
+  border-color: var(--yarn-ochre);
+  background: color-mix(in srgb, var(--yarn-ochre) 14%, var(--surface));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-soft);
+}
+.feed-tab-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--yarn-rust);
+  color: var(--surface);
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* Post-bump actionable toast (built in unlocked.js, sits in the toast container
+   which is pointer-events:none — re-enable clicks on our toast). */
+.toast-unlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: var(--yarn-ochre);
+  pointer-events: auto;
+}
+.unlock-toast-view {
+  flex: none;
+  border: 2px solid var(--yarn-ochre);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.unlock-toast-view:hover { background: color-mix(in srgb, var(--yarn-ochre) 20%, var(--surface-2)); }

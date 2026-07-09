@@ -114,6 +114,15 @@ struct Reaction: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date
 }
 
+// A per-user record that a reaction became visible via a progress bump.
+// seenAt == nil means it's still unseen (drives the badge). Owner-only under RLS.
+struct ReactionUnlock: Codable, Hashable, Sendable {
+    let userId: UUID
+    let reactionId: UUID
+    let unlockedAt: Date
+    var seenAt: Date?
+}
+
 // MARK: - reviews
 
 struct Review: Codable, Identifiable, Hashable, Sendable {
@@ -148,6 +157,54 @@ struct ClubPost: Codable, Identifiable, Hashable, Sendable {
     var body: String?
     var imageUrl: String?
     let createdAt: Date
+}
+
+// MARK: - stories (ephemeral 72h personal posts — audience-scoped, NOT gated)
+
+// A personal, self-expiring post: a single photo and/or a short caption that
+// disappears 72h after creation. NOT tied to a club and NOT spoiler-gated. RLS
+// (stories_select_audience) returns only UNEXPIRED stories the reader may see —
+// their own, a followee's, or a club-mate's — so whatever decodes here is safe
+// to show. expiresAt is server-set (createdAt + 72h). body and imageUrl are each
+// optional; a story carries at least one (the table CHECK enforces it).
+struct Story: Codable, Identifiable, Hashable, Sendable {
+    let id: UUID
+    let userId: UUID
+    var body: String?
+    var imageUrl: String?
+    let createdAt: Date
+    let expiresAt: Date
+}
+
+// A private per-viewer "seen" record (story_views). Only my own rows are ever
+// visible/writable (story_views_select/insert_own), so this is a personal seen
+// flag, never a public view count.
+struct StoryView: Codable, Hashable, Sendable {
+    let storyId: UUID
+    let viewerId: UUID
+    let seenAt: Date
+}
+
+// One story decorated with whether I've seen it — the unit the viewer plays and
+// the strip rings read (api.js activeStories attaches a per-viewer `seen`).
+struct StoryItem: Identifiable, Hashable, Sendable {
+    let story: Story
+    var seen: Bool
+    var id: UUID { story.id }
+}
+
+// Active stories grouped by author, ready for the strip + viewer (api.js
+// activeStories). `allSeen` drives the dimmed vs yarn-accent ring; `isMine`
+// pins my own bubble first. `stories` are oldest→newest within the group.
+struct StoryGroup: Identifiable, Hashable, Sendable {
+    let userId: UUID
+    let profile: Profile?
+    var stories: [StoryItem]
+    let isMine: Bool
+    var id: UUID { userId }
+    var allSeen: Bool { stories.allSatisfy { $0.seen } }
+    var displayName: String { profile?.displayName ?? "Reader" }
+    var latest: Date { stories.last?.story.createdAt ?? .distantPast }
 }
 
 // MARK: - engagements (likes + emoji tapbacks, polymorphic target)

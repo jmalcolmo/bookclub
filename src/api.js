@@ -421,7 +421,7 @@ export async function myProgress(bookId) {
   return rows[0] || null;
 }
 
-export async function setProgress(bookId, currentPage, status) {
+export async function setProgress(bookId, currentPage, status, { prevPage } = {}) {
   const user = (await supabase.auth.getUser()).data.user;
   const now = new Date().toISOString();
   const row = {
@@ -433,11 +433,25 @@ export async function setProgress(bookId, currentPage, status) {
   };
   if (status === "reading") row.started_at = now;
   if (status === "finished") row.finished_at = now;
-  return unwrap(
+  const saved = unwrap(
     await supabase.from("reading_progress")
       .upsert(row, { onConflict: "book_id,user_id" })
       .select().single()
   );
+  // A forward bump may open the spoiler gate on other members' reactions in the
+  // pages just crossed. Detection lives here (one place) so every caller records
+  // for free; the newly-unlocked list is attached to the return so a caller can
+  // show the "N reactions unlocked" banner without a second RPC. Never fatal —
+  // a bookkeeping failure just means no banner this time.
+  saved.unlocked = [];
+  if (prevPage != null && currentPage > prevPage) {
+    try {
+      const rx = await unlockedReactions(bookId, prevPage, currentPage);
+      await recordUnlocks(rx.map((r) => r.id));
+      saved.unlocked = rx;
+    } catch { /* leave unlocked empty */ }
+  }
+  return saved;
 }
 
 // Reset my own progress on a book (delete the row). RLS (progress_delete_own)
@@ -446,28 +460,109 @@ export async function setProgress(bookId, currentPage, status) {
 // reading_progress, so it stays correct.
 export async function deleteProgress(bookId) {
   const user = (await supabase.auth.getUser()).data.user;
-  return unwrap(
+  const res = unwrap(
     await supabase.from("reading_progress").delete()
       .eq("book_id", bookId).eq("user_id", user.id)
   );
+  // Resetting re-locks this book's reactions, so any unlock rows I recorded for it
+  // are now stale. Drop them (RLS scopes reactions to what I can see; a re-locked
+  // reaction just won't match, which is fine — the row goes either way on reset).
+  const rx = unwrap(await supabase.from("reactions").select("id").eq("book_id", bookId));
+  if (rx.length) {
+    await supabase.from("reaction_unlocks").delete()
+      .eq("user_id", user.id).in("reaction_id", rx.map((r) => r.id));
+  }
+  return res;
 }
 
-// My personal reading history: every book I've marked finished, across all my
-// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
-// "books read" shelf but scoped to me. RLS still applies (I only see books in
-// clubs I belong to, and only my own progress/reviews).
-export async function myReadingHistory() {
+// ---------------------------------------------------- UNLOCKED REACTIONS ---
+// Reactions by OTHER members that fall in (fromPage, toPage] and are now visible
+// to me — i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
+// RPC, so RLS (the spoiler gate) still decides what comes back; fromPage/toPage
+// only bound the window. Decorated with the author profile like bookReactions().
+export async function unlockedReactions(bookId, fromPage, toPage) {
+  const rows = unwrap(await supabase.rpc("unlocked_reactions", {
+    _book_id: bookId, _from_page: fromPage, _to_page: toPage,
+  }));
+  const profiles = await getProfiles(rows.map((r) => r.user_id));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
+}
+
+// Record that a set of reactions unlocked for me (unseen). Idempotent on
+// (user_id, reaction_id). RLS re-checks each reaction is actually visible to me.
+export async function recordUnlocks(reactionIds) {
+  if (!reactionIds.length) return;
   const user = (await supabase.auth.getUser()).data.user;
+  const rows = reactionIds.map((id) => ({ user_id: user.id, reaction_id: id }));
+  return unwrap(
+    await supabase.from("reaction_unlocks")
+      .upsert(rows, { onConflict: "user_id,reaction_id", ignoreDuplicates: true })
+  );
+}
+
+// My unlock rows, optionally only unseen (for the badge / inbox). Newest first.
+// Decorated with the reaction, book and author so the inbox can group by book.
+// Reactions/books come back RLS-filtered; anything no longer visible is dropped.
+export async function myUnlocks({ unseenOnly = false } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  let q = supabase.from("reaction_unlocks").select("*").eq("user_id", user.id)
+    .order("unlocked_at", { ascending: false });
+  if (unseenOnly) q = q.is("seen_at", null);
+  const unlocks = unwrap(await q);
+  if (!unlocks.length) return [];
+  const reactions = unwrap(
+    await supabase.from("reactions").select("*")
+      .in("id", unlocks.map((u) => u.reaction_id))
+  );
+  const rById = Object.fromEntries(reactions.map((r) => [r.id, r]));
+  const bookIds = [...new Set(reactions.map((r) => r.book_id))];
+  const [books, profiles] = await Promise.all([
+    supabase.from("books").select("*").in("id", bookIds).then(unwrap),
+    getProfiles(reactions.map((r) => r.user_id)),
+  ]);
+  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return unlocks
+    .map((u) => {
+      const r = rById[u.reaction_id];
+      if (!r) return null;            // reaction deleted or re-locked → drop
+      return { ...u, reaction: { ...r, profile: pById[r.user_id] }, book: bById[r.book_id] };
+    })
+    .filter((x) => x && x.book);
+}
+
+// Mark specific unlock rows seen (on viewing the Unlocked tab). Owner-only RLS.
+export async function markUnlocksSeen(reactionIds) {
+  if (!reactionIds.length) return;
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("reaction_unlocks")
+      .update({ seen_at: new Date().toISOString() })
+      .eq("user_id", user.id).in("reaction_id", reactionIds).is("seen_at", null)
+  );
+}
+
+// One reader's reading history: every book THAT reader marked finished, newest
+// first — with their rating where the viewer may see the review. Powers both my
+// own shelf and the shelf on another reader's profile. RLS does all the gating:
+//   - their reading_progress rows return only where the viewer is a co-member
+//     of the book's club (progress_select_member) or via the additive follow path;
+//   - books resolve only in clubs the viewer can see;
+//   - the owner's review returns only when the VIEWER has finished that book
+//     (the review gate), so a hidden rating simply renders as "not rated".
+// Whatever RLS hides just doesn't appear — an invisible reader yields [].
+export async function readingHistoryFor(userId) {
   const progress = unwrap(
     await supabase.from("reading_progress").select("*")
-      .eq("user_id", user.id).eq("status", "finished")
+      .eq("user_id", userId).eq("status", "finished")
       .order("finished_at", { ascending: false })
   );
   const bookIds = progress.map((p) => p.book_id);
   if (!bookIds.length) return [];
   const [books, reviews] = await Promise.all([
     supabase.from("books").select("*").in("id", bookIds).then(unwrap),
-    supabase.from("reviews").select("*").in("book_id", bookIds).eq("user_id", user.id).then(unwrap),
+    supabase.from("reviews").select("*").in("book_id", bookIds).eq("user_id", userId).then(unwrap),
   ]);
   const bById = Object.fromEntries(books.map((b) => [b.id, b]));
   const rById = Object.fromEntries(reviews.map((r) => [r.book_id, r]));
@@ -476,6 +571,111 @@ export async function myReadingHistory() {
     if (!b) return null; // book deleted or no longer visible
     return { ...b, my_finished_at: p.finished_at || p.updated_at, my_rating: rById[p.book_id]?.rating || null };
   }).filter(Boolean);
+}
+
+// My personal reading history: every book I've marked finished, across all my
+// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
+// "books read" shelf but scoped to me (the self case of readingHistoryFor).
+export async function myReadingHistory() {
+  const user = (await supabase.auth.getUser()).data.user;
+  return readingHistoryFor(user.id);
+}
+
+// ---------------------------------------------------- PERSONAL INVOLVEMENT ---
+// One reader's OWN footprint on a single book: the reactions they authored, the
+// replies they wrote, and their reading-progress events. Keyed by bookId +
+// ownerId — this is a "just their stuff" view reached from a profile shelf.
+//
+// SPOILER GATE: every row here still comes back through RLS. If the viewer is a
+// co-member of the owner's club, they can only see the owner's reactions/replies
+// up to the pages the VIEWER has read (the reactions_select_spoiler_gated gate),
+// and can always read the owner's reading_progress row (progress_select_member
+// lets any co-member read a member's progress). If the viewer follows the owner
+// on a book in a club the viewer is NOT in, the additive follow path applies.
+// Either way the client never re-implements gating — whatever rows return here
+// are already safe to render. Returns:
+//   { book, owner, reactions:[…], replies:[…], progress: row|null }
+// where reactions are the owner's, replies are the owner's (each decorated with
+// the parent reaction so the view can show what they replied to), and progress
+// is the owner's single reading_progress row for this book (or null if hidden).
+export async function userBookInvolvement(bookId, userId) {
+  const [book, owner] = await Promise.all([
+    getBook(bookId),
+    getProfile(userId).catch(() => null),
+  ]);
+
+  const [reactions, progressRows] = await Promise.all([
+    supabase.from("reactions").select("*")
+      .eq("book_id", bookId).eq("user_id", userId)
+      .order("page", { ascending: true }).order("created_at", { ascending: true })
+      .then(unwrap),
+    supabase.from("reading_progress").select("*")
+      .eq("book_id", bookId).eq("user_id", userId)
+      .then(unwrap),
+  ]);
+
+  // The owner's replies on THIS book. Replies aren't book-scoped, so resolve them
+  // via the reactions they hang under; RLS only returns replies whose parent
+  // reaction is visible to the viewer (they inherit the parent's spoiler gate),
+  // so the parent is guaranteed readable too. We fetch the parents to show the
+  // reaction each reply is answering. Parents may be by the owner or anyone.
+  const myReplies = unwrap(
+    await supabase.from("reaction_replies").select("*")
+      .eq("user_id", userId).order("created_at", { ascending: true })
+  );
+  const parentIds = [...new Set(myReplies.map((r) => r.reaction_id))];
+  const parents = parentIds.length
+    ? unwrap(await supabase.from("reactions").select("*").in("id", parentIds).eq("book_id", bookId))
+    : [];
+  const parentById = Object.fromEntries(parents.map((r) => [r.id, r]));
+  const replies = myReplies
+    .filter((r) => parentById[r.reaction_id]) // only replies whose parent is on THIS book
+    .map((r) => ({ ...r, parent: parentById[r.reaction_id] }));
+
+  const owned = reactions.map((r) => ({ ...r, profile: owner }));
+
+  return { book, owner, reactions: owned, replies, progress: progressRows[0] || null };
+}
+
+// The clubs where the VIEWER and the OWNER are both members AND this work exists
+// (matched by open_library_id across club-scoped books rows). Powers the "Show
+// complete reactions" affordance on the personal involvement view: with exactly
+// one shared club we can jump straight into that club's full book history; with
+// several the caller shows a chooser. Returns [{ club, book }] — the club plus
+// the specific books row for that work in that club (the id book.js routes to).
+//
+// Empty open_library_id means we can't correlate the same work across clubs, so
+// we return [] (the button stays hidden). RLS still applies: club_members and
+// books SELECT only return rows the viewer may read, so a returned club is one
+// the viewer genuinely belongs to.
+export async function sharedClubsForWork(openLibraryId, ownerId) {
+  if (!openLibraryId) return [];
+  const me = (await supabase.auth.getUser()).data.user;
+
+  // Clubs I'm in and clubs the owner is in — intersect for co-membership.
+  const [mine, theirs] = await Promise.all([
+    supabase.from("club_members").select("club_id").eq("user_id", me.id).then(unwrap),
+    supabase.from("club_members").select("club_id").eq("user_id", ownerId).then(unwrap),
+  ]);
+  const mineSet = new Set(mine.map((m) => m.club_id));
+  const sharedIds = [...new Set(theirs.map((m) => m.club_id))].filter((id) => mineSet.has(id));
+  if (!sharedIds.length) return [];
+
+  // The books rows for this work in those shared clubs.
+  const books = unwrap(
+    await supabase.from("books").select("*")
+      .in("club_id", sharedIds).eq("open_library_id", openLibraryId)
+  );
+  if (!books.length) return [];
+
+  const clubs = unwrap(
+    await supabase.from("clubs").select("*").in("id", [...new Set(books.map((b) => b.club_id))])
+  );
+  const clubById = Object.fromEntries(clubs.map((c) => [c.id, c]));
+
+  return books
+    .map((b) => ({ club: clubById[b.club_id], book: b }))
+    .filter((x) => x.club);
 }
 
 // ------------------------------------------------------------- REACTIONS ---
@@ -563,6 +763,17 @@ export async function decideSelection(selectionId, resultUserId) {
       status: "decided",
       decided_at: new Date().toISOString(),
     }).eq("id", selectionId).select().single()
+  );
+}
+
+// Opt-in feed announcement. createSelection/decideSelection announce nothing;
+// the decider (or a club owner) flips `announced` here so the feed renders the
+// "X will pick the next book" event. RLS (selections_update_owner_or_creator)
+// restricts this UPDATE to the creator/owner.
+export async function announceSelection(selectionId) {
+  return unwrap(
+    await supabase.from("selections").update({ announced: true })
+      .eq("id", selectionId).select().single()
   );
 }
 
@@ -748,6 +959,25 @@ export async function addPost(clubId, { body, imageUrl } = {}) {
   );
 }
 
+// Fan a single composed post out to several clubs at once (the "+" compose hub's
+// "Create post" action, which carries a club multi-select). One club_posts row is
+// inserted per club via the existing addPost path, so RLS (posts_insert_member)
+// still authorizes each write independently — a non-member club id simply fails
+// its own insert. The image, if any, is uploaded ONCE by the caller and the
+// resulting public URL is shared across all rows (post-images objects are publicly
+// readable, so the shared URL renders for every club's members). Returns the array
+// of created rows. A per-club failure rejects (earlier rows are not rolled back;
+// callers surface the error).
+export async function addPostToClubs(clubIds, { body, imageUrl } = {}) {
+  const ids = [...new Set((clubIds || []).filter(Boolean))];
+  if (!ids.length) throw new Error("Pick at least one club");
+  const rows = [];
+  for (const clubId of ids) {
+    rows.push(await addPost(clubId, { body, imageUrl }));
+  }
+  return rows;
+}
+
 // Edit my own post's text. RLS (posts_update_own) only lets the author update.
 export async function updatePost(id, changes) {
   return unwrap(
@@ -757,6 +987,111 @@ export async function updatePost(id, changes) {
 
 export async function deletePost(id) {
   return unwrap(await supabase.from("club_posts").delete().eq("id", id));
+}
+
+// ---------------------------------------------------------------- STORIES ---
+// Ephemeral (72h) personal posts: a single photo and/or a short caption that
+// self-expires. NOT tied to a club and NOT spoiler-gated. RLS (stories_select_
+// audience) only ever returns UNEXPIRED stories the reader is entitled to — the
+// author's own, or those of someone they follow, or of someone they share a
+// club with — so whatever comes back is already safe to show; the client never
+// re-implements that gate. Photos reuse the user-scoped 'avatars' storage bucket
+// under `${user.id}/stories/...` (avatars_insert_own scopes writes by uid).
+
+// Upload a story photo to the 'avatars' bucket under the author's own folder
+// (user-scoped by storage RLS) and return its public URL. Keyed by the uploader's
+// uid so it passes avatars_insert_own; a `stories/` sub-path keeps it distinct
+// from the profile avatar object.
+export async function uploadStoryImage(blob) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const path = `${user.id}/stories/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from("avatars")
+    .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// Post a story. At least one of body / imageUrl must be non-empty (the table
+// CHECK enforces it too). body is trimmed to null when blank so a photo-only
+// story stores no empty string. expires_at is set server-side (created_at + 72h).
+export async function addStory({ body, imageUrl } = {}) {
+  const user = (await supabase.auth.getUser()).data.user;
+  const text = (body || "").trim();
+  return unwrap(
+    await supabase.from("stories")
+      .insert({ user_id: user.id, body: text || null, image_url: imageUrl || null })
+      .select().single()
+  );
+}
+
+// Delete my own story (take it down early). RLS (stories_delete_own) restricts
+// this to the author.
+export async function deleteStory(id) {
+  return unwrap(await supabase.from("stories").delete().eq("id", id));
+}
+
+// The active (unexpired, audience-visible) stories, GROUPED BY AUTHOR and ready
+// for the feed strip. RLS returns only stories I may see and only the unexpired
+// ones, so no client-side expiry/visibility filtering is needed. Each group is
+// { user_id, profile, stories:[…oldest→newest], isMine, allSeen, latest } where
+// allSeen is true when I've viewed every story in the group (drives the dimmed
+// vs yarn-accent ring). Groups are ordered: mine first, then groups with any
+// unseen story (newest first), then fully-seen groups.
+export async function activeStories() {
+  const user = (await supabase.auth.getUser()).data.user;
+  const rows = unwrap(
+    await supabase.from("stories").select("*")
+      .order("created_at", { ascending: true })
+  );
+  if (!rows.length) return [];
+
+  // Which of these stories have I already seen? Only my own view rows come back
+  // (story_views_select_own), scoped to the visible story ids.
+  const ids = rows.map((r) => r.id);
+  const views = unwrap(
+    await supabase.from("story_views").select("story_id")
+      .eq("viewer_id", user.id).in("story_id", ids)
+  );
+  const seen = new Set(views.map((v) => v.story_id));
+
+  const profiles = await getProfiles([...new Set(rows.map((r) => r.user_id))]);
+  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
+
+  // Group by author, preserving the oldest→newest order within each group.
+  const byAuthor = new Map();
+  for (const r of rows) {
+    if (!byAuthor.has(r.user_id)) byAuthor.set(r.user_id, []);
+    byAuthor.get(r.user_id).push({ ...r, seen: seen.has(r.id) });
+  }
+
+  const groups = [...byAuthor.entries()].map(([userId, stories]) => ({
+    user_id: userId,
+    profile: pById[userId] || null,
+    stories,
+    isMine: userId === user.id,
+    allSeen: stories.every((s) => s.seen),
+    latest: stories[stories.length - 1].created_at, // newest story, for ordering
+  }));
+
+  groups.sort((a, b) => {
+    if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;     // mine first
+    if (a.allSeen !== b.allSeen) return a.allSeen ? 1 : -1;   // unseen before seen
+    return new Date(b.latest) - new Date(a.latest);          // newest first
+  });
+
+  return groups;
+}
+
+// Record that I've viewed a story (idempotent upsert on the unique
+// (story_id, viewer_id)). RLS (story_views_insert_own) forces viewer_id to me.
+export async function markStoryViewed(storyId) {
+  const user = (await supabase.auth.getUser()).data.user;
+  return unwrap(
+    await supabase.from("story_views")
+      .upsert({ story_id: storyId, viewer_id: user.id },
+              { onConflict: "story_id,viewer_id" })
+  );
 }
 
 // ------------------------------------------------------- DEVICE TOKENS ---

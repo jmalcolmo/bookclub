@@ -4,6 +4,7 @@ import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
+import { unlockToast } from "./unlocked.js";
 
 export async function renderBook({ params }) {
   const { id: clubId, bookId } = params;
@@ -50,19 +51,30 @@ export async function renderBook({ params }) {
       <!-- MY PROGRESS · right rail on desktop; on mobile it stacks RIGHT BELOW
            the book so logging pages never means scrolling past the feed. -->
       <aside class="feed-rail feed-rail-right">
-        <div class="progress-panel patch">
+        <div class="progress-panel patch ${finished ? "progress-panel-finished" : ""}">
           <h4>my progress</h4>
-          <form data-progress class="progress-form" aria-label="My reading progress">
-            <label class="inline-field">page
-              <input name="page" type="number" min="0" max="${book.page_count || 100000}"
-                value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
-            ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
-            ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
-            <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
-            <button type="submit" class="btn-primary small">save</button>
-            ${mine ? `<button type="button" class="btn-ghost small progress-reset" data-act="reset-progress">reset progress</button>` : ""}
-          </form>
-          <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
+          ${finished ? `
+            <div class="finished-state" role="status">
+              <span class="finished-badge">✓ Finished</span>
+              <span class="faint">${book.page_count ? `page ${myPage} / ${book.page_count}` : `page ${myPage}`}</span>
+            </div>
+            <div class="finished-actions">
+              <button type="button" class="btn-ghost small" data-act="unfinish">Mark as still reading</button>
+            </div>
+            <p class="faint progress-hint">you can still post reactions below.</p>
+          ` : `
+            <form data-progress class="progress-form" aria-label="My reading progress">
+              <label class="inline-field">page
+                <input name="page" type="number" min="0" max="${book.page_count || 100000}"
+                  value="${myPage}" aria-label="Current page${book.page_count ? ` of ${book.page_count}` : ""}" /></label>
+              ${book.page_count ? `<span class="faint" aria-hidden="true">/ ${book.page_count}</span>` : ""}
+              ${hasStarted ? "" : `<button type="button" class="btn-ghost small" data-act="started">mark started</button>`}
+              <button type="button" class="btn-ghost small" data-act="finished">mark finished ✓</button>
+              <button type="submit" class="btn-primary small">save</button>
+              ${mine ? `<button type="button" class="btn-ghost small progress-reset" data-act="reset-progress">reset progress</button>` : ""}
+            </form>
+            <p class="faint progress-hint">reactions unlock for you up to the page you've logged. log honestly to avoid spoilers.</p>
+          `}
         </div>
       </aside>
 
@@ -317,21 +329,23 @@ function groupBy(rows, key) {
 function wire(root, { clubId, book, mine }) {
   root.querySelector("[data-nav='club']").addEventListener("click", () => navigate(`/club/${clubId}`));
 
-  // progress save
+  // progress save. When finished, the panel is locked (no form) — only the
+  // "Mark as still reading" control is present.
   const pForm = root.querySelector("[data-progress]");
-  const startedBtn = pForm.querySelector("[data-act='started']");
+  const startedBtn = pForm?.querySelector("[data-act='started']");
 
   // Persist progress, update local state + the panel UI, and refresh the feed.
   // Shared by the progress form, the started/finished shortcuts, and the
   // reaction→progress popup. `silent` skips the toast (popup shows its own flow).
   const applyProgress = async (page, status, { silent } = {}) => {
     const st = status || (page > 0 ? "reading" : "not_started");
-    await api.setProgress(book.id, page, st);
+    const saved = await api.setProgress(book.id, page, st, { prevPage: mine?.current_page ?? 0 });
     mine = { current_page: page, status: st };
-    pForm.page.value = page;
+    if (pForm) pForm.page.value = page;
     // First progress logged makes "mark started" redundant — drop it for good.
     if (st === "reading" || st === "finished" || page > 0) startedBtn?.remove();
     if (!silent) toast("Progress saved", "success");
+    if (saved?.unlocked?.length) unlockToast(saved.unlocked.length);
     loadFeed(root, clubId, book); // newly unlocked reactions + updated activity
   };
 
@@ -340,8 +354,66 @@ function wire(root, { clubId, book, mine }) {
     try { await applyProgress(page, status); }
     catch (err) { toast(err.message, "error"); }
   };
-  pForm.addEventListener("submit", (e) => { e.preventDefault(); save(); });
+  // Saving a page at/past the last page offers to mark the book complete.
+  pForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const page = Number(pForm.page.value) || 0;
+    if (book.page_count && page >= book.page_count && mine?.status !== "finished") {
+      promptComplete(page);
+    } else {
+      save();
+    }
+  });
   startedBtn?.addEventListener("click", () => save("reading"));
+
+  // Reversible un-finish: flip status back to reading, keep current_page. Then
+  // re-render so the locked panel becomes the editable form again.
+  root.querySelector("[data-act='unfinish']")?.addEventListener("click", async () => {
+    try {
+      await api.setProgress(book.id, mine?.current_page || 0, "reading");
+      toast("Marked as still reading", "success");
+      navigate(`/club/${clubId}/book/${book.id}`);
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  // Reached the last page: prompt to mark the book complete. Yes → finished at
+  // page_count (and route back so the panel locks); dismiss → just save reading.
+  function promptComplete(page) {
+    let handled = false;
+    const done = async (status) => {
+      if (handled) return;
+      handled = true;
+      try {
+        if (status === "finished") {
+          await applyProgress(book.page_count, "finished");
+          navigate(`/club/${clubId}/book/${book.id}`);
+        } else {
+          await applyProgress(page);
+        }
+      } catch (err) { toast(err.message, "error"); }
+    };
+    const modal = openModal(`
+      <h3>Did you complete this book?</h3>
+      <form data-form class="modal-body">
+        <p class="faint">You're at page ${page} of ${book.page_count}. Mark <strong>${esc(book.title)}</strong> as finished?</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-dismiss>Not yet</button>
+          <button type="submit" class="btn-primary">Yes, finished ✓</button>
+        </div>
+      </form>
+    `, (m) => {
+      m.querySelector("[data-form]").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await done("finished");
+        closeModal();
+      });
+      m.querySelector("[data-dismiss]").addEventListener("click", async () => {
+        await done("reading");
+        closeModal();
+      });
+    });
+    modal.addEventListener("click", (e) => { if (e.target === modal) done("reading"); });
+  }
 
   // Reset my progress: delete my reading_progress row. This re-locks any reactions
   // I'd unlocked by reading past them (the spoiler gate reads live from progress),
@@ -393,7 +465,7 @@ function wire(root, { clubId, book, mine }) {
     // Backdrop click also counts as dismiss → still bump to the reaction page.
     modal.addEventListener("click", (e) => { if (e.target === modal) done(reactionPage); });
   }
-  pForm.querySelector("[data-act='finished']").addEventListener("click", () => {
+  pForm?.querySelector("[data-act='finished']")?.addEventListener("click", () => {
     if (book.page_count) pForm.page.value = book.page_count;
     save("finished").then(() => navigate(`/club/${clubId}/book/${book.id}`));
   });

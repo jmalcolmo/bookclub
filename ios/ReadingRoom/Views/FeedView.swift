@@ -49,22 +49,39 @@ struct FeedEvent: Identifiable {
     var targetId: UUID?
 }
 
-// Rotating greeting phrases (port of feed.js GREETINGS).
-private let greetingLines = [
-    "Any new plot twists?",
-    "What are you reading lately?",
-    "Who\u{2019}s ahead on the reading?",
-    "Got strong opinions about chapter 7?",
-    "Someone\u{2019}s been busy turning pages.",
-    "The club awaits your thoughts.",
-    "Anything worth dog-earing?",
-    "Still haunted by that last chapter?",
+// Rotating literary quotes (port of feed.js QUOTES).
+private struct LiteraryQuote {
+    let text: String
+    let author: String
+    let work: String
+    let year: Int
+}
+
+private let literaryQuotes: [LiteraryQuote] = [
+    LiteraryQuote(text: "A reader lives a thousand lives before he dies. The man who never reads lives only one.", author: "George R.R. Martin", work: "A Dance with Dragons", year: 2011),
+    LiteraryQuote(text: "Not all those who wander are lost.", author: "J.R.R. Tolkien", work: "The Fellowship of the Ring", year: 1954),
+    LiteraryQuote(text: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.", author: "Jane Austen", work: "Pride and Prejudice", year: 1813),
+    LiteraryQuote(text: "All happy families are alike; each unhappy family is unhappy in its own way.", author: "Leo Tolstoy", work: "Anna Karenina", year: 1878),
+    LiteraryQuote(text: "It was the best of times, it was the worst of times.", author: "Charles Dickens", work: "A Tale of Two Cities", year: 1859),
+    LiteraryQuote(text: "The most courageous act is still to think for yourself. Aloud.", author: "Coco Chanel", work: "The Gospel According to Coco Chanel", year: 2009),
+    LiteraryQuote(text: "We accept the love we think we deserve.", author: "Stephen Chbosky", work: "The Perks of Being a Wallflower", year: 1999),
+    LiteraryQuote(text: "So it goes.", author: "Kurt Vonnegut", work: "Slaughterhouse-Five", year: 1969),
+    LiteraryQuote(text: "The answer to the ultimate question of life, the universe, and everything is 42.", author: "Douglas Adams", work: "The Hitchhiker's Guide to the Galaxy", year: 1979),
+    LiteraryQuote(text: "Why, sometimes I\u{2019}ve believed as many as six impossible things before breakfast.", author: "Lewis Carroll", work: "Through the Looking-Glass", year: 1871),
+    LiteraryQuote(text: "There is no greater agony than bearing an untold story inside you.", author: "Maya Angelou", work: "I Know Why the Caged Bird Sings", year: 1969),
+    LiteraryQuote(text: "One must always be careful of books, and what is inside them, for words have the power to change us.", author: "Cassandra Clare", work: "City of Bones", year: 2007),
+    LiteraryQuote(text: "That\u{2019}s the thing about books. They let you travel without moving your feet.", author: "Jhumpa Lahiri", work: "The Namesake", year: 2003),
+    LiteraryQuote(text: "I took a deep breath and listened to the old brag of my heart: I am, I am, I am.", author: "Sylvia Plath", work: "The Bell Jar", year: 1963),
+    LiteraryQuote(text: "Until I feared I would lose it, I never loved to read. One does not love breathing.", author: "Harper Lee", work: "To Kill a Mockingbird", year: 1960),
+    LiteraryQuote(text: "Time is a flat circle.", author: "Friedrich Nietzsche", work: "The Gay Science", year: 1882),
+    LiteraryQuote(text: "It does not do to dwell on dreams and forget to live.", author: "J.K. Rowling", work: "Harry Potter and the Philosopher\u{2019}s Stone", year: 1997),
+    LiteraryQuote(text: "We are all just walking each other home.", author: "Ram Dass", work: "Be Here Now", year: 1971),
 ]
 
-/// Pick a greeting by day-of-year so it changes daily but doesn't flicker.
-private func todaysGreeting() -> String {
+/// Pick a quote by day-of-epoch so it changes daily but doesn't flicker.
+private func todaysGreeting() -> LiteraryQuote {
     let day = Int(Date().timeIntervalSince1970) / 86400
-    return greetingLines[day % greetingLines.count]
+    return literaryQuotes[day % literaryQuotes.count]
 }
 
 /// Count events from the last 24 hours as a lightweight "new activity" signal.
@@ -78,7 +95,13 @@ private func countRecentEvents(_ events: [FeedEvent]) -> Int {
 final class FeedModel {
     var snapshots: [ClubSnapshot] = []
     var announcements: [Announcement] = []
+    var stories: [StoryGroup] = []
     var events: [FeedEvent] = []
+    // The ✨ Unlocked tab: reactions my progress bumps opened, as feed-shaped
+    // events (rendered by the same FeedEventCard), plus the unseen ids that
+    // drive the tab badge (cleared when the tab is viewed).
+    var unlockedEvents: [FeedEvent] = []
+    var unseenUnlockIds: [UUID] = []
     var context: EngageContext = .empty
     var loading = true
     var loadError: String?
@@ -98,6 +121,14 @@ final class FeedModel {
             let followItems = ((try? await API.followFeed())?.items ?? [])
                 .filter { item in item.book.map { !myClubIds.contains($0.clubId) } ?? false }
 
+            // Active (unexpired, audience-visible) stories, grouped by author.
+            // Already RLS-filtered; a failure just hides the strip.
+            let activeStories = (try? await API.activeStories()) ?? []
+
+            // Everything my progress bumps have unlocked (feeds the ✨ Unlocked
+            // tab). Already RLS-filtered; a failure just empties the tab.
+            let unlocks = (try? await API.myUnlocks()) ?? []
+
             // One pass over my clubs, fetching everything the screen needs.
             var gathered: [ClubSnapshot] = []
             try await withThrowingTaskGroup(of: (Int, ClubSnapshot).self) { group in
@@ -110,8 +141,11 @@ final class FeedModel {
             }
 
             // Bulk-load reply threads, global announcements, and every
-            // engagement on anything visible (three queries, not per-club).
-            let reactionIds = gathered.flatMap { $0.reactions.map(\.id) }
+            // engagement on anything visible (three queries, not per-club) —
+            // including the Unlocked tab's reactions, so its cards carry the same
+            // live engagement bars + reply threads as the mixed feed.
+            let reactionIds = Array(Set(gathered.flatMap { $0.reactions.map(\.id) }
+                                        + unlocks.map(\.reaction.id)))
             async let repliesReq = API.reactionReplies(reactionIds: reactionIds)
             async let annsReq = API.activeAnnouncements()
             let (replies, anns) = try await (repliesReq, annsReq)
@@ -130,12 +164,14 @@ final class FeedModel {
                 for r in snap.reactions where r.profile != nil { profiles[r.reaction.userId] = r.profile }
             }
             for r in replies where r.profile != nil { profiles[r.reply.userId] = r.profile }
+            for u in unlocks where u.profile != nil { profiles[u.reaction.userId] = u.profile }
 
             let ctx = EngageContext(myId: myId, engagements: engagements,
                                     replies: replies, profiles: profiles)
 
             snapshots = gathered
             announcements = anns
+            stories = activeStories
             context = ctx
             events = (Self.buildEvents(snapshots: gathered, myId: myId)
                       + Self.buildFollowEvents(followItems)
@@ -145,6 +181,8 @@ final class FeedModel {
                                                     context: ctx,
                                                     myId: myId))
                 .sorted { $0.ts > $1.ts }
+            unlockedEvents = Self.buildUnlockedEvents(unlocks, snapshots: gathered)
+            unseenUnlockIds = unlocks.filter { $0.unlock.seenAt == nil }.map(\.reaction.id)
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -183,6 +221,8 @@ final class FeedModel {
             ("feed-engagements", "engagements"),
             ("feed-replies", "reaction_replies"),
             ("feed-announcements", "announcements"),
+            ("feed-stories", "stories"),
+            ("feed-story-views", "story_views"),
         ] {
             bag.add(await API.subscribe(channelName: name, table: table, onChange: reload))
         }
@@ -190,6 +230,50 @@ final class FeedModel {
 
     func stopRealtime() {
         bag.cancelAll()
+    }
+
+    // Optimistically flip a story's seen flag in the in-memory strip so the ring
+    // dims immediately as the viewer plays it (the realtime story_views sub also
+    // triggers a full reload shortly after, which reconciles).
+    func markStorySeenLocally(_ storyId: UUID) {
+        for gi in stories.indices {
+            for si in stories[gi].stories.indices where stories[gi].stories[si].id == storyId {
+                stories[gi].stories[si].seen = true
+            }
+        }
+    }
+
+    // Viewing the Unlocked tab marks its rows seen (server-side, cross-device —
+    // same semantics as dismissing an announcement) and clears the badge.
+    func markUnlockedSeen() {
+        let ids = unseenUnlockIds
+        guard !ids.isEmpty else { return }
+        unseenUnlockIds = []
+        Task { try? await API.markUnlocksSeen(ids) }
+    }
+
+    // Unlock rows reshaped into the feed's own reaction-event form so the
+    // Unlocked tab renders through FeedEventCard like everything else (web
+    // parity: feed.js buildUnlockedEvents). Sorted newest-unlock first, then by
+    // page within a batch (walk forward through the pages you just crossed).
+    private static func buildUnlockedEvents(_ unlocks: [UnlockItem],
+                                            snapshots: [ClubSnapshot]) -> [FeedEvent] {
+        var clubNameById: [UUID: String] = [:]
+        for snap in snapshots { clubNameById[snap.summary.club.id] = snap.summary.club.name }
+        return unlocks
+            .sorted {
+                $0.unlock.unlockedAt != $1.unlock.unlockedAt
+                    ? $0.unlock.unlockedAt > $1.unlock.unlockedAt
+                    : $0.reaction.page < $1.reaction.page
+            }
+            .map { u in
+                FeedEvent(id: "unlock-\(u.reaction.id)", ts: u.unlock.unlockedAt,
+                          kind: .reaction(ReactionItem(reaction: u.reaction, profile: u.profile)),
+                          eventType: .reaction,
+                          club: clubNameById[u.book.clubId] ?? "Unlocked",
+                          bookTitle: u.book.title,
+                          go: .book(clubId: u.book.clubId, bookId: u.book.id))
+            }
     }
 
     // MARK: event derivation (port of feed.js buildEvents)
@@ -387,12 +471,37 @@ final class FeedModel {
 // MARK: - the screen
 
 struct FeedView: View {
+    // The center tab-bar "+" (RootView) drives this: each increment asks the
+    // feed to open its compose hub. Defaults to a constant so FeedView still
+    // works standalone (previews / any other embedding).
+    var composeSignal: Int = 0
+
     @Environment(SessionStore.self) private var session
     @Environment(ToastCenter.self) private var toasts
     @State private var model = FeedModel()
     @State private var showCreateClub = false
     @State private var showJoinClub = false
     @State private var broadcastDraft = ""
+    @State private var viewerStart: Int?      // group index the story viewer opens on
+    @State private var showComposer = false   // story composer (shared with the strip bubble)
+
+    // Which stream shows: the mixed feed, or the reactions my bumps unlocked
+    // (TikTok-style "For You / Following" split — here "Feed / ✨ Unlocked").
+    enum FeedStreamTab { case feed, unlocked }
+    @State private var feedTab: FeedStreamTab = .feed
+
+    // Compose hub ("+"): the action menu + its destinations.
+    @State private var showComposeMenu = false
+    @State private var showPostComposer = false
+    @State private var showBookClubPicker = false
+    @State private var bookClub: ClubSummary?   // chosen club for "Start a book"
+
+    // My clubs, from the loaded snapshots — feeds the post multi-select and the
+    // start-a-book club picker without a second fetch.
+    private var myClubs: [ClubSummary] { model.snapshots.map(\.summary) }
+    // Only clubs I own can have their current book set (books insert/update is
+    // owner-gated server-side), so the start-a-book flow offers just those.
+    private var ownedClubs: [ClubSummary] { myClubs.filter { $0.myRole.isOwnerTier } }
 
     var body: some View {
         Group {
@@ -411,41 +520,234 @@ struct FeedView: View {
         .navigationTitle("Your Feed")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarLeading) {
                 Menu {
                     Button("Join with code", systemImage: "number") { showJoinClub = true }
                         .font(Theme.monoMedium(15))
                     Button("New club", systemImage: "plus") { showCreateClub = true }
                         .font(Theme.monoMedium(15))
                 } label: {
-                    Image(systemName: "plus.circle")
+                    Image(systemName: "person.2")
                 }
             }
         }
+        .confirmationDialog("Create", isPresented: $showComposeMenu, titleVisibility: .visible) {
+            Button("Create post") { showPostComposer = true }
+            Button("Post a story") { showComposer = true }
+            Button("Start a book") { startBook() }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(isPresented: $showCreateClub) { CreateClubSheet() }
         .sheet(isPresented: $showJoinClub) { JoinClubSheet() }
+        .sheet(isPresented: $showComposer) {
+            StoryComposerView { Task { await model.load() } }
+        }
+        .sheet(isPresented: $showPostComposer) {
+            MultiClubPostComposerView(clubs: myClubs) { Task { await model.load() } }
+        }
+        // "Start a book": if I own exactly one club we skip the picker and jump
+        // straight to that club's book search; otherwise pick a club first.
+        .sheet(isPresented: $showBookClubPicker) {
+            BookClubPickerSheet(clubs: ownedClubs) { chosen in
+                // Dismiss the picker first, then present the book search once it's
+                // gone — presenting a new sheet mid-dismissal can drop the second.
+                showBookClubPicker = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { bookClub = chosen }
+            }
+        }
+        .sheet(item: $bookClub) { summary in
+            AddBookSheet(club: summary.club) { _ in Task { await model.load() } }
+        }
+        .fullScreenCover(item: Binding(
+            get: { viewerStart.map { StartIndex(value: $0) } },
+            set: { viewerStart = $0?.value }
+        )) { start in
+            StoryViewerView(groups: model.stories, groupIndex: start.value) { id in
+                model.markStorySeenLocally(id)
+            }
+        }
         .task {
             await model.load()
             await model.startRealtime()
         }
+        .onChange(of: composeSignal) { _, _ in showComposeMenu = true }
         .onDisappear { model.stopRealtime() }
         .refreshable { await model.load() }
+    }
+
+    // "Start a book": route to a book search for a club I own. Zero → toast,
+    // one → straight to the search, many → pick which club first.
+    private func startBook() {
+        switch ownedClubs.count {
+        case 0: toasts.show("Only a club's owner can set its book")
+        case 1: bookClub = ownedClubs.first
+        default: showBookClubPicker = true
+        }
     }
 
     // The Feed tab is strictly the feed: global announcements + the activity
     // stream. "Active clubs" lives in the Clubs tab and "Currently reading" in
     // the My Progress tab, so those web-side rails are intentionally omitted
     // here (open votes still surface as feed cards via buildEvents).
+    //
+    // The centered Feed/✨Unlocked strip sits at the top of the column and
+    // scrolls away normally with the rest of the content.
     private var feedList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                greetingHeader
-                announcementsSection
-                feedStream
+                tabStrip
+                if feedTab == .feed {
+                    storiesStrip
+                    greetingHeader
+                    announcementsSection
+                    feedStream
+                } else {
+                    unlockedStream
+                }
             }
             .padding(16)
         }
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    // MARK: Feed / Unlocked tab strip
+
+    private var tabStrip: some View {
+        HStack(spacing: 8) {
+            tabButton("Feed", tab: .feed, badge: 0)
+            tabButton("✨ Unlocked", tab: .unlocked, badge: model.unseenUnlockIds.count)
+        }
+        .frame(maxWidth: .infinity)          // centered, web parity
+        .padding(.vertical, 8)
+    }
+
+    private func tabButton(_ label: String, tab: FeedStreamTab, badge: Int) -> some View {
+        Button {
+            guard feedTab != tab else { return }
+            feedTab = tab
+            // Viewing the Unlocked tab marks its rows seen and clears the badge.
+            if tab == .unlocked { model.markUnlockedSeen() }
+        } label: {
+            HStack(spacing: 6) {
+                Text(label).font(Theme.monoMedium(13))
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(Theme.monoMedium(11))
+                        .foregroundStyle(Theme.surface)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Theme.yarnRust))
+                }
+            }
+            .foregroundStyle(feedTab == tab ? Theme.textPrimary : Theme.textMuted)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .background(
+                Capsule().fill(feedTab == tab ? Theme.yarnOchre.opacity(0.14) : .clear))
+            .overlay(
+                Capsule().stroke(feedTab == tab ? Theme.yarnOchre : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // The ✨ Unlocked stream: reactions my bumps opened, same FeedEventCard as
+    // the mixed feed — just filtered to what I've caught up to.
+    @ViewBuilder
+    private var unlockedStream: some View {
+        if model.unlockedEvents.isEmpty {
+            EmptyStateView(
+                title: "nothing unlocked yet.",
+                hint: "reactions club-mates left in pages you've read appear here once you log progress past them — spoiler-free until you get there."
+            )
+        } else {
+            ForEach(model.unlockedEvents) { event in
+                eventCard(event)
+            }
+        }
+    }
+
+    // MARK: stories strip
+
+    // The ephemeral-stories strip above the greeting. Groups came back already
+    // RLS-filtered + grouped by author from API.activeStories(). My own bubble
+    // is pinned first as "＋ Your story" (tap to compose, or view my live
+    // stories); other bubbles wear a yarn-accent ring when unseen, dimmed when
+    // all seen. Tapping opens the full-screen viewer at that author.
+    @ViewBuilder
+    private var storiesStrip: some View {
+        let mine = model.stories.first { $0.isMine }
+        let others = model.stories.filter { !$0.isMine }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 14) {
+                myStoryBubble(mine)
+                ForEach(others) { group in
+                    storyBubble(group) {
+                        viewerStart = model.stories.firstIndex(of: group) ?? 0
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func myStoryBubble(_ mine: StoryGroup?) -> some View {
+        if let mine {
+            // I have live stories: view them, with a + badge to add more.
+            storyBubble(mine, isMine: true) {
+                viewerStart = model.stories.firstIndex(of: mine) ?? 0
+            }
+        } else {
+            Button { showComposer = true } label: {
+                VStack(spacing: 5) {
+                    ZStack {
+                        Circle().fill(Theme.surface2)
+                            .frame(width: 62, height: 62)
+                            .overlay(Circle().stroke(Theme.yarnSage, lineWidth: 3))
+                        Text("＋").font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(Theme.yarnSage)
+                    }
+                    Text("Your story")
+                        .font(Theme.monoFont(10))
+                        .foregroundStyle(Theme.textMuted)
+                        .lineLimit(1)
+                }
+                .frame(width: 74)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func storyBubble(_ group: StoryGroup, isMine: Bool = false,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                ZStack(alignment: .bottomTrailing) {
+                    AvatarView(profile: group.profile, size: 58)
+                        .padding(3)
+                        .overlay(
+                            Circle().stroke(group.allSeen
+                                            ? Theme.textMuted.opacity(0.5)
+                                            : Theme.yarnRust,
+                                            lineWidth: 3))
+                        .opacity(group.allSeen ? 0.75 : 1)
+                    if isMine {
+                        Text("＋")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Theme.surface)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Theme.yarnSage))
+                            .overlay(Circle().stroke(Theme.bg, lineWidth: 2))
+                    }
+                }
+                Text(isMine ? "Your story" : group.displayName)
+                    .font(Theme.monoFont(10))
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+            }
+            .frame(width: 74)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: greeting header
@@ -455,9 +757,16 @@ struct FeedView: View {
     private var greetingHeader: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                Text(todaysGreeting())
+                let quote = todaysGreeting()
+                Text(quote.text)
                     .font(Theme.displayFont(26).italic())
                     .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("— \(quote.author), \(quote.work) (\(quote.year))")
+                    .font(Theme.monoFont(11))
+                    .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -543,156 +852,10 @@ struct FeedView: View {
         }
     }
 
-    @ViewBuilder
+    // Cards render through the shared FeedEventCard (also used by the Unlocked
+    // tab and the per-book unlocked list), so every surface shows the same format.
     private func eventCard(_ event: FeedEvent) -> some View {
-        switch event.kind {
-        case .reaction(let item):
-            reactionCard(event: event, item: item)
-        case .notif(let icon, let text, let highlight):
-            notifCard(event: event, icon: icon, text: text, highlight: highlight)
-        }
-    }
-
-    // The yarn accent each event type wears (web parity: feed-kind-* colors).
-    private func accent(for event: FeedEvent, highlight: Bool = false) -> Color {
-        if highlight { return Theme.yarnOchre }
-        switch event.eventType {
-        case .progress: return Theme.yarnSage
-        case .reaction: return Theme.yarnSlate
-        case .milestone: return Theme.yarnRust
-        case .pick: return Theme.yarnOchre
-        case .social: return Theme.yarnClay
-        case .follow: return Theme.yarnMauve
-        }
-    }
-
-    // The small header every card carries: which club this happened in — or
-    // "Following" when it comes from a reader you follow outside your clubs —
-    // with the book it's about right underneath.
-    private func cardHead(_ event: FeedEvent) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(event.club ?? "\u{2727} Following")
-                    .font(Theme.monoFont(10))
-                    .kerning(1.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(event.club == nil ? Theme.yarnMauve : Theme.yarnBark)
-                    .lineLimit(1)
-                    .padding(.vertical, 2)
-                    .padding(.horizontal, 9)
-                    .background(
-                        Capsule().fill((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.10)))
-                    .overlay(
-                        Capsule().stroke((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.45),
-                                         lineWidth: 1.5))
-                Spacer()
-                Text(Format.timeAgo(event.ts))
-                    .font(Theme.monoFont(11))
-                    .foregroundStyle(Theme.textMuted)
-            }
-            bookLine(event)
-        }
-    }
-
-    // The book a card is about — its own line, out of the sentence.
-    @ViewBuilder
-    private func bookLine(_ event: FeedEvent) -> some View {
-        if let title = event.bookTitle {
-            Text(title)
-                .font(Theme.displayFont(14).italic())
-                .foregroundStyle(Theme.yarnRust)
-                .lineLimit(1)
-        }
-    }
-
-    private func reactionCard(event: FeedEvent, item: ReactionItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            cardHead(event)
-            // The author chip links to their profile; the body still links to
-            // the book (or the reader for follow items). Two separate links, so
-            // the header sits OUTSIDE the card-level navigable.
-            HStack(spacing: 8) {
-                ReaderLink(userId: item.reaction.userId) {
-                    HStack(spacing: 8) {
-                        AvatarView(profile: item.profile, size: 30)
-                        Text(item.profile?.displayName ?? "Reader")
-                            .font(Theme.monoMedium(13))
-                            .foregroundStyle(Theme.textPrimary)
-                    }
-                }
-                Spacer()
-                pageTag(item.reaction.page)
-            }
-            navigable(event.go) {
-                Text(item.reaction.body)
-                    .font(Theme.displayFont(16))
-                    .foregroundStyle(Theme.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // Follow-path reactions are display-only — they live in clubs we're
-            // not members of, so no engagement bar or reply thread.
-            if !event.isFollow {
-                EngagementBar(targetType: .reaction, targetId: item.id, context: model.context) {
-                    await model.load()
-                }
-                ReplyThreadView(reactionId: item.id, context: model.context) {
-                    await model.load()
-                }
-            }
-        }
-        .patch(accent: accent(for: event), seed: event.id)
-    }
-
-    private func notifCard(event: FeedEvent, icon: String, text: String, highlight: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            cardHead(event)
-            navigable(event.go) {
-                HStack(alignment: .top, spacing: 10) {
-                    Text(icon).font(.system(size: 18))
-                    VStack(alignment: .leading, spacing: 4) {
-                        // Read updates read like little log entries (mono), the
-                        // rest keep the display face; milestones sit bolder.
-                        Text(text)
-                            .font(event.eventType == .progress
-                                  ? Theme.monoFont(13)
-                                  : event.eventType == .milestone || event.eventType == .pick
-                                    ? Theme.displaySemiBold(15)
-                                    : Theme.displayFont(15))
-                            .foregroundStyle(event.eventType == .social ? Theme.textMuted : Theme.textPrimary)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-            if !event.isFollow, let type = event.targetType, let id = event.targetId {
-                EngagementBar(targetType: type, targetId: id, context: model.context) {
-                    await model.load()
-                }
-            }
-        }
-        .patch(accent: accent(for: event, highlight: highlight),
-               seed: event.id, padding: 12)
-    }
-
-    // Wrap content in a NavigationLink when the card has somewhere to go.
-    @ViewBuilder
-    private func navigable<Content: View>(_ route: Route?, @ViewBuilder content: () -> Content) -> some View {
-        if let route {
-            NavigationLink(value: route) { content() }
-                .buttonStyle(.plain)
-        } else {
-            content()
-        }
-    }
-
-    private func pageTag(_ page: Int) -> some View {
-        Text("p.\(page)")
-            .font(Theme.monoMedium(11))
-            .foregroundStyle(.white)
-            .padding(.vertical, 2)
-            .padding(.horizontal, 6)
-            .background(Capsule().fill(Theme.yarnSlate))
+        FeedEventCard(event: event, context: model.context) { await model.load() }
     }
 
     private func loadingView(_ text: String) -> some View {
@@ -729,6 +892,47 @@ struct FeedView: View {
                 await model.load()
             } catch {
                 toasts.error(error)
+            }
+        }
+    }
+}
+
+// Identifiable wrapper so an Int group-index can drive a fullScreenCover(item:).
+private struct StartIndex: Identifiable {
+    let value: Int
+    var id: Int { value }
+}
+
+// The compose hub's "Start a book" step when I own more than one club: pick
+// which club's current book to set, then the caller hands off to AddBookSheet.
+private struct BookClubPickerSheet: View {
+    let clubs: [ClubSummary]
+    var onPick: (ClubSummary) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(clubs) { summary in
+                    Button { onPick(summary) } label: {
+                        HStack(spacing: 10) {
+                            ClubAvatarView(club: summary.club, size: 32)
+                            Text(summary.club.name)
+                                .font(Theme.displaySemiBold(16))
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("Start a book in\u{2026}")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
     }

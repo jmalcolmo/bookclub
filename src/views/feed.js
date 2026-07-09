@@ -8,8 +8,12 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, avatarHTML, clubAvatarHTML, timeAgo, daysUntil, toast, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
-import { createClubModal, joinClubModal } from "./clubs.js";
+import { createClubModal, joinClubModal, openModal, closeModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
+import { openStoryViewer, composeStory } from "./stories.js";
+import { composePostToClubs } from "./posts.js";
+import { addBookModal } from "./club.js";
+import { cropImage } from "../imageCropper.js";
 
 const ACCENTS = {
   "yarn-sage": "#7a9068", "yarn-rust": "#a05838", "yarn-slate": "#587888",
@@ -18,23 +22,33 @@ const ACCENTS = {
 };
 const accentColor = (a) => ACCENTS[a] || ACCENTS["yarn-sage"];
 
-// Rotating greeting lines for the feed header.
-const GREETINGS = [
-  "Any new plot twists?",
-  "What are you reading lately?",
-  "Who's ahead on the reading?",
-  "Got strong opinions about chapter 7?",
-  "Someone's been busy turning pages.",
-  "The club awaits your thoughts.",
-  "Anything worth dog-earing?",
-  "Still haunted by that last chapter?",
+// Rotating literary quotes for the feed header.
+const QUOTES = [
+  { text: "A reader lives a thousand lives before he dies. The man who never reads lives only one.", author: "George R.R. Martin", work: "A Dance with Dragons", year: 2011 },
+  { text: "Not all those who wander are lost.", author: "J.R.R. Tolkien", work: "The Fellowship of the Ring", year: 1954 },
+  { text: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.", author: "Jane Austen", work: "Pride and Prejudice", year: 1813 },
+  { text: "All happy families are alike; each unhappy family is unhappy in its own way.", author: "Leo Tolstoy", work: "Anna Karenina", year: 1878 },
+  { text: "It was the best of times, it was the worst of times.", author: "Charles Dickens", work: "A Tale of Two Cities", year: 1859 },
+  { text: "The most courageous act is still to think for yourself. Aloud.", author: "Coco Chanel", work: "The Gospel According to Coco Chanel", year: 2009 },
+  { text: "We accept the love we think we deserve.", author: "Stephen Chbosky", work: "The Perks of Being a Wallflower", year: 1999 },
+  { text: "So it goes.", author: "Kurt Vonnegut", work: "Slaughterhouse-Five", year: 1969 },
+  { text: "The answer to the ultimate question of life, the universe, and everything is 42.", author: "Douglas Adams", work: "The Hitchhiker's Guide to the Galaxy", year: 1979 },
+  { text: "Why, sometimes I've believed as many as six impossible things before breakfast.", author: "Lewis Carroll", work: "Through the Looking-Glass", year: 1871 },
+  { text: "There is no greater agony than bearing an untold story inside you.", author: "Maya Angelou", work: "I Know Why the Caged Bird Sings", year: 1969 },
+  { text: "One must always be careful of books, and what is inside them, for words have the power to change us.", author: "Cassandra Clare", work: "City of Bones", year: 2007 },
+  { text: "That's the thing about books. They let you travel without moving your feet.", author: "Jhumpa Lahiri", work: "The Namesake", year: 2003 },
+  { text: "I took a deep breath and listened to the old brag of my heart: I am, I am, I am.", author: "Sylvia Plath", work: "The Bell Jar", year: 1963 },
+  { text: "Until I feared I would lose it, I never loved to read. One does not love breathing.", author: "Harper Lee", work: "To Kill a Mockingbird", year: 1960 },
+  { text: "Time is a flat circle.", author: "Friedrich Nietzsche", work: "The Gay Science", year: 1882 },
+  { text: "It does not do to dwell on dreams and forget to live.", author: "J.K. Rowling", work: "Harry Potter and the Philosopher's Stone", year: 1997 },
+  { text: "We are all just walking each other home.", author: "Ram Dass", work: "Be Here Now", year: 1971 },
 ];
 
-// Pick a greeting deterministically by day so it changes daily but doesn't
+// Pick a quote deterministically by day so it changes daily but doesn't
 // flicker on every reload within the same session.
 function todaysGreeting() {
   const day = Math.floor(Date.now() / 86_400_000);
-  return GREETINGS[day % GREETINGS.length];
+  return QUOTES[day % QUOTES.length];
 }
 
 // Count events from the past 24 hours as a lightweight "new activity" signal.
@@ -43,8 +57,51 @@ function countRecentEvents(events) {
   return events.filter((e) => new Date(e.ts).getTime() > cutoff).length;
 }
 
-export async function renderFeed() {
+// Minimal inline styles for the "+" compose hub. These belong in club.css
+// long-term (see the follow-up note in the workstream report); inlined here to
+// keep the FAB + menu self-contained within this view's boundary. All colors
+// come from the design-system tokens so it stays on-theme.
+const composeHubStyles = `
+<style>
+  .feed-fab {
+    position: fixed; right: 22px; bottom: 84px; z-index: 40;
+    width: 58px; height: 58px; border-radius: 50%;
+    background: var(--yarn-rust); color: var(--surface);
+    border: 3px solid var(--surface); box-shadow: var(--shadow-lift);
+    font-size: 30px; line-height: 1; cursor: pointer;
+    display: grid; place-items: center;
+    transition: transform .12s ease;
+  }
+  .feed-fab:hover { transform: scale(1.06) rotate(90deg); }
+  .feed-fab:active { transform: scale(.96); }
+  @media (min-width: 900px) { .feed-fab { bottom: 34px; right: 34px; } }
+
+  .compose-hub { display: flex; flex-direction: column; gap: 10px; }
+  .compose-hub-action {
+    display: flex; align-items: center; gap: 12px; text-align: left;
+    padding: 12px 14px; border-radius: 12px; cursor: pointer;
+    background: var(--surface-2); border: 2px solid var(--yarn-bark);
+    box-shadow: var(--shadow-soft); color: var(--text-primary);
+    font: inherit;
+  }
+  .compose-hub-action:hover { background: var(--surface); }
+  .compose-hub-icon { font-size: 22px; flex: 0 0 auto; }
+  .compose-hub-text { display: flex; flex-direction: column; gap: 2px; }
+
+  .post-club-select { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+  .post-club-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 11px 5px 6px; border-radius: 999px; cursor: pointer;
+    background: var(--surface-2); border: 2px solid var(--yarn-bark);
+    color: var(--text-primary); font: inherit;
+  }
+  .post-club-chip.selected { background: var(--yarn-sage); color: var(--surface); border-color: var(--yarn-sage); }
+  .post-club-chip-name { font-size: 13px; }
+</style>`;
+
+export async function renderFeed({ tab = "feed" } = {}) {
   render(`
+    ${composeHubStyles}
     <div class="feed-shell">
       <aside class="feed-rail feed-rail-clubs" data-rail="clubs" aria-label="Your clubs"></aside>
       <main class="feed-column">
@@ -54,36 +111,69 @@ export async function renderFeed() {
           <button class="btn-ghost small" data-open-rail="reading">📖 Reading</button>
         </div>
         <h1 class="stamp-title small feed-title feed-title-desktop">YOUR FEED</h1>
+        <div class="feed-tabs" role="tablist" aria-label="Feed">
+          <button class="feed-tab-btn" role="tab" data-feed-tab="feed">Feed</button>
+          <button class="feed-tab-btn" role="tab" data-feed-tab="unlocked">
+            ✨ Unlocked<span class="feed-tab-badge" data-unlock-badge hidden></span>
+          </button>
+        </div>
+        <div class="feed-stories" data-stories></div>
         <div class="feed-greeting" data-greeting></div>
         <div class="feed-announce" data-announce></div>
         <div class="feed-stream" data-feed><p class="faint">loading your feed…</p></div>
       </main>
       <aside class="feed-rail feed-rail-reading" data-rail="reading" aria-label="Your reading"></aside>
       <div class="feed-drawer-backdrop" data-drawer-backdrop hidden></div>
+      <button class="feed-fab" data-fab title="Create" aria-label="Create" aria-haspopup="true" aria-expanded="false">＋</button>
     </div>
-  `, (root) => boot(root));
+  `, (root) => boot(root, tab));
 }
 
-async function boot(root) {
+async function boot(root, initialTab = "feed") {
   wireDrawers(root);
+
+  // The latest snapshot of my clubs (kept fresh by load()) so the "+" compose
+  // hub can offer them in its multi-select without a second fetch.
+  let myClubs = [];
+
+  // Which stream the center column shows: the mixed feed, or the reactions my
+  // progress bumps have unlocked (TikTok-style "For You / Following" split — here
+  // "Feed / Unlocked"). Both render through the SAME card painter.
+  let activeTab = initialTab;
+  let feedEvents = [];        // the mixed feed
+  let unlockedEvents = [];    // unlock items as feed-shaped reaction events
+  let unseenUnlockIds = [];   // reaction ids not yet marked seen (badge + mark-on-view)
+  let sharedCtx = null;       // render context (engagements/replies/names)
 
   // One pass over my clubs, fetching everything the three regions need. Each
   // region is then painted from the same in-memory snapshot.
   async function load() {
     const clubs = await api.myClubs();
-    const [data, followed] = await Promise.all([
+    myClubs = clubs;
+    const [data, followed, stories, unlocks] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
       // RLS-filtered). Items inside a shared club are dropped below — the club
       // events cover those.
       api.followFeed().catch(() => ({ items: [] })),
+      // Active (unexpired, audience-visible) stories, grouped by author. Already
+      // RLS-filtered; a failure just hides the strip.
+      api.activeStories().catch(() => []),
+      // Everything my progress bumps have unlocked (feeds the Unlocked tab).
+      // Already RLS-filtered; a failure just empties the tab.
+      api.myUnlocks().catch(() => []),
     ]);
     const myClubIds = new Set(clubs.map((c) => c.id));
     const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
 
     // Bulk-load (in three queries, not per-club) the reply threads, the global
-    // announcements, and every engagement on anything visible on this screen.
-    const reactionIds = data.flatMap((d) => d.reactions.map((r) => r.id));
+    // announcements, and every engagement on anything visible on this screen —
+    // including the Unlocked tab's reactions, so its cards carry the same live
+    // engagement bars + reply threads as the mixed feed.
+    const reactionIds = [...new Set([
+      ...data.flatMap((d) => d.reactions.map((r) => r.id)),
+      ...unlocks.map((u) => u.reaction.id),
+    ])];
     const [replies, announcements] = await Promise.all([
       api.reactionReplies(reactionIds),
       api.activeAnnouncements(),
@@ -97,7 +187,7 @@ async function boot(root) {
       ...announcements.map((a) => a.id),
     ];
     const engagements = await api.engagementsFor(targetIds);
-    const shared = { data, followItems, replies, announcements, engagements };
+    const shared = { data, followItems, replies, announcements, engagements, unlocks };
     const ctx = buildContext(shared);
 
     // Build events once so the greeting can derive the "new activity" count
@@ -108,15 +198,77 @@ async function boot(root) {
       ...buildLikeNotifications(shared, ctx),
     ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
+    feedEvents = events;
+    unlockedEvents = buildUnlockedEvents(unlocks, data);
+    unseenUnlockIds = unlocks.filter((u) => !u.seen_at).map((u) => u.reaction_id);
+    sharedCtx = ctx;
+
     paintClubsRail(root, data);
     paintReadingRail(root, data);
+    paintStories(root, stories, load);
     paintGreeting(root, events);
     paintAnnouncements(root, shared, ctx, load);
-    paintFeed(root, { ...shared, events }, ctx, load);
+    paintTabBar();
+    paintStream();
     return data;
   }
 
+  // ---- Feed / Unlocked tabs -------------------------------------------------
+  function paintTabBar() {
+    root.querySelectorAll("[data-feed-tab]").forEach((b) =>
+      b.classList.toggle("active", b.dataset.feedTab === activeTab));
+    const badge = root.querySelector("[data-unlock-badge]");
+    if (badge) {
+      badge.hidden = unseenUnlockIds.length === 0;
+      badge.textContent = unseenUnlockIds.length || "";
+    }
+  }
+
+  // Paint whichever stream the active tab shows — both go through the same
+  // eventCardHTML painter, so the Unlocked tab reads exactly like the feed.
+  // Stories, the greeting, and announcements belong to the mixed feed; the
+  // Unlocked tab is just the caught-up reactions.
+  function paintStream() {
+    for (const sel of ["[data-stories]", "[data-greeting]", "[data-announce]"]) {
+      const el = root.querySelector(sel);
+      if (el) el.style.display = activeTab === "unlocked" ? "none" : "";
+    }
+    if (activeTab === "unlocked") {
+      paintFeed(root, { events: unlockedEvents, emptyHTML: `
+        <div class="feed-empty patch">
+          <p>nothing unlocked yet.</p>
+          <p class="faint">reactions club-mates left in pages you've read appear here
+          once you log progress past them — spoiler-free until you get there.</p>
+        </div>` }, sharedCtx, load);
+      markUnlockedSeen();
+    } else {
+      paintFeed(root, { events: feedEvents }, sharedCtx, load);
+    }
+  }
+
+  // Viewing the Unlocked tab marks its rows seen (server-side, cross-device —
+  // same semantics as dismissing an announcement) and clears the badge.
+  function markUnlockedSeen() {
+    if (!unseenUnlockIds.length) return;
+    api.markUnlocksSeen(unseenUnlockIds).catch(() => {});
+    unseenUnlockIds = [];
+    paintTabBar();
+  }
+
+  root.querySelectorAll("[data-feed-tab]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (activeTab === b.dataset.feedTab) return;
+      activeTab = b.dataset.feedTab;
+      paintTabBar();
+      paintStream();
+    }));
+
   await load();
+
+  // The "+" compose hub: a floating action button that opens a small menu of
+  // three create actions (post / story / start a book). Wired once — the shell
+  // stays mounted across live refreshes, and it reads myClubs fresh each open.
+  wireComposeHub(root, () => myClubs, load);
 
   // Live refresh: any reaction or progress change in a book I can see, or any
   // selection change, re-runs the snapshot in place (debounced). The shell stays
@@ -130,6 +282,9 @@ async function boot(root) {
     api.subscribe("feed-engagements", "engagements", undefined, refresh),
     api.subscribe("feed-replies", "reaction_replies", undefined, refresh),
     api.subscribe("feed-announcements", "announcements", undefined, refresh),
+    // Stories strip: a new/removed story or a fresh view (seen ring) repaints.
+    api.subscribe("feed-stories", "stories", undefined, refresh),
+    api.subscribe("feed-story-views", "story_views", undefined, refresh),
   ];
   onCleanup(() => { clearTimeout(timer); subs.forEach((u) => u()); });
 }
@@ -237,6 +392,74 @@ function paintReadingRail(root, data) {
   wireGo(host);
 }
 
+/* --------------------------------------------------------- STORIES · strip */
+// The ephemeral-stories strip above the greeting. Groups came back already
+// RLS-filtered + grouped by author from api.activeStories(). Your own bubble is
+// pinned first as "＋ Your story" (tap to compose; if you already have live
+// stories, tap opens your viewer and a small + affordance composes). Each other
+// author bubble wears a yarn-accent ring when it has an unseen story, dimmed
+// when all seen. Tapping opens the full-screen viewer at that author.
+function paintStories(root, groups, reload) {
+  const host = root.querySelector("[data-stories]");
+  if (!host) return;
+
+  // Bubbles for people I follow / club-mates (my own group is handled below).
+  const others = groups.filter((g) => !g.isMine);
+  const mine = groups.find((g) => g.isMine) || null;
+
+  const bubble = (g, i) => {
+    const name = g.profile?.display_name || "Reader";
+    const ringClass = g.allSeen ? "story-seen" : "story-unseen";
+    return `
+      <button class="story-bubble ${ringClass}" data-open-story="${i}"
+        title="${esc(name)}'s story" aria-label="${esc(name)}'s story">
+        <span class="story-ring">${avatarHTML(g.profile, 58)}</span>
+        <span class="story-bubble-name">${esc(name)}</span>
+      </button>`;
+  };
+
+  // "＋ Your story" bubble always leads. If I have live stories it shows my
+  // avatar with a + badge (tap = view mine); otherwise a plain add tile.
+  const myBubble = mine
+    ? `<button class="story-bubble story-mine ${mine.allSeen ? "story-seen" : "story-unseen"}"
+         data-open-mine title="Your story" aria-label="Your story">
+         <span class="story-ring">${avatarHTML(mine.profile, 58)}<span class="story-add-badge">＋</span></span>
+         <span class="story-bubble-name">Your story</span>
+       </button>`
+    : `<button class="story-bubble story-mine story-add" data-compose
+         title="Add to your story" aria-label="Add to your story">
+         <span class="story-ring story-ring-add">＋</span>
+         <span class="story-bubble-name">Your story</span>
+       </button>`;
+
+  host.innerHTML = `<div class="story-strip">${myBubble}${others.map((g, i) => bubble(g, i)).join("")}</div>`;
+
+  // Repaint the strip after the viewer closes so newly-seen rings dim, and after
+  // composing so a fresh story appears.
+  const afterClose = () => reload();
+
+  host.querySelector("[data-compose]")?.addEventListener("click", async () => {
+    const posted = await composeStory(cropImage);
+    if (posted) reload();
+  });
+
+  host.querySelector("[data-open-mine]")?.addEventListener("click", () => {
+    // Open the viewer starting on my own group (index 0 of the full groups list,
+    // since api.activeStories() pins mine first).
+    openStoryViewer(groups, 0, afterClose);
+  });
+
+  host.querySelectorAll("[data-open-story]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      // btn index is into `others`; map it to the index within the full groups
+      // list the viewer walks.
+      const other = others[Number(btn.dataset.openStory)];
+      const gi = groups.indexOf(other);
+      openStoryViewer(groups, gi < 0 ? 0 : gi, afterClose);
+    });
+  });
+}
+
 /* --------------------------------------------------------- ANNOUNCEMENTS */
 // Global admin broadcasts at the top of the feed, plus (admin only) a composer.
 function paintAnnouncements(root, shared, ctx, reload) {
@@ -283,18 +506,21 @@ function paintAnnouncements(root, shared, ctx, reload) {
 }
 
 /* ------------------------------------------------------- GREETING HEADER */
-// A rotating one-liner + a lightweight "N new" count derived from the same
-// events the feed already renders. Scrolls past naturally above the stream.
+// A rotating literary quote + attribution + a lightweight "N new" count
+// derived from the same events the feed already renders. Scrolls past naturally
+// above the stream.
 function paintGreeting(root, events) {
   const host = root.querySelector("[data-greeting]");
   if (!host) return;
+  const quote = todaysGreeting();
   const recentCount = countRecentEvents(events);
   const countChip = recentCount > 0
     ? `<span class="greeting-count">${recentCount} new</span>`
     : "";
   host.innerHTML = `
     <div class="feed-greeting-inner">
-      <p class="greeting-line">${esc(todaysGreeting())}</p>
+      <p class="greeting-line">${esc(quote.text)}</p>
+      <p class="greeting-attribution">— ${esc(quote.author)}, <em>${esc(quote.work)}</em> (${esc(String(quote.year))})</p>
       ${countChip}
     </div>`;
 }
@@ -312,14 +538,36 @@ function paintFeed(root, shared, ctx, reload) {
 
   host.innerHTML = events.length
     ? events.map((e) => eventCardHTML(e, ctx)).join("")
-    : `<div class="feed-empty patch">
+    : (shared.emptyHTML || `<div class="feed-empty patch">
          <p>your feed is quiet.</p>
          <p class="faint">join or create a club, set a book, and activity from every club you're in will show up here.</p>
-       </div>`;
+       </div>`);
 
   wireGo(host);
   wireUserLinks(host);
   wireEngagementUI(host, reload);
+}
+
+// Unlock rows (api.myUnlocks) reshaped into the feed's own reaction-event form,
+// so the Unlocked tab renders through eventCardHTML like everything else. Sorted
+// newest-unlock first, then by page within a batch (walk forward through the
+// pages you just crossed). Club names resolve from the loaded snapshots; a book
+// from a club not in the snapshot (e.g. finished long ago) still renders — the
+// chip just falls back to the book line alone.
+function buildUnlockedEvents(unlocks, data) {
+  const clubNameById = {};
+  for (const d of data) clubNameById[d.club.id] = d.club.name;
+  return unlocks
+    .slice()
+    .sort((a, b) => (new Date(b.unlocked_at) - new Date(a.unlocked_at))
+      || (a.reaction.page - b.reaction.page))
+    .map((u) => ({
+      kind: "reaction", type: "reaction", ts: u.unlocked_at,
+      reaction: u.reaction,
+      club: clubNameById[u.book.club_id] || "Unlocked",
+      bookTitle: u.book.title,
+      go: `/club/${u.book.club_id}/book/${u.book.id}`,
+    }));
 }
 
 // Group rows by a key into { keyValue: rows[] }.
@@ -332,7 +580,7 @@ function groupBy(rows, key) {
 // Build the shared render context: engagement lookup, reply lookup, and a name
 // resolver for like/emoji hover tooltips.
 function buildContext(shared) {
-  const { data, replies, engagements } = shared;
+  const { data, replies, engagements, unlocks = [] } = shared;
   const engByTarget = groupBy(engagements, "target_id");
   const pById = {};
   for (const d of data) {
@@ -340,6 +588,7 @@ function buildContext(shared) {
     for (const r of d.reactions) if (r.profile) pById[r.user_id] = r.profile;
   }
   for (const r of replies) if (r.profile) pById[r.user_id] = r.profile;
+  for (const u of unlocks) if (u.reaction.profile) pById[u.reaction.user_id] = u.reaction.profile;
   return {
     myId: store.user.id,
     engOf: (id) => engByTarget[id] || [],
@@ -476,7 +725,9 @@ function buildEvents(data) {
         events.push({ kind: "notif", type: "pick", ts: s.created_at, icon: "🗳️",
           highlight: true, text: "A vote opened — pick who chooses next",
           go: `/club/${club.id}/picker`, ...t });
-      } else if (s.status === "decided") {
+      } else if (s.status === "decided" && s.announced) {
+        // Opt-in: only surface the decided selection once the decider/owner has
+        // announced it (see api.announceSelection / picker "Announce" button).
         const winner = members.find((m) => m.user_id === s.result_user)?.profile?.display_name;
         events.push({ kind: "notif", type: "pick", ts: s.decided_at || s.created_at, icon: "🎯",
           text: winner ? `${esc(winner)} will pick the next book` : "The club decided who picks next",
@@ -565,4 +816,92 @@ function wireDrawers(root) {
       backdrop.hidden = false;
     }));
   backdrop.addEventListener("click", close);
+}
+
+/* ------------------------------------------------------- COMPOSE HUB ("+") */
+// A floating action button opening a menu of three create actions:
+//   1. Create post  — the multi-club post composer (composePostToClubs)
+//   2. Post a story — the SAME story composer the "＋ Your story" bubble uses
+//   3. Start a book — pick a club, then the existing OpenLibrary addBookModal
+// `getClubs` returns the feed's latest myClubs snapshot; `reload` repaints the
+// feed after a post/story so a fresh item shows immediately.
+function wireComposeHub(root, getClubs, reload) {
+  const fab = root.querySelector("[data-fab]");
+  if (!fab || fab.dataset.wired) return;
+  fab.dataset.wired = "1";
+
+  fab.addEventListener("click", () => {
+    openModal(`
+      <h3>Create</h3>
+      <div class="modal-body compose-hub">
+        <button class="compose-hub-action" data-compose="post">
+          <span class="compose-hub-icon">✎</span>
+          <span class="compose-hub-text"><strong>Create post</strong>
+            <span class="faint">a thought or photo, to one or more clubs</span></span>
+        </button>
+        <button class="compose-hub-action" data-compose="story">
+          <span class="compose-hub-icon">📸</span>
+          <span class="compose-hub-text"><strong>Post a story</strong>
+            <span class="faint">disappears in 72 hours</span></span>
+        </button>
+        <button class="compose-hub-action" data-compose="book">
+          <span class="compose-hub-icon">📚</span>
+          <span class="compose-hub-text"><strong>Start a book</strong>
+            <span class="faint">set a club's current book</span></span>
+        </button>
+        <div class="modal-actions"><button class="btn-ghost" data-close>cancel</button></div>
+      </div>
+    `, (modal) => {
+      modal.querySelector("[data-compose='post']").addEventListener("click", async () => {
+        closeModal();
+        const posted = await composePostToClubs(getClubs());
+        if (posted) reload();
+      });
+      modal.querySelector("[data-compose='story']").addEventListener("click", async () => {
+        closeModal();
+        // Reuse the exact same composer entry point as the stories strip bubble.
+        const posted = await composeStory(cropImage);
+        if (posted) reload();
+      });
+      modal.querySelector("[data-compose='book']").addEventListener("click", () => {
+        closeModal();
+        startBookFlow(getClubs());
+      });
+    });
+  });
+}
+
+// "Start a book": pick which club, then hand off to the existing OpenLibrary
+// search modal (addBookModal from club.js) to set that club's current book. Only
+// clubs where I'm the creator/owner can set the book (books_update/insert is
+// owner-gated server-side); a non-owner pick would fail its insert, so we offer
+// only owner-tier clubs. With exactly one eligible club we skip straight to the
+// book search.
+function startBookFlow(clubs) {
+  const eligible = clubs.filter((c) => c.my_role === "creator" || c.my_role === "owner");
+  if (!eligible.length) {
+    toast("Only a club's owner can set its book", "info");
+    return;
+  }
+  const pick = (club) => addBookModal(club, () => navigate(`/club/${club.id}`));
+  if (eligible.length === 1) { pick(eligible[0]); return; }
+
+  openModal(`
+    <h3>Start a book in…</h3>
+    <div class="modal-body compose-hub">
+      ${eligible.map((c) => `
+        <button class="compose-hub-action" data-club="${esc(c.id)}">
+          ${clubAvatarHTML(c, 28)}
+          <span class="compose-hub-text"><strong>${esc(c.name)}</strong></span>
+        </button>`).join("")}
+      <div class="modal-actions"><button class="btn-ghost" data-close>cancel</button></div>
+    </div>
+  `, (modal) => {
+    modal.querySelectorAll("[data-club]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const club = eligible.find((c) => c.id === btn.dataset.club);
+        closeModal();
+        if (club) pick(club);
+      }));
+  });
 }

@@ -6,6 +6,25 @@
 import Foundation
 import Supabase
 
+// One reader's OWN footprint on a single book (API.userBookInvolvement): the
+// reactions they wrote, the replies they wrote (each carrying the parent
+// reaction they answered), and their reading-progress row — keyed by bookId +
+// ownerId. Every row arrives already filtered by RLS (the spoiler gate), so the
+// view never re-implements gating. Reached from a profile shelf tap.
+struct InvolvementReply: Identifiable, Hashable, Sendable {
+    let reply: ReactionReply
+    let parent: Reaction          // the reaction this reply answers (on this book)
+    var id: UUID { reply.id }
+}
+
+struct BookInvolvement: Sendable {
+    let book: Book
+    let owner: Profile?
+    let reactions: [ReactionItem]    // the owner's, page-ordered
+    let replies: [InvolvementReply]  // the owner's, on this book
+    let progress: ReadingProgress?   // the owner's single row, or nil if hidden
+}
+
 extension API {
     static func bookReactions(_ bookId: UUID) async throws -> [ReactionItem] {
         let rows: [Reaction] = try await supabase.from("reactions")
@@ -16,6 +35,58 @@ extension API {
             .execute().value
         let profiles = try await profilesById(rows.map(\.userId))
         return rows.map { ReactionItem(reaction: $0, profile: profiles[$0.userId]) }
+    }
+
+    // One reader's OWN footprint on a single book: the reactions + replies they
+    // wrote and their reading-progress row (port of api.js userBookInvolvement).
+    // Every row comes back through RLS - the spoiler gate lives server-side only,
+    // so whatever returns is safe to render and the app never re-gates. Keyed by
+    // bookId + ownerId; reached from a profile shelf tap.
+    static func userBookInvolvement(bookId: UUID, userId: UUID) async throws -> BookInvolvement {
+        async let bookReq = API.getBook(bookId)
+        async let ownerReq: Profile? = try? await API.getProfile(userId)
+
+        async let reactionsReq: [Reaction] = supabase.from("reactions")
+            .select()
+            .eq("book_id", value: bookId.uuidString)
+            .eq("user_id", value: userId.uuidString)
+            .order("page", ascending: true)
+            .order("created_at", ascending: true)
+            .execute().value
+        async let progressReq: [ReadingProgress] = supabase.from("reading_progress")
+            .select()
+            .eq("book_id", value: bookId.uuidString)
+            .eq("user_id", value: userId.uuidString)
+            .execute().value
+
+        let (book, owner, reactions, progressRows) =
+            try await (bookReq, ownerReq, reactionsReq, progressReq)
+
+        // The owner's replies, then resolve their parent reactions and keep only
+        // the ones whose parent is on THIS book. RLS returns a reply only when its
+        // parent reaction is visible (it inherits the parent's spoiler gate), so
+        // the parent is guaranteed readable too.
+        let myReplies: [ReactionReply] = try await supabase.from("reaction_replies")
+            .select()
+            .eq("user_id", value: userId.uuidString)
+            .order("created_at", ascending: true)
+            .execute().value
+        let parentIds = Array(Set(myReplies.map(\.reactionId)))
+        let parents: [Reaction] = parentIds.isEmpty ? [] : try await supabase.from("reactions")
+            .select()
+            .in("id", values: parentIds.map { $0.uuidString })
+            .eq("book_id", value: bookId.uuidString)
+            .execute().value
+        let parentById = Dictionary(uniqueKeysWithValues: parents.map { ($0.id, $0) })
+        let replies: [InvolvementReply] = myReplies.compactMap { r in
+            guard let parent = parentById[r.reactionId] else { return nil }
+            return InvolvementReply(reply: r, parent: parent)
+        }
+
+        let reactionItems = reactions.map { ReactionItem(reaction: $0, profile: owner) }
+        return BookInvolvement(book: book, owner: owner,
+                               reactions: reactionItems, replies: replies,
+                               progress: progressRows.first)
     }
 
     private struct NewReaction: Encodable {

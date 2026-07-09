@@ -56,6 +56,28 @@ extension API {
             .execute().value
     }
 
+    // Fan a single composed post out to several clubs at once (the "+" compose
+    // hub's "Create post" action, which carries a club multi-select). One
+    // club_posts row is inserted per club via the existing addPost path, so RLS
+    // (posts_insert_member) still authorizes each write independently — a
+    // non-member club id simply fails its own insert. The image, if any, is
+    // uploaded ONCE by the caller and its public URL shared across all rows
+    // (post-images objects are publicly readable). Returns the created rows; a
+    // per-club failure throws (earlier rows are not rolled back).
+    @discardableResult
+    static func addPostToClubs(clubIds: [UUID], body: String?, imageUrl: String?) async throws -> [ClubPost] {
+        let ids = Array(Set(clubIds))
+        guard !ids.isEmpty else {
+            throw NSError(domain: "ReadingRoom", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "Pick at least one club"])
+        }
+        var rows: [ClubPost] = []
+        for clubId in ids {
+            rows.append(try await addPost(clubId: clubId, body: body, imageUrl: imageUrl))
+        }
+        return rows
+    }
+
     private struct PostEdit: Encodable {
         let body: String
     }
