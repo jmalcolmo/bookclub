@@ -10,10 +10,8 @@ import { store } from "../store.js";
 import * as api from "../api.js";
 import { createClubModal, joinClubModal, openModal, closeModal } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
-import { openStoryViewer, composeStory } from "./stories.js";
 import { composePostToClubs } from "./posts.js";
 import { addBookModal } from "./club.js";
-import { cropImage } from "../imageCropper.js";
 
 const ACCENTS = {
   "yarn-sage": "#7a9068", "yarn-rust": "#a05838", "yarn-slate": "#587888",
@@ -117,7 +115,6 @@ export async function renderFeed({ tab = "feed" } = {}) {
             ✨ Unlocked<span class="feed-tab-badge" data-unlock-badge hidden></span>
           </button>
         </div>
-        <div class="feed-stories" data-stories></div>
         <div class="feed-greeting" data-greeting></div>
         <div class="feed-announce" data-announce></div>
         <div class="feed-stream" data-feed><p class="faint">loading your feed…</p></div>
@@ -150,15 +147,12 @@ async function boot(root, initialTab = "feed") {
   async function load() {
     const clubs = await api.myClubs();
     myClubs = clubs;
-    const [data, followed, stories, unlocks] = await Promise.all([
+    const [data, followed, unlocks] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
       // RLS-filtered). Items inside a shared club are dropped below — the club
       // events cover those.
       api.followFeed().catch(() => ({ items: [] })),
-      // Active (unexpired, audience-visible) stories, grouped by author. Already
-      // RLS-filtered; a failure just hides the strip.
-      api.activeStories().catch(() => []),
       // Everything my progress bumps have unlocked (feeds the Unlocked tab).
       // Already RLS-filtered; a failure just empties the tab.
       api.myUnlocks().catch(() => []),
@@ -205,7 +199,6 @@ async function boot(root, initialTab = "feed") {
 
     paintClubsRail(root, data);
     paintReadingRail(root, data);
-    paintStories(root, stories, load);
     paintGreeting(root, events);
     paintAnnouncements(root, shared, ctx, load);
     paintTabBar();
@@ -226,10 +219,10 @@ async function boot(root, initialTab = "feed") {
 
   // Paint whichever stream the active tab shows — both go through the same
   // eventCardHTML painter, so the Unlocked tab reads exactly like the feed.
-  // Stories, the greeting, and announcements belong to the mixed feed; the
-  // Unlocked tab is just the caught-up reactions.
+  // The greeting and announcements belong to the mixed feed; the Unlocked tab
+  // is just the caught-up reactions.
   function paintStream() {
-    for (const sel of ["[data-stories]", "[data-greeting]", "[data-announce]"]) {
+    for (const sel of ["[data-greeting]", "[data-announce]"]) {
       const el = root.querySelector(sel);
       if (el) el.style.display = activeTab === "unlocked" ? "none" : "";
     }
@@ -266,7 +259,7 @@ async function boot(root, initialTab = "feed") {
   await load();
 
   // The "+" compose hub: a floating action button that opens a small menu of
-  // three create actions (post / story / start a book). Wired once — the shell
+  // two create actions (post / start a book). Wired once — the shell
   // stays mounted across live refreshes, and it reads myClubs fresh each open.
   wireComposeHub(root, () => myClubs, load);
 
@@ -282,9 +275,6 @@ async function boot(root, initialTab = "feed") {
     api.subscribe("feed-engagements", "engagements", undefined, refresh),
     api.subscribe("feed-replies", "reaction_replies", undefined, refresh),
     api.subscribe("feed-announcements", "announcements", undefined, refresh),
-    // Stories strip: a new/removed story or a fresh view (seen ring) repaints.
-    api.subscribe("feed-stories", "stories", undefined, refresh),
-    api.subscribe("feed-story-views", "story_views", undefined, refresh),
   ];
   onCleanup(() => { clearTimeout(timer); subs.forEach((u) => u()); });
 }
@@ -390,74 +380,6 @@ function paintReadingRail(root, data) {
     </div>` : ""}`;
 
   wireGo(host);
-}
-
-/* --------------------------------------------------------- STORIES · strip */
-// The ephemeral-stories strip above the greeting. Groups came back already
-// RLS-filtered + grouped by author from api.activeStories(). Your own bubble is
-// pinned first as "＋ Your story" (tap to compose; if you already have live
-// stories, tap opens your viewer and a small + affordance composes). Each other
-// author bubble wears a yarn-accent ring when it has an unseen story, dimmed
-// when all seen. Tapping opens the full-screen viewer at that author.
-function paintStories(root, groups, reload) {
-  const host = root.querySelector("[data-stories]");
-  if (!host) return;
-
-  // Bubbles for people I follow / club-mates (my own group is handled below).
-  const others = groups.filter((g) => !g.isMine);
-  const mine = groups.find((g) => g.isMine) || null;
-
-  const bubble = (g, i) => {
-    const name = g.profile?.display_name || "Reader";
-    const ringClass = g.allSeen ? "story-seen" : "story-unseen";
-    return `
-      <button class="story-bubble ${ringClass}" data-open-story="${i}"
-        title="${esc(name)}'s story" aria-label="${esc(name)}'s story">
-        <span class="story-ring">${avatarHTML(g.profile, 58)}</span>
-        <span class="story-bubble-name">${esc(name)}</span>
-      </button>`;
-  };
-
-  // "＋ Your story" bubble always leads. If I have live stories it shows my
-  // avatar with a + badge (tap = view mine); otherwise a plain add tile.
-  const myBubble = mine
-    ? `<button class="story-bubble story-mine ${mine.allSeen ? "story-seen" : "story-unseen"}"
-         data-open-mine title="Your story" aria-label="Your story">
-         <span class="story-ring">${avatarHTML(mine.profile, 58)}<span class="story-add-badge">＋</span></span>
-         <span class="story-bubble-name">Your story</span>
-       </button>`
-    : `<button class="story-bubble story-mine story-add" data-compose
-         title="Add to your story" aria-label="Add to your story">
-         <span class="story-ring story-ring-add">＋</span>
-         <span class="story-bubble-name">Your story</span>
-       </button>`;
-
-  host.innerHTML = `<div class="story-strip">${myBubble}${others.map((g, i) => bubble(g, i)).join("")}</div>`;
-
-  // Repaint the strip after the viewer closes so newly-seen rings dim, and after
-  // composing so a fresh story appears.
-  const afterClose = () => reload();
-
-  host.querySelector("[data-compose]")?.addEventListener("click", async () => {
-    const posted = await composeStory(cropImage);
-    if (posted) reload();
-  });
-
-  host.querySelector("[data-open-mine]")?.addEventListener("click", () => {
-    // Open the viewer starting on my own group (index 0 of the full groups list,
-    // since api.activeStories() pins mine first).
-    openStoryViewer(groups, 0, afterClose);
-  });
-
-  host.querySelectorAll("[data-open-story]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      // btn index is into `others`; map it to the index within the full groups
-      // list the viewer walks.
-      const other = others[Number(btn.dataset.openStory)];
-      const gi = groups.indexOf(other);
-      openStoryViewer(groups, gi < 0 ? 0 : gi, afterClose);
-    });
-  });
 }
 
 /* --------------------------------------------------------- ANNOUNCEMENTS */
@@ -819,12 +741,11 @@ function wireDrawers(root) {
 }
 
 /* ------------------------------------------------------- COMPOSE HUB ("+") */
-// A floating action button opening a menu of three create actions:
+// A floating action button opening a menu of two create actions:
 //   1. Create post  — the multi-club post composer (composePostToClubs)
-//   2. Post a story — the SAME story composer the "＋ Your story" bubble uses
-//   3. Start a book — pick a club, then the existing OpenLibrary addBookModal
+//   2. Start a book — pick a club, then the existing OpenLibrary addBookModal
 // `getClubs` returns the feed's latest myClubs snapshot; `reload` repaints the
-// feed after a post/story so a fresh item shows immediately.
+// feed after a post so a fresh item shows immediately.
 function wireComposeHub(root, getClubs, reload) {
   const fab = root.querySelector("[data-fab]");
   if (!fab || fab.dataset.wired) return;
@@ -839,11 +760,6 @@ function wireComposeHub(root, getClubs, reload) {
           <span class="compose-hub-text"><strong>Create post</strong>
             <span class="faint">a thought or photo, to one or more clubs</span></span>
         </button>
-        <button class="compose-hub-action" data-compose="story">
-          <span class="compose-hub-icon">📸</span>
-          <span class="compose-hub-text"><strong>Post a story</strong>
-            <span class="faint">disappears in 72 hours</span></span>
-        </button>
         <button class="compose-hub-action" data-compose="book">
           <span class="compose-hub-icon">📚</span>
           <span class="compose-hub-text"><strong>Start a book</strong>
@@ -855,12 +771,6 @@ function wireComposeHub(root, getClubs, reload) {
       modal.querySelector("[data-compose='post']").addEventListener("click", async () => {
         closeModal();
         const posted = await composePostToClubs(getClubs());
-        if (posted) reload();
-      });
-      modal.querySelector("[data-compose='story']").addEventListener("click", async () => {
-        closeModal();
-        // Reuse the exact same composer entry point as the stories strip bubble.
-        const posted = await composeStory(cropImage);
         if (posted) reload();
       });
       modal.querySelector("[data-compose='book']").addEventListener("click", () => {
