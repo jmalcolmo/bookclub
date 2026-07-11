@@ -934,11 +934,14 @@ export async function clubPosts(clubId) {
   return rows.map((r) => ({ ...r, profile: pById[r.user_id] }));
 }
 
-// Upload a post photo to the 'post-images' bucket under the club's folder
-// (member-scoped by storage RLS) and return its public URL. Mirrors the club
-// cover upload path convention: `${clubId}/${Date.now()}.jpg`.
+// Upload a post photo to the 'post-images' bucket under the club's folder,
+// further scoped to the uploader's own subfolder, and return its public URL.
+// Path convention: `${clubId}/${user.id}/${Date.now()}.jpg`. The first segment
+// (club) is member-scoped by storage RLS; the second segment (uploader) must
+// equal auth.uid(), so one member can never write into another member's folder.
 export async function uploadPostImage(clubId, blob) {
-  const path = `${clubId}/${Date.now()}.jpg`;
+  const user = (await supabase.auth.getUser()).data.user;
+  const path = `${clubId}/${user.id}/${Date.now()}.jpg`;
   const { error } = await supabase.storage.from("post-images")
     .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
   if (error) throw error;
