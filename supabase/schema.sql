@@ -506,9 +506,17 @@ drop policy if exists "books_update_owner" on books;
 create policy "books_update_owner" on books
   for update using (is_club_owner(club_id)) with check (is_club_owner(club_id));
 
+-- DELETE is a time-bounded undo, not a permanent history-erase: the club owner or
+-- the member who picked the book may remove it, but ONLY within 3 days of when it
+-- was added (created_at). After that window the book is permanent — ending/finishing
+-- is the history-preserving exit. The `created_at` guard only ADDS a restriction;
+-- it never widens who may delete.
 drop policy if exists "books_delete_owner_or_picker" on books;
 create policy "books_delete_owner_or_picker" on books
-  for delete using (is_club_owner(club_id) or picked_by = auth.uid());
+  for delete using (
+    (is_club_owner(club_id) or picked_by = auth.uid())
+    and created_at > now() - interval '3 days'
+  );
 
 -- ============================================================================
 -- READING PROGRESS  (one row per user per book)
@@ -552,9 +560,14 @@ drop policy if exists "progress_upsert_own" on reading_progress;
 create policy "progress_upsert_own" on reading_progress
   for insert with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
+-- Parity with progress_upsert_own: an UPDATE must satisfy the same predicate as
+-- an INSERT — you own the row AND you're still a member of the book's club. Without
+-- the membership clause a user who left a club could keep mutating their progress
+-- row on that club's book. The added clause only RESTRICTS; it never widens.
 drop policy if exists "progress_update_own" on reading_progress;
 create policy "progress_update_own" on reading_progress
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
 -- A reader may remove their OWN progress row (e.g. reset "I haven't started this
 -- after all"). Owner-only: another member can never wipe your progress. Deleting
@@ -591,6 +604,16 @@ alter table reactions enable row level security;
 -- clubs. The `not is_club_member(...)` guard is essential: inside a club you
 -- share, the spoiler gate above stays the sole authority, so following someone
 -- can never reveal their page-200 reaction before you've read to page 200.
+--
+-- HONESTY-BASED BY DESIGN: the gate keys off the reader's SELF-REPORTED
+-- reading_progress.current_page (they set it via progress_update_own). A reader
+-- who wants to spoil themselves can simply bump their page to the end and unlock
+-- everything — this is intentional. The gate is a COURTESY against ACCIDENTAL
+-- spoilers (stumbling onto a late-book reaction you didn't mean to read), NOT an
+-- adversarial control against a reader determined to spoil their own experience.
+-- What it DOES guarantee server-side: you never see another member's reaction for
+-- a page beyond your recorded progress without taking the deliberate step of
+-- advancing that progress yourself.
 drop policy if exists "reactions_select_spoiler_gated" on reactions;
 create policy "reactions_select_spoiler_gated" on reactions
   for select using (
@@ -1052,23 +1075,29 @@ create policy "clubimg_delete_owner" on storage.objects
 
 -- post-images: any MEMBER of a club may write a photo under that club's folder
 -- (club posts are not owner-restricted — any member can post). The client writes
--- under `${club.id}/...`; the first path segment scopes the write server-side.
--- A malformed, non-uuid first segment makes is_club_member() return false →
--- denied. A member may delete their own uploads to clean up.
+-- under `${club.id}/${user.id}/...`; the FIRST path segment scopes the write to
+-- the club server-side, and the SECOND segment must equal the uploader's own id
+-- (auth.uid()) so one member cannot write into another member's subfolder and
+-- spoof authorship of an image object. A malformed, non-uuid first segment makes
+-- is_club_member() return false → denied. A member may delete their own uploads
+-- to clean up.
 drop policy if exists "postimg_insert_member" on storage.objects;
 create policy "postimg_insert_member" on storage.objects
   for insert with check (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   );
 drop policy if exists "postimg_update_member" on storage.objects;
 create policy "postimg_update_member" on storage.objects
   for update using (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   ) with check (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   );
 drop policy if exists "postimg_delete_member" on storage.objects;
 create policy "postimg_delete_member" on storage.objects
