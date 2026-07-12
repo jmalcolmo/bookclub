@@ -59,7 +59,9 @@ post-update gate (non-author can't edit); post-delete gate (non-author can't del
 gate (non-member can't upload to the club folder); membership gate (non-member can't read/insert a
 club's posts, and following does NOT expose them))** · add book · edit book
 deadline · read current book + books list · log
-progress · post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
+progress · **DB-owned progress timestamps (trigger stamps started_at once — page bumps never
+move it; finished_at cleared on un-finish, re-finish earns a new date)** ·
+post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 **reaction→progress sync (logged page can never sit below a reaction you posted)** ·
 delete own reaction · **reaction-delete gate (non-author cannot delete)** ·
 post reaction reply · author reads reply · **reply-delete gate (non-author cannot delete)** ·
