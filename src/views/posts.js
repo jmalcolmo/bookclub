@@ -198,7 +198,7 @@ function postCardHTML(p, myId) {
 // MULTI-SELECT. On submit it uploads the photo ONCE (if any) and fans the post
 // out to every selected club via api.addPostToClubs (one club_posts row per
 // club; RLS still authorizes each insert). This is an OVERLAY, not a route, so
-// it reuses the story-compose backdrop styling. Resolves true if a post went
+// it uses the post-compose backdrop styling. Resolves true if a post went
 // out (so the feed can refresh), false if the user cancelled or posted nothing.
 //
 // `clubs` is the caller's already-loaded club list (api.myClubs()); passing it in
@@ -209,7 +209,7 @@ export async function composePostToClubs(clubs = []) {
     const selected = new Set(clubs.length === 1 ? [clubs[0].id] : []);
 
     const back = document.createElement("div");
-    back.className = "story-compose-backdrop";
+    back.className = "post-compose-backdrop";
     const clubChips = clubs.map((c) => `
       <button type="button" class="post-club-chip ${selected.has(c.id) ? "selected" : ""}"
         data-club="${esc(c.id)}" aria-pressed="${selected.has(c.id)}">
@@ -217,24 +217,24 @@ export async function composePostToClubs(clubs = []) {
       </button>`).join("");
 
     back.innerHTML = `
-      <div class="story-compose patch">
-        <h3 class="story-compose-title stamp-title small">✎ New post</h3>
-        <p class="faint story-compose-blurb">Share a thought or a photo. Pick which clubs see it.</p>
+      <div class="post-compose patch">
+        <h3 class="post-compose-title stamp-title small">✎ New post</h3>
+        <p class="faint post-compose-blurb">Share a thought or a photo. Pick which clubs see it.</p>
         ${clubs.length
           ? `<div class="post-club-select" data-clubs>${clubChips}</div>`
           : `<p class="faint">Join or create a club first - posts go to a club.</p>`}
-        <div data-preview class="story-compose-preview" hidden></div>
-        <label class="btn-ghost small story-compose-photo">📷 add photo
+        <div data-preview class="post-compose-preview" hidden></div>
+        <label class="btn-ghost small post-compose-photo">📷 add photo
           <input type="file" accept="image/*" data-photo hidden></label>
         <textarea data-body rows="3" maxlength="800"
           placeholder="what's on your mind? (a book haul, a meetup pic, a hot take…)"></textarea>
-        <div class="story-compose-actions">
+        <div class="post-compose-actions">
           <button class="btn-ghost small" data-cancel>cancel</button>
           <button class="btn-primary small" data-post>post</button>
         </div>
       </div>`;
     document.body.appendChild(back);
-    document.body.classList.add("story-viewer-open");
+    document.body.classList.add("post-compose-open");
 
     const preview = back.querySelector("[data-preview]");
     const fileInput = back.querySelector("[data-photo]");
@@ -243,7 +243,7 @@ export async function composePostToClubs(clubs = []) {
 
     const done = (posted) => {
       back.remove();
-      document.body.classList.remove("story-viewer-open");
+      document.body.classList.remove("post-compose-open");
       resolve(posted);
     };
 
