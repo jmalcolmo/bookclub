@@ -1,5 +1,5 @@
 /* =====================================================================
-   THE MARBLE RACE — app.js
+   THE MARBLE RACE - app.js
    Book Club Edition. Single-file app, split from index.html + styles.css
    ===================================================================== */
 
@@ -81,7 +81,7 @@ function showToast(msg, kind = 'warn', ttl = 4200) {
 }
 
 /* =====================================================================
-   MARBLE STORE — localStorage CRUD
+   MARBLE STORE - localStorage CRUD
    ===================================================================== */
 const MarbleStore = {
   load() {
@@ -124,7 +124,7 @@ const ScreenManager = {
 };
 
 /* =====================================================================
-   AVATAR RENDERING — returns a CSS-ready data URL or base64
+   AVATAR RENDERING - returns a CSS-ready data URL or base64
    ===================================================================== */
 function drawInitialsAvatar(name, color, size = 120) {
   const c = document.createElement('canvas');
@@ -167,7 +167,7 @@ function raceAvatarSource(marble) {
 }
 
 /* =====================================================================
-   UI CONTROLLER — menu, marble grid, setup, editor modal
+   UI CONTROLLER - menu, marble grid, setup, editor modal
    ===================================================================== */
 const UI = {
   setupState: { selectedIds: new Set(), selectedMap: null },
@@ -334,7 +334,7 @@ const UI = {
     const ytUrl = form.youtube.value.trim();
     const ytId = ytUrl ? extractVideoId(ytUrl) : null;
     if (ytUrl && !ytId) {
-      showToast('That YouTube link doesn\'t look right — check and try again.', 'error');
+      showToast('That YouTube link doesn\'t look right - check and try again.', 'error');
       return;
     }
     const ytStart = ytId ? parseTime(form.yt_start.value) : null;
@@ -579,7 +579,7 @@ function formatTime(s) {
 }
 
 /* =====================================================================
-   AUDIO MANAGER — YouTube IFrame Player, per-marble
+   AUDIO MANAGER - YouTube IFrame Player, per-marble
    ===================================================================== */
 const AudioManager = {
   ytReady: false,
@@ -644,7 +644,7 @@ const AudioManager = {
             },
             onError: (e) => {
               entry.failed = true;
-              showToast(`⚠️ ${m.name}'s song couldn't load — embedding may be disabled.`, 'warn');
+              showToast(`⚠️ ${m.name}'s song couldn't load - embedding may be disabled.`, 'warn');
             }
           }
         });
@@ -740,7 +740,7 @@ window.onYouTubeIframeAPIReady = function () {
 };
 
 /* =====================================================================
-   MAP BUILDERS — build static Matter bodies for each map
+   MAP BUILDERS - build static Matter bodies for each map
    ===================================================================== */
 const MapBuilder = {
   build(name, Engine, Bodies, Composite, world) {
@@ -801,7 +801,7 @@ const MapBuilder = {
       left = !left;
     }
 
-    // pinch points — short stubs from each wall
+    // pinch points - short stubs from each wall
     const pinches = [600, 1100, 1600];
     pinches.forEach((py, i) => {
       const fromLeft = i % 2 === 0;
@@ -828,7 +828,7 @@ const MapBuilder = {
     bodies.push(this._wall(Bodies, W-10, H/2, 20, H, 0, '#587888'));
     bodies.push(this._wall(Bodies, W/2, -10, W, 20, 0, '#587888'));
 
-    // mogul bumps — rows of small circles
+    // mogul bumps - rows of small circles
     const rows = 9;
     for (let r = 0; r < rows; r++) {
       const y = 260 + r * 170;
@@ -864,7 +864,7 @@ const MapBuilder = {
     bodies.push(this._wall(Bodies, W-10, H/2, 20, H, 0, '#886878'));
     bodies.push(this._wall(Bodies, W/2, -10, W, 20, 0, '#886878'));
 
-    // bumpers — irregular rows, alternating sizes
+    // bumpers - irregular rows, alternating sizes
     const startY = 220;
     const endY = H - 360;
     for (let y = startY; y < endY; y += 130) {
@@ -880,7 +880,7 @@ const MapBuilder = {
       }
     }
 
-    // 3 vertical dividers with gaps that stagger — marbles must switch lanes
+    // 3 vertical dividers with gaps that stagger - marbles must switch lanes
     const dividerYs = [600, 1200, 1800];
     dividerYs.forEach((dy, idx) => {
       const gapX = 140 + (idx * 180) % (W - 280);
@@ -1017,7 +1017,7 @@ const PowerUpManager = {
       this.effects[id].push({ kind, endsAt: now + def.duration, color: def.color, data: {} });
       return;
     }
-    // gravity, magnet — handled in beforeUpdate
+    // gravity, magnet - handled in beforeUpdate
     this.effects[id].push({ kind, endsAt: now + def.duration, color: def.color, data: {} });
   },
 
@@ -1146,7 +1146,7 @@ const PowerUpManager = {
 };
 
 /* =====================================================================
-   RACE CONTROLLER — orchestrates Matter engine + lead tracking + finish
+   RACE CONTROLLER - orchestrates Matter engine + lead tracking + finish
    ===================================================================== */
 const RaceController = {
   Matter: null,
@@ -1184,7 +1184,7 @@ const RaceController = {
     const mapData = MapBuilder.build(mapName, M.Engine, M.Bodies, M.Composite, this.world);
     this.mapSize = { width: mapData.width, height: mapData.height };
 
-    // render — sized to fit wrap
+    // render - sized to fit wrap
     const wrapRect = wrap.getBoundingClientRect();
     const canvasH = Math.max(400, wrapRect.height - 20);
     const canvasW = Math.min(wrapRect.width - 20, mapData.width);
@@ -1235,7 +1235,7 @@ const RaceController = {
     // set up powerups
     PowerUpManager.init(M, this.world, this.mapSize);
 
-    // collision events — finish + orb pickup
+    // collision events - finish + orb pickup
     M.Events.on(this.engine, 'collisionStart', (evt) => {
       evt.pairs.forEach(pair => {
         const { bodyA, bodyB } = pair;
@@ -1251,13 +1251,13 @@ const RaceController = {
       });
     });
 
-    // before update — powerup effects
+    // before update - powerup effects
     M.Events.on(this.engine, 'beforeUpdate', () => {
       PowerUpManager.onBeforeUpdate(this.marbles.map(m => m.body));
       this.cameraFollow();
     });
 
-    // after render — draw halos + label overlays
+    // after render - draw halos + label overlays
     M.Events.on(this.render, 'afterRender', () => {
       const ctx = this.render.context;
       PowerUpManager.afterRender(ctx, this.marbles.map(m => m.body), this.render.bounds);
@@ -1428,7 +1428,7 @@ const RaceController = {
 };
 
 /* =====================================================================
-   RESULTS CONTROLLER — celebration + podium
+   RESULTS CONTROLLER - celebration + podium
    ===================================================================== */
 const ResultsController = {
   countdownHandle: null,

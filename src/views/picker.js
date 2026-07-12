@@ -11,7 +11,7 @@ export async function renderPicker({ params }) {
     api.getClub(clubId), api.clubMembers(clubId), api.openSelections(clubId),
   ]);
 
-  // If a vote is already in progress, surface it as a resumable banner — but
+  // If a vote is already in progress, surface it as a resumable banner - but
   // still show the method options so "Pick next reader" never skips the choice.
   const openVote = open.find((s) => s.method === "vote");
 
@@ -39,7 +39,7 @@ export async function renderPicker({ params }) {
           <span class="method-desc">choose a member directly</span></button>
         <button class="method-card patch method-parked" data-m="race">
           <span class="method-emoji">🔮</span><span class="method-name">Marble Race</span>
-          <span class="method-desc">the classic — being rebuilt</span></button>
+          <span class="method-desc">the classic - being rebuilt</span></button>
       </div>
       <div data-stage class="picker-stage"></div>
     </div>
@@ -119,7 +119,7 @@ function wheelName(m) {
 }
 
 // Draw the whole wheel as one SVG so slices and labels live in the same
-// coordinate system — the old bug was slices and labels using separate layouts.
+// coordinate system - the old bug was slices and labels using separate layouts.
 // The <svg data-wheel> element is what we later spin.
 function wheelSVG(members) {
   const n = members.length;
@@ -129,7 +129,7 @@ function wheelSVG(members) {
   const slices = members.map((m, i) => {
     const fill = colorFor(m.profile?.display_name || m.user_id);
     const mid = i * seg + seg / 2;
-    // Single member: a full circle can't be drawn as one arc — use a disc.
+    // Single member: a full circle can't be drawn as one arc - use a disc.
     let shape;
     if (n === 1) {
       shape = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
@@ -181,7 +181,7 @@ function wheelStage(stage, { clubId, members }) {
     const turns = 5 + Math.floor(Math.random() * 3);
     const rotation = spinRotation(target, n, turns);
 
-    // The winner is whatever slice ends up under the pointer — read back from the
+    // The winner is whatever slice ends up under the pointer - read back from the
     // final rotation via the SAME shared wheel.js math (see src/wheel.js), so the
     // announced name can never disagree with where the marker points.
     const winner = members[winnerIndex(rotation, n)];
@@ -190,7 +190,7 @@ function wheelStage(stage, { clubId, members }) {
     wheel.style.transition = `transform ${SPIN_MS}ms cubic-bezier(.17,.67,.12,.99)`;
     wheel.style.transform = `rotate(${rotation}deg)`;
 
-    // Fire on a timer matching the animation — transitionend is unreliable for
+    // Fire on a timer matching the animation - transitionend is unreliable for
     // SVG transforms across browsers, so don't depend on it.
     setTimeout(async () => {
       let selId = null;
@@ -230,7 +230,7 @@ function pickStage(stage, { clubId, members }) {
 
 function startVoteStage(stage, { clubId }) {
   stage.innerHTML = `
-    <p class="faint center">open a vote — everyone in the club can cast one vote.</p>
+    <p class="faint center">open a vote - everyone in the club can cast one vote.</p>
     <button class="btn-primary big" data-open-vote>Open the vote</button>`;
   stage.querySelector("[data-open-vote]").addEventListener("click", async (e) => {
     e.currentTarget.disabled = true;

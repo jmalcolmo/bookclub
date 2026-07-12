@@ -6,7 +6,7 @@ const routes = [];
 let notFound = () => { document.getElementById("app").innerHTML = "<p>Not found.</p>"; };
 
 // Cleanups (e.g. realtime unsubscribes) registered by the current view. They run
-// before the next render — including re-renders of the same route — so views
+// before the next render - including re-renders of the same route - so views
 // never leave a stale subscription behind.
 let cleanups = [];
 export function onCleanup(fn) { cleanups.push(fn); }

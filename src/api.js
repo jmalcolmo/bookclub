@@ -30,7 +30,7 @@ export async function updateProfile(userId, changes) {
 // ----------------------------------------------------------------- FOLLOWS ---
 // A follow graph OUTSIDE of clubs: I can follow another reader and then see the
 // SOLO reading they do in clubs I'm not part of (their own progress + reactions).
-// RLS enforces every rule — the follows_* policies here, plus the additive
+// RLS enforces every rule - the follows_* policies here, plus the additive
 // follow paths on profiles/books/reactions/reading_progress. The club spoiler
 // gate is never widened: inside a shared club it stays the sole authority.
 
@@ -80,7 +80,7 @@ export async function unfollow(userId) {
   );
 }
 
-// The "people you follow" feed: for each reader I follow, their SOLO reading —
+// The "people you follow" feed: for each reader I follow, their SOLO reading -
 // recent reactions and progress on books in clubs I'm NOT a member of. RLS only
 // ever returns the follow-visible rows, so whatever comes back is safe to show.
 // Rows are decorated with the author's profile and the book, and sorted newest
@@ -117,7 +117,7 @@ export async function followFeed({ limit = 40 } = {}) {
     })),
   ]
     // Only surface rows we could resolve a book for (RLS may hide the book if the
-    // follow path didn't apply — defensive, keeps the feed coherent).
+    // follow path didn't apply - defensive, keeps the feed coherent).
     .filter((i) => i.book)
     .sort((a, b) => new Date(b.at) - new Date(a.at))
     .slice(0, limit);
@@ -128,7 +128,7 @@ export async function followFeed({ limit = 40 } = {}) {
 // ---------------------------------------------------------------- ACTIVITY ---
 // Who engaged with MY content: likes/emoji on my reactions, comments (replies),
 // reviews and progress milestones, plus replies posted under my reactions.
-// Everything here is already reader-visible to me under RLS — I can always see
+// Everything here is already reader-visible to me under RLS - I can always see
 // my own rows, and engagements/replies on them route through those same gates.
 // Anyone able to engage my content necessarily shares a club with me, so their
 // profile resolves too. Returns items newest first:
@@ -169,7 +169,7 @@ export async function myActivity({ limit = 30 } = {}) {
       : [],
   ]);
 
-  // My replies hang off OTHER people's reactions — resolve those parents for
+  // My replies hang off OTHER people's reactions - resolve those parents for
   // their book ids (visible to me: I could see them when I replied).
   const parentIds = [...new Set(
     myReplies.map((r) => r.reaction_id).filter((id) => !reactionById[id])
@@ -208,7 +208,7 @@ export async function myActivity({ limit = 30 } = {}) {
 
   for (const e of engs) {
     const book = bById[bookIdOf(e)];
-    if (!book) continue; // target no longer resolvable — nothing to link to
+    if (!book) continue; // target no longer resolvable - nothing to link to
     let snippet = null, highlight = null;
     if (e.target_type === "reaction") {
       snippet = reactionById[e.target_id]?.body;
@@ -423,7 +423,7 @@ export async function myProgress(bookId) {
 
 export async function setProgress(bookId, currentPage, status, { prevPage } = {}) {
   const user = (await supabase.auth.getUser()).data.user;
-  // Timestamps (updated_at / started_at / finished_at) are owned by the DB — the
+  // Timestamps (updated_at / started_at / finished_at) are owned by the DB - the
   // stamp_reading_progress BEFORE trigger sets them. The client must NOT send them:
   // a client clock could corrupt history, and re-sending started_at on every save
   // was destroying the true start date. Send only the fields we actually own.
@@ -441,7 +441,7 @@ export async function setProgress(bookId, currentPage, status, { prevPage } = {}
   // A forward bump may open the spoiler gate on other members' reactions in the
   // pages just crossed. Detection lives here (one place) so every caller records
   // for free; the newly-unlocked list is attached to the return so a caller can
-  // show the "N reactions unlocked" banner without a second RPC. Never fatal —
+  // show the "N reactions unlocked" banner without a second RPC. Never fatal -
   // a bookkeeping failure just means no banner this time.
   saved.unlocked = [];
   if (prevPage != null && currentPage > prevPage) {
@@ -456,7 +456,7 @@ export async function setProgress(bookId, currentPage, status, { prevPage } = {}
 
 // Reset my own progress on a book (delete the row). RLS (progress_delete_own)
 // restricts this to the reader themself. Removing the row re-locks any reactions
-// they'd unlocked by reading past them — the spoiler gate reads live from
+// they'd unlocked by reading past them - the spoiler gate reads live from
 // reading_progress, so it stays correct.
 export async function deleteProgress(bookId) {
   const user = (await supabase.auth.getUser()).data.user;
@@ -466,7 +466,7 @@ export async function deleteProgress(bookId) {
   );
   // Resetting re-locks this book's reactions, so any unlock rows I recorded for it
   // are now stale. Drop them (RLS scopes reactions to what I can see; a re-locked
-  // reaction just won't match, which is fine — the row goes either way on reset).
+  // reaction just won't match, which is fine - the row goes either way on reset).
   const rx = unwrap(await supabase.from("reactions").select("id").eq("book_id", bookId));
   if (rx.length) {
     await supabase.from("reaction_unlocks").delete()
@@ -477,7 +477,7 @@ export async function deleteProgress(bookId) {
 
 // ---------------------------------------------------- UNLOCKED REACTIONS ---
 // Reactions by OTHER members that fall in (fromPage, toPage] and are now visible
-// to me — i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
+// to me - i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
 // RPC, so RLS (the spoiler gate) still decides what comes back; fromPage/toPage
 // only bound the window. Decorated with the author profile like bookReactions().
 export async function unlockedReactions(bookId, fromPage, toPage) {
@@ -544,14 +544,14 @@ export async function markUnlocksSeen(reactionIds) {
 }
 
 // One reader's reading history: every book THAT reader marked finished, newest
-// first — with their rating where the viewer may see the review. Powers both my
+// first - with their rating where the viewer may see the review. Powers both my
 // own shelf and the shelf on another reader's profile. RLS does all the gating:
 //   - their reading_progress rows return only where the viewer is a co-member
 //     of the book's club (progress_select_member) or via the additive follow path;
 //   - books resolve only in clubs the viewer can see;
 //   - the owner's review returns only when the VIEWER has finished that book
 //     (the review gate), so a hidden rating simply renders as "not rated".
-// Whatever RLS hides just doesn't appear — an invisible reader yields [].
+// Whatever RLS hides just doesn't appear - an invisible reader yields [].
 export async function readingHistoryFor(userId) {
   const progress = unwrap(
     await supabase.from("reading_progress").select("*")
@@ -574,7 +574,7 @@ export async function readingHistoryFor(userId) {
 }
 
 // My personal reading history: every book I've marked finished, across all my
-// clubs, newest first — with my own rating if I reviewed it. Mirrors a club's
+// clubs, newest first - with my own rating if I reviewed it. Mirrors a club's
 // "books read" shelf but scoped to me (the self case of readingHistoryFor).
 export async function myReadingHistory() {
   const user = (await supabase.auth.getUser()).data.user;
@@ -584,7 +584,7 @@ export async function myReadingHistory() {
 // ---------------------------------------------------- PERSONAL INVOLVEMENT ---
 // One reader's OWN footprint on a single book: the reactions they authored, the
 // replies they wrote, and their reading-progress events. Keyed by bookId +
-// ownerId — this is a "just their stuff" view reached from a profile shelf.
+// ownerId - this is a "just their stuff" view reached from a profile shelf.
 //
 // SPOILER GATE: every row here still comes back through RLS. If the viewer is a
 // co-member of the owner's club, they can only see the owner's reactions/replies
@@ -592,7 +592,7 @@ export async function myReadingHistory() {
 // and can always read the owner's reading_progress row (progress_select_member
 // lets any co-member read a member's progress). If the viewer follows the owner
 // on a book in a club the viewer is NOT in, the additive follow path applies.
-// Either way the client never re-implements gating — whatever rows return here
+// Either way the client never re-implements gating - whatever rows return here
 // are already safe to render. Returns:
 //   { book, owner, reactions:[…], replies:[…], progress: row|null }
 // where reactions are the owner's, replies are the owner's (each decorated with
@@ -641,7 +641,7 @@ export async function userBookInvolvement(bookId, userId) {
 // (matched by open_library_id across club-scoped books rows). Powers the "Show
 // complete reactions" affordance on the personal involvement view: with exactly
 // one shared club we can jump straight into that club's full book history; with
-// several the caller shows a chooser. Returns [{ club, book }] — the club plus
+// several the caller shows a chooser. Returns [{ club, book }] - the club plus
 // the specific books row for that work in that club (the id book.js routes to).
 //
 // Empty open_library_id means we can't correlate the same work across clubs, so
@@ -652,7 +652,7 @@ export async function sharedClubsForWork(openLibraryId, ownerId) {
   if (!openLibraryId) return [];
   const me = (await supabase.auth.getUser()).data.user;
 
-  // Clubs I'm in and clubs the owner is in — intersect for co-membership.
+  // Clubs I'm in and clubs the owner is in - intersect for co-membership.
   const [mine, theirs] = await Promise.all([
     supabase.from("club_members").select("club_id").eq("user_id", me.id).then(unwrap),
     supabase.from("club_members").select("club_id").eq("user_id", ownerId).then(unwrap),
@@ -919,7 +919,7 @@ export async function postAnnouncement(body) {
 // ------------------------------------------------------------- CLUB POSTS ---
 // Lightweight Twitter/X-style posts scoped to a club: a short text update OR a
 // single photo. These are NOT reviews and carry NO page number, so there is NO
-// spoiler gate — but they ARE club-member-scoped. RLS (posts_select_member)
+// spoiler gate - but they ARE club-member-scoped. RLS (posts_select_member)
 // only returns posts to members of the club, so whatever comes back is safe to
 // show; posts_insert_member limits writes to members, and only the author can
 // edit/delete their own. Photos live in the 'post-images' bucket under
@@ -965,7 +965,7 @@ export async function addPost(clubId, { body, imageUrl } = {}) {
 // Fan a single composed post out to several clubs at once (the "+" compose hub's
 // "Create post" action, which carries a club multi-select). One club_posts row is
 // inserted per club via the existing addPost path, so RLS (posts_insert_member)
-// still authorizes each write independently — a non-member club id simply fails
+// still authorizes each write independently - a non-member club id simply fails
 // its own insert. The image, if any, is uploaded ONCE by the caller and the
 // resulting public URL is shared across all rows (post-images objects are publicly
 // readable, so the shared URL renders for every club's members). Returns the array

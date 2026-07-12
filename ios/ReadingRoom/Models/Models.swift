@@ -147,7 +147,7 @@ struct ReactionReply: Codable, Identifiable, Hashable, Sendable {
 // MARK: - club_posts (lightweight, NON-spoiler-gated, member-scoped)
 
 // A short text update OR a single photo shared to a club. NOT a review, no page
-// number, so NO spoiler gate — but membership-scoped by RLS (only members of the
+// number, so NO spoiler gate - but membership-scoped by RLS (only members of the
 // club can read/write). body and imageUrl are each optional; a post carries at
 // least one of them (the table CHECK enforces it).
 struct ClubPost: Codable, Identifiable, Hashable, Sendable {

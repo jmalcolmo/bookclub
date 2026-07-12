@@ -5,7 +5,7 @@
 // Run:  node tests/provision-users.mjs
 //
 // Works when the dev project allows email sign-ups. If "Confirm email" is ON in
-// the dev project, the users are created but must be confirmed before sign-in —
+// the dev project, the users are created but must be confirmed before sign-in -
 // the script tells you which case you're in.
 // If a service_role key is provided (SUPABASE_SERVICE_ROLE), it creates them
 // pre-confirmed via the admin API (best path).

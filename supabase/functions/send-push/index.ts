@@ -1,4 +1,4 @@
-// send-push — Supabase Edge Function that delivers an APNs push in two cases:
+// send-push - Supabase Edge Function that delivers an APNs push in two cases:
 //
 //   1. PROGRESS UPDATE. Fire it as a Database Webhook on INSERT/UPDATE of
 //      public.reading_progress. The webhook posts the changed row; we notify the
@@ -10,7 +10,7 @@
 //      finished them.
 //
 // Auth to the DB uses the service-role key (bypasses RLS) so we can read every
-// member's device token — that key is a Supabase-provided secret, never RLS.
+// member's device token - that key is a Supabase-provided secret, never RLS.
 // APNs auth uses the .p8 provider key from env (see _shared/apns.ts). Nothing is
 // hardcoded; if secrets are missing the function returns a clear error.
 
@@ -111,7 +111,7 @@ async function handleDeadlineCheck() {
 
     const { sent } = await pushToUsers(db, laggards, {
       title: "Reading Room",
-      body: `“${book.title}” is due soon — you haven't finished yet.`,
+      body: `“${book.title}” is due soon - you haven't finished yet.`,
     });
     totalSent += sent;
     perBook.push({ book: book.id, notified: laggards.length, sent });

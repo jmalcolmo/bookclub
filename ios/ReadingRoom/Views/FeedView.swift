@@ -114,7 +114,7 @@ final class FeedModel {
             let clubs = try await API.myClubs()
 
             // Readers I follow: their solo reading OUTSIDE my clubs (already
-            // RLS-filtered). Items inside a shared club are dropped below —
+            // RLS-filtered). Items inside a shared club are dropped below -
             // the club events cover those.
             let myClubIds = Set(clubs.map(\.id))
             let followItems = ((try? await API.followFeed())?.items ?? [])
@@ -136,7 +136,7 @@ final class FeedModel {
             }
 
             // Bulk-load reply threads, global announcements, and every
-            // engagement on anything visible (three queries, not per-club) —
+            // engagement on anything visible (three queries, not per-club) -
             // including the Unlocked tab's reactions, so its cards carry the same
             // live engagement bars + reply threads as the mixed feed.
             let reactionIds = Array(Set(gathered.flatMap { $0.reactions.map(\.id) }
@@ -224,7 +224,7 @@ final class FeedModel {
         bag.cancelAll()
     }
 
-    // Viewing the Unlocked tab marks its rows seen (server-side, cross-device —
+    // Viewing the Unlocked tab marks its rows seen (server-side, cross-device -
     // same semantics as dismissing an announcement) and clears the badge.
     func markUnlockedSeen() {
         let ids = unseenUnlockIds
@@ -465,7 +465,7 @@ struct FeedView: View {
     @State private var broadcastDraft = ""
 
     // Which stream shows: the mixed feed, or the reactions my bumps unlocked
-    // (TikTok-style "For You / Following" split — here "Feed / ✨ Unlocked").
+    // (TikTok-style "For You / Following" split - here "Feed / ✨ Unlocked").
     enum FeedStreamTab { case feed, unlocked }
     @State private var feedTab: FeedStreamTab = .feed
 
@@ -475,7 +475,7 @@ struct FeedView: View {
     @State private var showBookClubPicker = false
     @State private var bookClub: ClubSummary?   // chosen club for "Start a book"
 
-    // My clubs, from the loaded snapshots — feeds the post multi-select and the
+    // My clubs, from the loaded snapshots - feeds the post multi-select and the
     // start-a-book club picker without a second fetch.
     private var myClubs: [ClubSummary] { model.snapshots.map(\.summary) }
     // Only clubs I own can have their current book set (books insert/update is
@@ -525,7 +525,7 @@ struct FeedView: View {
         .sheet(isPresented: $showBookClubPicker) {
             BookClubPickerSheet(clubs: ownedClubs) { chosen in
                 // Dismiss the picker first, then present the book search once it's
-                // gone — presenting a new sheet mid-dismissal can drop the second.
+                // gone - presenting a new sheet mid-dismissal can drop the second.
                 showBookClubPicker = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { bookClub = chosen }
             }
@@ -617,13 +617,13 @@ struct FeedView: View {
     }
 
     // The ✨ Unlocked stream: reactions my bumps opened, same FeedEventCard as
-    // the mixed feed — just filtered to what I've caught up to.
+    // the mixed feed - just filtered to what I've caught up to.
     @ViewBuilder
     private var unlockedStream: some View {
         if model.unlockedEvents.isEmpty {
             EmptyStateView(
                 title: "nothing unlocked yet.",
-                hint: "reactions club-mates left in pages you've read appear here once you log progress past them — spoiler-free until you get there."
+                hint: "reactions club-mates left in pages you've read appear here once you log progress past them - spoiler-free until you get there."
             )
         } else {
             ForEach(model.unlockedEvents) { event in
@@ -646,7 +646,7 @@ struct FeedView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("— \(quote.author), \(quote.work) (\(quote.year))")
+                Text("- \(quote.author), \(quote.work) (\(quote.year))")
                     .font(Theme.monoFont(11))
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)

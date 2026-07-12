@@ -38,7 +38,7 @@ enum Theme {
     // MARK: fonts
     // CrimsonPro.ttf is a variable font; these are its named instances. Core
     // Text registers every instance except Regular under the "CrimsonProRoman-"
-    // prefix — asking for "CrimsonPro-SemiBold" finds nothing and SwiftUI
+    // prefix - asking for "CrimsonPro-SemiBold" finds nothing and SwiftUI
     // silently substitutes the system font. All sizes are Dynamic Type-relative.
 
     static func displayFont(_ size: CGFloat) -> Font {

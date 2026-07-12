@@ -1,6 +1,6 @@
 // Club posts (views/posts.js): a lightweight Twitter/X-style feed of short text
 // updates and single-photo posts, scoped to one club. These are NOT reviews and
-// carry NO page number, so there is NO spoiler gate — but they ARE club-member-
+// carry NO page number, so there is NO spoiler gate - but they ARE club-member-
 // scoped: RLS only ever returns/accepts posts for members of the club, so the
 // view relies entirely on the server for access control (never re-implements it).
 import { render, navigate, onCleanup } from "../router.js";
@@ -34,7 +34,7 @@ export async function renderPosts({ params }) {
       </div>
 
       <p class="posts-blurb faint">Share a quick thought or a photo with the club.
-        No page numbers, no spoilers gate — everyone in ${esc(club.name)} sees these.</p>
+        No page numbers, no spoilers gate - everyone in ${esc(club.name)} sees these.</p>
 
       ${membership ? `
       <div class="post-compose patch">
@@ -75,7 +75,7 @@ export async function renderPosts({ params }) {
         e.target.value = ""; // allow re-picking the same file later
         if (!file) return;
         try {
-          // Reuse the shared cropper (bakes an image/jpeg blob) — 'square' keeps
+          // Reuse the shared cropper (bakes an image/jpeg blob) - 'square' keeps
           // post photos consistent and small, matching the storage size cap.
           const blob = await cropImage(file, { shape: "square" });
           if (!blob) return; // cancelled
@@ -129,7 +129,7 @@ async function loadPosts(root, clubId) {
 
   host.innerHTML = posts.length
     ? posts.map((p) => postCardHTML(p, myId)).join("")
-    : `<p class="faint">no posts yet — be the first to share something.</p>`;
+    : `<p class="faint">no posts yet - be the first to share something.</p>`;
 
   wireUserLinks(host);
 
@@ -222,7 +222,7 @@ export async function composePostToClubs(clubs = []) {
         <p class="faint story-compose-blurb">Share a thought or a photo. Pick which clubs see it.</p>
         ${clubs.length
           ? `<div class="post-club-select" data-clubs>${clubChips}</div>`
-          : `<p class="faint">Join or create a club first — posts go to a club.</p>`}
+          : `<p class="faint">Join or create a club first - posts go to a club.</p>`}
         <div data-preview class="story-compose-preview" hidden></div>
         <label class="btn-ghost small story-compose-photo">📷 add photo
           <input type="file" accept="image/*" data-photo hidden></label>

@@ -1,10 +1,10 @@
 // Personal involvement view (keyed by bookId + ownerId): ONE reader's own
-// footprint on a single book — the reactions they wrote, the replies they wrote,
-// and their reading-progress events — NOT the whole club's feed. Reached by
+// footprint on a single book - the reactions they wrote, the replies they wrote,
+// and their reading-progress events - NOT the whole club's feed. Reached by
 // tapping a book on a profile's "Books I've read" shelf.
 //
 // SPOILER GATE stays entirely server-side: every row comes back through RLS
-// (api.userBookInvolvement), so whatever renders here is already safe to show —
+// (api.userBookInvolvement), so whatever renders here is already safe to show -
 // this view never re-implements gating. A "Show complete reactions" button is
 // offered ONLY when the viewer and owner share a club that also has this work
 // (api.sharedClubsForWork); it opens the existing full book history (book.js).
@@ -65,8 +65,8 @@ export async function renderBookInvolvement({ params } = {}) {
         <div class="involvement-cta">
           <button type="button" class="btn-primary" data-complete>Show complete reactions</button>
           <p class="faint">${sharedClubs.length === 1
-            ? "opens this book's full club history — everyone's reactions."
-            : "opens a club's full book history — everyone's reactions."}</p>
+            ? "opens this book's full club history - everyone's reactions."
+            : "opens a club's full book history - everyone's reactions."}</p>
         </div>` : ""}
 
       <section class="involvement-section">
@@ -104,7 +104,7 @@ function progressLineHTML(p, book, who) {
       <span class="faint">page ${p.current_page}${of} · finished ${fmtDate(p.finished_at || p.updated_at)}</span></p>`;
   }
   if (p.status === "reading") {
-    return `<p class="involvement-progress">📖 <span class="faint">reading — page ${p.current_page}${of} · updated ${timeAgo(p.updated_at)}</span></p>`;
+    return `<p class="involvement-progress">📖 <span class="faint">reading - page ${p.current_page}${of} · updated ${timeAgo(p.updated_at)}</span></p>`;
   }
   return `<p class="involvement-progress">🔖 <span class="faint">not started yet</span></p>`;
 }

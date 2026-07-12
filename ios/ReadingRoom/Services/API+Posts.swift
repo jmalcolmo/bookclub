@@ -1,6 +1,6 @@
 // Club posts (port of the CLUB POSTS section of src/api.js). Lightweight
 // Twitter/X-style posts scoped to a club: a short text update OR a single photo.
-// These are NOT reviews and carry NO page number, so there is NO spoiler gate —
+// These are NOT reviews and carry NO page number, so there is NO spoiler gate -
 // but they ARE club-member-scoped. RLS (posts_select_member) only returns posts
 // to members of the club, so whatever comes back is already safe to show; the
 // app never re-implements access control client-side. posts_insert_member limits
@@ -59,7 +59,7 @@ extension API {
     // Fan a single composed post out to several clubs at once (the "+" compose
     // hub's "Create post" action, which carries a club multi-select). One
     // club_posts row is inserted per club via the existing addPost path, so RLS
-    // (posts_insert_member) still authorizes each write independently — a
+    // (posts_insert_member) still authorizes each write independently - a
     // non-member club id simply fails its own insert. The image, if any, is
     // uploaded ONCE by the caller and its public URL shared across all rows
     // (post-images objects are publicly readable). Returns the created rows; a

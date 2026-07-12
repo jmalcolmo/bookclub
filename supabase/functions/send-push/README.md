@@ -2,9 +2,9 @@
 
 Delivers an APNs push in two cases:
 
-1. **Progress update** — wire as a Database Webhook on `INSERT`/`UPDATE` of
+1. **Progress update** - wire as a Database Webhook on `INSERT`/`UPDATE` of
    `public.reading_progress`. Notifies the other members of that book's club.
-2. **Near-deadline / unfinished check** — invoke on a schedule with body
+2. **Near-deadline / unfinished check** - invoke on a schedule with body
    `{"mode":"deadline-check"}`. Notifies members who haven't finished a book
    whose `deadline` is within the next 24h.
 

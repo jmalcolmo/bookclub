@@ -2,7 +2,7 @@
 // reply threads (X-style). Both the book feed and the home feed compose their
 // cards from these pieces, so the look + behavior stay identical everywhere.
 //
-// All DB access still goes through api.js — this module only builds markup and
+// All DB access still goes through api.js - this module only builds markup and
 // wires DOM events, then calls api.toggle/add/delete. It never touches supabase
 // directly (per the repo's api.js boundary rule).
 import { esc, avatarHTML, timeAgo, toast, userLinkHTML } from "./ui.js";

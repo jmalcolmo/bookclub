@@ -1,4 +1,4 @@
-// Activity (port of api.js myActivity): who engaged with MY content — likes /
+// Activity (port of api.js myActivity): who engaged with MY content - likes /
 // emoji on my reactions, comments (replies), reviews and progress milestones,
 // plus replies posted under my reactions. Everything is already reader-visible
 // to me under RLS (I can always see my own rows, and engagements/replies on

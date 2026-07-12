@@ -20,7 +20,7 @@ export async function renderBook({ params }) {
 
   const myPage = mine?.current_page || 0;
   const finished = mine?.status === "finished";
-  // "started" once any progress is logged — a reading/finished row, or any page > 0.
+  // "started" once any progress is logged - a reading/finished row, or any page > 0.
   // Drives whether the redundant "mark started" button shows.
   const hasStarted = !!mine && (mine.status === "reading" || finished || myPage > 0);
   const isCreator = membership?.role === "creator" || membership?.role === "owner";
@@ -238,7 +238,7 @@ async function loadFeed(root, clubId, book) {
   const notifs = buildNotifications(progress, members.length, book);
 
   // Pull the replies (reactions only) and ALL engagements for everything on this
-  // screen in two bulk queries — reactions, their replies, and progress cards.
+  // screen in two bulk queries - reactions, their replies, and progress cards.
   const reactionIds = reactions.map((r) => r.id);
   const replies = await api.reactionReplies(reactionIds);
   const repliesByReaction = groupBy(replies, "reaction_id");
@@ -272,7 +272,7 @@ async function loadFeed(root, clubId, book) {
     ? feed.map((item) => item.kind === "reaction"
         ? reactionCardHTML(item.data, ctx, book)
         : notifCardHTML(item.data, ctx)).join("")
-    : `<p class="faint">nothing here yet — be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
+    : `<p class="faint">nothing here yet - be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
 
   host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
     if (!(await confirmDialog("This permanently deletes your reaction. This cannot be undone.", {
@@ -304,12 +304,12 @@ async function loadFeed(root, clubId, book) {
     });
   });
 
-  // Likes, emoji tapbacks, and reply threads — refresh the feed on any change.
+  // Likes, emoji tapbacks, and reply threads - refresh the feed on any change.
   wireUserLinks(host);
   wireEngagementUI(host, () => loadFeed(root, clubId, book));
 
   // Arriving from the profile's Activity feed: scroll to the reaction where the
-  // like/comment happened and flash it. One-shot — consume the stash either way.
+  // like/comment happened and flash it. One-shot - consume the stash either way.
   const hl = sessionStorage.getItem("rr-highlight");
   if (hl) {
     sessionStorage.removeItem("rr-highlight");
@@ -331,7 +331,7 @@ function groupBy(rows, key) {
 function wire(root, { clubId, book, mine }) {
   root.querySelector("[data-nav='club']").addEventListener("click", () => navigate(`/club/${clubId}`));
 
-  // progress save. When finished, the panel is locked (no form) — only the
+  // progress save. When finished, the panel is locked (no form) - only the
   // "Mark as still reading" control is present.
   const pForm = root.querySelector("[data-progress]");
   const startedBtn = pForm?.querySelector("[data-act='started']");
@@ -344,7 +344,7 @@ function wire(root, { clubId, book, mine }) {
     const saved = await api.setProgress(book.id, page, st, { prevPage: mine?.current_page ?? 0 });
     mine = { current_page: page, status: st };
     if (pForm) pForm.page.value = page;
-    // First progress logged makes "mark started" redundant — drop it for good.
+    // First progress logged makes "mark started" redundant - drop it for good.
     if (st === "reading" || st === "finished" || page > 0) startedBtn?.remove();
     if (!silent) toast("Progress saved", "success");
     if (saved?.unlocked?.length) unlockToast(saved.unlocked.length);

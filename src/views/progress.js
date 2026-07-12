@@ -1,4 +1,4 @@
-// "My Progress" — the logging hub: every current book across my clubs, each
+// "My Progress" - the logging hub: every current book across my clubs, each
 // with my position AND inline entry forms (update progress / post a reaction)
 // so logging never requires a trip through the club → book pages. The book
 // cover/title still taps through to the full book page. Reads come from
@@ -50,7 +50,7 @@ function paint(host, reading, reload) {
     host.innerHTML = `
       <div class="empty-state patch">
         <p>you're not reading anything yet.</p>
-        <p class="faint">join a club and set a book — your reading progress shows up here.</p>
+        <p class="faint">join a club and set a book - your reading progress shows up here.</p>
       </div>`;
     return;
   }
@@ -107,7 +107,7 @@ function card({ club, book, mine }) {
   return `
     <article class="progress-card patch ${finished ? "progress-card-finished" : ""}" data-card="${book.id}">
       <button class="progress-card-top" data-go="/club/${club.id}/book/${book.id}"
-        aria-label="Open ${esc(book.title)} — ${esc(club.name)} — ${status}">
+        aria-label="Open ${esc(book.title)} - ${esc(club.name)} - ${status}">
         ${book.cover_url
           ? `<img class="book-cover" src="${esc(book.cover_url)}" alt="${esc(book.title)} cover">`
           : `<div class="book-cover book-cover-blank" role="img" aria-label="${esc(book.title)} cover">📖</div>`}
@@ -140,7 +140,7 @@ function wireCard(host, { club, book, mine }, reload) {
   };
 
   // Finished card: editing is locked. Only wire the reversible "still reading"
-  // control (keeps current_page, flips status back to reading) — the "add a
+  // control (keeps current_page, flips status back to reading) - the "add a
   // reaction" button rides the shared [data-go] handler to the book page.
   if (mine?.status === "finished") {
     card.querySelector("[data-act='unfinish']")?.addEventListener("click", async () => {

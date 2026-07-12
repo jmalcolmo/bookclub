@@ -155,7 +155,7 @@ export function closeModal() {
 // with a safe, default-focused cancel and a confirm button, and resolves to a
 // boolean. `opts.danger` colors the confirm button with --negative and is meant
 // for irreversible actions. `opts.typeToConfirm` (a string) gates the confirm
-// button behind the user typing that exact text — use it for the scariest paths
+// button behind the user typing that exact text - use it for the scariest paths
 // (e.g. deleting a whole club). The message is spelled out and escaped here, so
 // callers pass plain strings (rule 3 is handled for you).
 export function confirmDialog(message, opts = {}) {

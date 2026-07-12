@@ -1,5 +1,5 @@
 /* =============================================
-   THE MARBLE RACE — Granny Square Design System
+   THE MARBLE RACE - Granny Square Design System
    ============================================= */
 
 :root {
@@ -227,7 +227,7 @@ html, body {
   padding: 10px 18px;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
-/* Visible focus rings for keyboard navigation — use offset outline so it clears
+/* Visible focus rings for keyboard navigation - use offset outline so it clears
    thick borders and shows against both light and dark backgrounds. */
 .btn-primary:focus-visible,
 .btn-ghost:focus-visible,
@@ -729,7 +729,7 @@ html, body {
 }
 
 /* =============================================
-   RESULTS — CELEBRATION
+   RESULTS - CELEBRATION
    ============================================= */
 .results-screen {
   background: var(--bg);

@@ -1,6 +1,6 @@
 // Club posts (port of views/posts.js): a lightweight Twitter/X-style feed of
 // short text updates and single-photo posts, scoped to one club. These are NOT
-// reviews and carry NO page number, so there is NO spoiler gate — but they ARE
+// reviews and carry NO page number, so there is NO spoiler gate - but they ARE
 // club-member-scoped: RLS only ever returns/accepts posts for members of the
 // club, so this view relies entirely on the server for access control (it never
 // re-implements it). The web file input becomes PhotosPicker + the cropper.
@@ -139,7 +139,7 @@ struct PostsView: View {
                 }
 
                 if model.posts.isEmpty {
-                    Text("no posts yet — be the first to share something.")
+                    Text("no posts yet - be the first to share something.")
                         .font(Theme.displayFont(15))
                         .foregroundStyle(Theme.textMuted)
                         .padding(.top, 6)
@@ -298,7 +298,7 @@ struct PostsView: View {
 // The same text + single-photo composer as PostsView (no page numbers, no
 // spoiler gate) but with a CLUB MULTI-SELECT. On submit it uploads the photo
 // ONCE (if any) and fans the post out to every selected club via
-// API.addPostToClubs — one club_posts row per club; RLS still authorizes each
+// API.addPostToClubs - one club_posts row per club; RLS still authorizes each
 // insert. Presented as a sheet from the feed's compose hub. `clubs` is the
 // feed's already-loaded club list, so no extra fetch is needed.
 struct MultiClubPostComposerView: View {
@@ -324,7 +324,7 @@ struct MultiClubPostComposerView: View {
                         .foregroundStyle(Theme.textMuted)
 
                     if clubs.isEmpty {
-                        Text("Join or create a club first — posts go to a club.")
+                        Text("Join or create a club first - posts go to a club.")
                             .font(Theme.displayFont(15))
                             .foregroundStyle(Theme.textMuted)
                     } else {
@@ -388,7 +388,7 @@ struct MultiClubPostComposerView: View {
                 }
             }
             .onAppear {
-                // Preselect when there's only one club — the common case.
+                // Preselect when there's only one club - the common case.
                 if clubs.count == 1, let only = clubs.first { selected = [only.id] }
             }
         }

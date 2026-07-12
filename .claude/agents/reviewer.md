@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Read-only code reviewer for The Reading Room, tuned to this app's invariants — spoiler-gating, RLS/auth, the api.js boundary, realtime cleanup, and XSS. Use to review a diff, branch, or PR before merge. Returns findings only; makes no changes.
+description: Read-only code reviewer for The Reading Room, tuned to this app's invariants - spoiler-gating, RLS/auth, the api.js boundary, realtime cleanup, and XSS. Use to review a diff, branch, or PR before merge. Returns findings only; makes no changes.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -27,7 +27,7 @@ Default to the current branch's diff vs `develop` (or a PR if given one):
    using `auth.role() = 'authenticated'` where membership is required, recursive
    `club_members` subqueries (should use `is_club_member()`), join codes becoming
    enumerable, or any reliance on the service_role key in app flows.
-3. **api.js boundary.** Views must not call `supabase.from(...)` directly — all DB access
+3. **api.js boundary.** Views must not call `supabase.from(...)` directly - all DB access
    goes through `src/api.js`. Flag violations.
 4. **XSS.** Any user-controlled string placed into `innerHTML` must pass through `esc()`.
    Grep for template literals interpolating data into markup without escaping.
