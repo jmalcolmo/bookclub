@@ -423,16 +423,16 @@ export async function myProgress(bookId) {
 
 export async function setProgress(bookId, currentPage, status, { prevPage } = {}) {
   const user = (await supabase.auth.getUser()).data.user;
-  const now = new Date().toISOString();
+  // Timestamps (updated_at / started_at / finished_at) are owned by the DB — the
+  // stamp_reading_progress BEFORE trigger sets them. The client must NOT send them:
+  // a client clock could corrupt history, and re-sending started_at on every save
+  // was destroying the true start date. Send only the fields we actually own.
   const row = {
     book_id: bookId,
     user_id: user.id,
     current_page: currentPage,
     status,
-    updated_at: now,
   };
-  if (status === "reading") row.started_at = now;
-  if (status === "finished") row.finished_at = now;
   const saved = unwrap(
     await supabase.from("reading_progress")
       .upsert(row, { onConflict: "book_id,user_id" })
