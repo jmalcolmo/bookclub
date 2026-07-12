@@ -577,6 +577,39 @@ drop policy if exists "progress_delete_own" on reading_progress;
 create policy "progress_delete_own" on reading_progress
   for delete using (user_id = auth.uid());
 
+-- The DATABASE owns reading_progress timestamps — a client clock must never set
+-- them, or a wrong/rolled-back device time can corrupt history. This BEFORE
+-- trigger stamps them on every write:
+--   updated_at  — always bumped to now().
+--   started_at  — stamped ONCE, the first time the row is 'reading' or 'finished',
+--                 then preserved (coalesce). This is the fix for the data-loss bug
+--                 where re-saving while 'reading' overwrote the true start date.
+--   finished_at — stamped when status becomes 'finished' (coalesce preserves an
+--                 existing date), and CLEARED when a book returns to 'reading' so a
+--                 later re-finish earns an honest new date instead of a stale one.
+create or replace function public.stamp_reading_progress()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  if new.status in ('reading', 'finished') then
+    new.started_at := coalesce(new.started_at, now());
+  end if;
+  if new.status = 'finished' then
+    new.finished_at := coalesce(new.finished_at, now());
+  elsif new.status = 'reading' then
+    new.finished_at := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_stamp_reading_progress on reading_progress;
+create trigger trg_stamp_reading_progress
+  before insert or update on reading_progress
+  for each row execute function public.stamp_reading_progress();
+
 -- ============================================================================
 -- REACTIONS  (page-tagged; SPOILER-GATED in the SELECT policy)
 -- ============================================================================
