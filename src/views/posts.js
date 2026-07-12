@@ -8,6 +8,7 @@ import { esc, toast, avatarHTML, clubAvatarHTML, timeAgo, userLinkHTML, wireUser
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { cropImage } from "../imageCropper.js";
+import { confirmDialog } from "./clubs.js";
 
 export async function renderPosts({ params }) {
   const clubId = params.id;
@@ -135,7 +136,9 @@ async function loadPosts(root, clubId) {
   // Delete my own post (RLS posts_delete_own restricts this to the author).
   host.querySelectorAll("[data-del-post]").forEach((b) =>
     b.addEventListener("click", async () => {
-      if (!confirm("Delete this post?")) return;
+      if (!(await confirmDialog("This permanently deletes your post. This cannot be undone.", {
+        title: "Delete post", confirmLabel: "Delete", danger: true,
+      }))) return;
       try { await api.deletePost(b.dataset.delPost); loadPosts(root, clubId); }
       catch (err) { toast(err.message, "error"); }
     }));

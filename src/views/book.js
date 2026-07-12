@@ -2,7 +2,7 @@ import { render, navigate, onCleanup } from "../router.js";
 import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil, userLinkHTML, wireUserLinks } from "../ui.js";
 import { store } from "../store.js";
 import * as api from "../api.js";
-import { openModal, closeModal } from "./clubs.js";
+import { openModal, closeModal, confirmDialog } from "./clubs.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
 import { unlockToast } from "./unlocked.js";
 
@@ -275,7 +275,9 @@ async function loadFeed(root, clubId, book) {
     : `<p class="faint">nothing here yet — be the first to post a reaction. log more pages to unlock reactions from others.</p>`;
 
   host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("Delete this reaction?")) return;
+    if (!(await confirmDialog("This permanently deletes your reaction. This cannot be undone.", {
+      title: "Delete reaction", confirmLabel: "Delete", danger: true,
+    }))) return;
     try { await api.deleteReaction(b.dataset.del); loadFeed(root, clubId, book); }
     catch (err) { toast(err.message, "error"); }
   }));
@@ -419,7 +421,9 @@ function wire(root, { clubId, book, mine }) {
   // I'd unlocked by reading past them (the spoiler gate reads live from progress),
   // so re-render the screen to reflect the new (relocked) state.
   root.querySelector("[data-act='reset-progress']")?.addEventListener("click", async () => {
-    if (!confirm("Reset your reading progress for this book? This re-locks reactions past your current page.")) return;
+    if (!(await confirmDialog("This resets your reading progress for this book and re-locks any reactions past your current page. This cannot be undone.", {
+      title: "Reset progress", confirmLabel: "Reset progress", danger: true,
+    }))) return;
     try {
       await api.deleteProgress(book.id);
       toast("Progress reset", "success");
@@ -499,7 +503,9 @@ function wire(root, { clubId, book, mine }) {
     });
   });
   root.querySelector("[data-act='finish-book']")?.addEventListener("click", async () => {
-    if (!confirm("Mark this book finished for the whole club? It moves to history.")) return;
+    if (!(await confirmDialog("This marks the book finished for the whole club and moves it to history for everyone. This cannot be undone.", {
+      title: "Finish book", confirmLabel: "Finish for the club", danger: true,
+    }))) return;
     try { await api.finishBook(book.id); toast("Book finished", "success"); navigate(`/club/${clubId}`); }
     catch (err) { toast(err.message, "error"); }
   });
@@ -535,7 +541,9 @@ function wire(root, { clubId, book, mine }) {
   const reviewsHost = root.querySelector("[data-reviews]");
   const wireReviewDeletes = () => reviewsHost?.querySelectorAll("[data-del-review]").forEach((b) =>
     b.addEventListener("click", async () => {
-      if (!confirm("Delete your review?")) return;
+      if (!(await confirmDialog("This permanently deletes your review. This cannot be undone.", {
+        title: "Delete review", confirmLabel: "Delete", danger: true,
+      }))) return;
       try {
         await api.deleteReview(b.dataset.delReview);
         toast("Review deleted", "success");

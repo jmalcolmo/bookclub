@@ -150,3 +150,83 @@ export function openModal(innerHTML, after) {
 export function closeModal() {
   document.querySelectorAll("[data-modal='true']").forEach((m) => m.remove());
 }
+
+// Themed replacement for the native confirm(): renders a modal (via openModal)
+// with a safe, default-focused cancel and a confirm button, and resolves to a
+// boolean. `opts.danger` colors the confirm button with --negative and is meant
+// for irreversible actions. `opts.typeToConfirm` (a string) gates the confirm
+// button behind the user typing that exact text — use it for the scariest paths
+// (e.g. deleting a whole club). The message is spelled out and escaped here, so
+// callers pass plain strings (rule 3 is handled for you).
+export function confirmDialog(message, opts = {}) {
+  const {
+    title = "Are you sure?",
+    confirmLabel = "Confirm",
+    cancelLabel = "Cancel",
+    danger = false,
+    typeToConfirm = null,
+  } = opts;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKey);
+      closeModal();
+      resolve(val);
+    };
+    const onKey = (e) => { if (e.key === "Escape") finish(false); };
+
+    const typeField = typeToConfirm ? `
+      <label class="field"><span class="field-label">type <strong>${esc(typeToConfirm)}</strong> to confirm</span>
+        <input data-confirm-input type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+          placeholder="${esc(typeToConfirm)}" /></label>` : "";
+
+    const back = openModal(`
+      <h3>${esc(title)}</h3>
+      <div class="modal-body">
+        <p>${esc(message)}</p>
+        ${typeField}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-confirm-cancel>${esc(cancelLabel)}</button>
+        <button type="button" class="btn-primary" data-confirm-ok>${esc(confirmLabel)}</button>
+      </div>
+    `, (modal) => {
+      const okBtn = modal.querySelector("[data-confirm-ok]");
+      const cancelBtn = modal.querySelector("[data-confirm-cancel]");
+      // Only paint the confirm button red while it's actually enabled, so the
+      // disabled (grey) state during type-to-confirm stays visible.
+      const applyDanger = () => {
+        if (!danger) return;
+        const on = !okBtn.disabled;
+        okBtn.style.background = on ? "var(--negative)" : "";
+        okBtn.style.borderColor = on ? "var(--negative)" : "";
+      };
+      cancelBtn.addEventListener("click", () => finish(false));
+      okBtn.addEventListener("click", () => { if (!okBtn.disabled) finish(true); });
+
+      if (typeToConfirm) {
+        okBtn.disabled = true;
+        applyDanger();
+        const input = modal.querySelector("[data-confirm-input]");
+        input.addEventListener("input", () => {
+          okBtn.disabled = input.value.trim() !== typeToConfirm;
+          applyDanger();
+        });
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !okBtn.disabled) { e.preventDefault(); finish(true); }
+        });
+        setTimeout(() => input.focus(), 0);
+      } else {
+        applyDanger();
+        setTimeout(() => cancelBtn.focus(), 0);
+      }
+    });
+    // Backdrop click / Escape are treated as cancel (openModal also removes the
+    // node on backdrop click; finish() resolves the promise either way).
+    back.addEventListener("click", (e) => { if (e.target === back) finish(false); });
+    document.addEventListener("keydown", onKey);
+  });
+}
