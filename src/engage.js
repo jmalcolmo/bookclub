@@ -7,6 +7,7 @@
 // directly (per the repo's api.js boundary rule).
 import { esc, avatarHTML, timeAgo, toast, userLinkHTML } from "./ui.js";
 import * as api from "./api.js";
+import { confirmDialog } from "./views/clubs.js";
 
 // The fixed tapback palette (Like is separate, rendered as its own button).
 export const EMOJI_PALETTE = ["❤️", "😂", "😮", "😢", "🔥"];
@@ -178,7 +179,9 @@ export function wireReplies(scope, onChange) {
     b.dataset.wired = "1";
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm("Delete this reply?")) return;
+      if (!(await confirmDialog("This permanently deletes your reply. This cannot be undone.", {
+        title: "Delete reply", confirmLabel: "Delete", danger: true,
+      }))) return;
       try { await api.deleteReply(b.dataset.delReply); onChange?.(); }
       catch (err) { toast(err.message, "error"); }
     });

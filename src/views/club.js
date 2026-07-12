@@ -3,7 +3,7 @@ import { esc, toast, avatarHTML, clubAvatarHTML, accentHex, fmtDate, daysUntil, 
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { supabase } from "../supabaseClient.js";
-import { openModal, closeModal } from "./clubs.js";
+import { openModal, closeModal, confirmDialog } from "./clubs.js";
 import { searchBooks } from "../openlibrary.js";
 import { cropImage } from "../imageCropper.js";
 
@@ -236,12 +236,16 @@ function clubMenu(club, isOwner) {
       closeModal(); addBookModal(club);
     });
     modal.querySelector("[data-action='leave']").addEventListener("click", async () => {
-      if (!confirm(`Leave ${club.name}?`)) return;
+      if (!(await confirmDialog(`This removes you from ${club.name}. You'll lose access to its books, reactions and progress unless you rejoin.`, {
+        title: "Leave club", confirmLabel: "Leave club", danger: true,
+      }))) return;
       try { await api.leaveClub(club.id); closeModal(); toast("Left club", "info"); navigate("/clubs"); }
       catch (err) { toast(err.message, "error"); }
     });
     modal.querySelector("[data-action='delete']")?.addEventListener("click", async () => {
-      if (!confirm(`Permanently delete ${club.name}? This removes the club and ALL its books, reactions, reviews and progress for everyone. This cannot be undone.`)) return;
+      if (!(await confirmDialog(`This permanently deletes ${club.name} and ALL its books, reactions, reviews and progress for everyone. This cannot be undone.`, {
+        title: "Delete club", confirmLabel: "Delete club", danger: true, typeToConfirm: club.name,
+      }))) return;
       try { await api.deleteClub(club.id); closeModal(); toast("Club deleted", "info"); navigate("/clubs"); }
       catch (err) { toast(err.message, "error"); }
     });
