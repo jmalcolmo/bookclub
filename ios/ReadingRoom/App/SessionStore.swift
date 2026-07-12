@@ -48,7 +48,7 @@ final class SessionStore {
         }
         PushRegistrar.onError = { error in
             // Simulator, missing entitlement, or offline: nothing to store. Log
-            // only — push is best-effort and must never block sign-in.
+            // only - push is best-effort and must never block sign-in.
             print("APNs registration failed: \(error.localizedDescription)")
         }
     }

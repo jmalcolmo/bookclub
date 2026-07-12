@@ -33,7 +33,7 @@ struct ReactionItem: Identifiable, Hashable, Sendable {
     var id: UUID { reaction.id }
 }
 
-// A recorded unlock decorated with its reaction, author, and book — the shape the
+// A recorded unlock decorated with its reaction, author, and book - the shape the
 // Unlocked inbox groups by book (api.js myUnlocks). Reaction/book come back
 // RLS-filtered; a row whose reaction is no longer visible is dropped upstream.
 struct UnlockItem: Identifiable, Hashable, Sendable {
@@ -79,8 +79,8 @@ struct HistoryBook: Identifiable, Hashable, Sendable {
     var id: UUID { book.id }
 }
 
-// One entry in the "people you follow" feed: a followee's SOLO reading — either
-// a reaction or a progress update on a book in a club I'm not in — decorated
+// One entry in the "people you follow" feed: a followee's SOLO reading - either
+// a reaction or a progress update on a book in a club I'm not in - decorated
 // with the author's profile and the book. Mirrors api.js followFeed().
 struct FollowFeedItem: Identifiable, Hashable, Sendable {
     enum Kind: Hashable, Sendable { case reaction, progress }
@@ -96,7 +96,7 @@ struct FollowFeedItem: Identifiable, Hashable, Sendable {
 }
 
 // One row of the Following screen: a reader I follow plus their latest visible
-// reading — the book and how far in they are (api.js followingReading). Both
+// reading - the book and how far in they are (api.js followingReading). Both
 // nil when RLS shows me none of their progress.
 struct FollowedReader: Identifiable, Hashable, Sendable {
     let profile: Profile
@@ -106,7 +106,7 @@ struct FollowedReader: Identifiable, Hashable, Sendable {
 }
 
 // One entry of the profile's Activity feed: someone liked / emoji-reacted /
-// commented on my content (api.js myActivity). `book` is where it happened —
+// commented on my content (api.js myActivity). `book` is where it happened -
 // tapping the row navigates there; `highlightReactionId` is the reaction to
 // land on when the target lives in a thread.
 struct ActivityItem: Identifiable, Hashable, Sendable {

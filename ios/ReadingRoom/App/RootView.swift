@@ -94,7 +94,7 @@ struct MainTabView: View {
     // if the feed already handled the last one.
     @State private var composeSignal = 0
 
-    // Intercepts a tap on the "Create" tab: never actually select it — switch to
+    // Intercepts a tap on the "Create" tab: never actually select it - switch to
     // the Feed and fire the compose hub instead. Any other tab selects normally.
     private var tabSelection: Binding<Tab> {
         Binding(
@@ -126,7 +126,7 @@ struct MainTabView: View {
             .tabItem { Label("Clubs", systemImage: "books.vertical") }
             .tag(Tab.clubs)
 
-            // Not a real destination — selecting it is intercepted by tabSelection
+            // Not a real destination - selecting it is intercepted by tabSelection
             // to open the compose hub. Content never shows; it exists only so the
             // "+" renders as a native tab item matching the others.
             Color.clear

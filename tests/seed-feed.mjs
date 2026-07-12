@@ -1,5 +1,5 @@
 // ============================================================================
-// The Reading Room — FEED SEEDER (DEV only)
+// The Reading Room - FEED SEEDER (DEV only)
 // ----------------------------------------------------------------------------
 // Populates the dev database with a believable, busy book club so the main feed
 // looks like a real club: many members, a current book + finished history, lots
@@ -10,7 +10,7 @@
 //   (or: SUPABASE_SERVICE_ROLE="$(cat .passwords/dev-service-role.txt)" node tests/seed-feed.mjs)
 //
 // How it works:
-//   * Uses the dev SERVICE_ROLE key, which BYPASSES RLS — so it can insert rows
+//   * Uses the dev SERVICE_ROLE key, which BYPASSES RLS - so it can insert rows
 //     on behalf of many fake users and set realistic timestamps. (The `test`
 //     harness deliberately uses the anon key to exercise RLS; this is different:
 //     it is a data generator, not a test.)
@@ -19,7 +19,7 @@
 //   * Adds your real Google account as the club OWNER with deep progress, so when
 //     you sign in on the dev site you immediately see the whole populated feed
 //     (RLS only shows a club to members, and the spoiler gate only unlocks
-//     reactions up to YOUR logged page — deep progress unlocks them all).
+//     reactions up to YOUR logged page - deep progress unlocks them all).
 //
 // SAFE: refuses to run unless it is pointed at the DEV project.
 // ============================================================================
@@ -37,7 +37,7 @@ if (!SERVICE_ROLE && existsSync(".passwords/dev-service-role.txt")) {
 }
 
 // The Supabase project a service_role key belongs to is encoded in its JWT `ref`
-// claim — so we can prove the *credential* is dev, not just the endpoint URL.
+// claim - so we can prove the *credential* is dev, not just the endpoint URL.
 function keyRef(jwt) {
   try {
     const p = JSON.parse(Buffer.from(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
@@ -66,16 +66,16 @@ if (!SERVICE_ROLE) {
   );
   process.exit(2);
 }
-// ---- SAFETY: DEV ONLY — this seeder must NEVER touch production -------------
+// ---- SAFETY: DEV ONLY - this seeder must NEVER touch production -------------
 // Three independent gates, all of which must pass:
 //   1. the endpoint URL is the dev project (and is not the prod project),
 //   2. the service_role credential itself belongs to the dev project,
 //   3. neither the URL nor the key references the prod project.
 // To ever hit prod you'd need to deliberately supply BOTH a prod URL and a prod
-// key — and gate 3 still refuses. Local dev seeding is the only thing allowed.
+// key - and gate 3 still refuses. Local dev seeding is the only thing allowed.
 const kref = keyRef(SERVICE_ROLE);
 function refuse(msg) {
-  console.error(`\nREFUSING TO RUN — ${msg}\n` +
+  console.error(`\nREFUSING TO RUN - ${msg}\n` +
     `This seeder writes lots of fake data and may only target the DEV project (${DEV_REF}).\n`);
   process.exit(2);
 }
@@ -152,7 +152,7 @@ const REACTIONS = [
   "Pacing finally clicked for me around here.",
   "The worldbuilding payoff is unreal.",
   "Hmm, found this stretch a little slow honestly.",
-  "Whoever picked this — thank you. Obsessed.",
+  "Whoever picked this - thank you. Obsessed.",
   "The way that reveal recontextualizes everything earlier??",
   "Quietly devastating. Le Guin would be proud.",
   "Laughed out loud and then immediately felt bad about it.",
@@ -380,7 +380,7 @@ async function seedSelections(club, members, ownerId, hasVote) {
 
 // ---- the main seed ----------------------------------------------------------
 async function main() {
-  console.log(`\nThe Reading Room — feed seeder (dev)\n`);
+  console.log(`\nThe Reading Room - feed seeder (dev)\n`);
 
   const { members: allMembers, ownerId } = await ensureCast();
   console.log(`  ✓ ${allMembers.length} fake readers ready` +
@@ -416,7 +416,7 @@ async function main() {
   }
   console.log(`  ${CLUBS.length} clubs · ${totals.progress} progress · ${totals.reactions} reactions · ${totals.reviews} reviews`);
   if (ownerId) {
-    console.log(`\n  → Sign in as ${OWNER_EMAIL} on the dev site — you're a member of all ${CLUBS.length} clubs`);
+    console.log(`\n  → Sign in as ${OWNER_EMAIL} on the dev site - you're a member of all ${CLUBS.length} clubs`);
     console.log(`    with deep progress, so the whole spoiler-gated feed is unlocked.`);
   } else {
     console.log(`\n  ⚠ ${OWNER_EMAIL} has never signed in to dev, so it isn't a real user yet.`);

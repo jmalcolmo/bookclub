@@ -36,20 +36,20 @@ final class ClubModel {
         lagLog.info("[\(self.clubId, privacy: .public)] load() start")
 
         do {
-            // Phase 1 — three requests in parallel (mirrors web Promise.all).
+            // Phase 1 - three requests in parallel (mirrors web Promise.all).
             let phase1Start = Date()
             async let clubReq = API.getClub(clubId)
             async let membersReq = API.clubMembers(clubId)
             async let bookReq = API.currentBook(clubId)
             let (club, members, book) = try await (clubReq, membersReq, bookReq)
             let phase1Elapsed = Date().timeIntervalSince(phase1Start)
-            lagLog.info("[\(self.clubId, privacy: .public)] parallel fetch done — \(String(format: "%.3f", phase1Elapsed), privacy: .public)s  members:\(members.count, privacy: .public)  hasBook:\(book != nil ? 1 : 0, privacy: .public)")
+            lagLog.info("[\(self.clubId, privacy: .public)] parallel fetch done - \(String(format: "%.3f", phase1Elapsed), privacy: .public)s  members:\(members.count, privacy: .public)  hasBook:\(book != nil ? 1 : 0, privacy: .public)")
 
             self.club = club
             self.members = members
             self.book = book
 
-            // Phase 2 — bookProgress is serial (needs book.id from phase 1).
+            // Phase 2 - bookProgress is serial (needs book.id from phase 1).
             // This is the most likely hot-path bottleneck on slow connections.
             if let book {
                 let phase2Start = Date()
@@ -57,10 +57,10 @@ final class ClubModel {
                 // the visual lag cause; the actual image loads are async and
                 // do not block load().
                 let avatarCount = members.filter { $0.profile?.avatarUrl != nil }.count
-                lagLog.info("[\(self.clubId, privacy: .public)] avatars-with-url:\(avatarCount, privacy: .public)  coverUrl:\(book.coverUrl != nil ? 1 : 0, privacy: .public) — starting bookProgress fetch")
+                lagLog.info("[\(self.clubId, privacy: .public)] avatars-with-url:\(avatarCount, privacy: .public)  coverUrl:\(book.coverUrl != nil ? 1 : 0, privacy: .public) - starting bookProgress fetch")
                 self.progress = try await API.bookProgress(book.id)
                 let phase2Elapsed = Date().timeIntervalSince(phase2Start)
-                lagLog.info("[\(self.clubId, privacy: .public)] bookProgress done — \(String(format: "%.3f", phase2Elapsed), privacy: .public)s  items:\(self.progress.count, privacy: .public)")
+                lagLog.info("[\(self.clubId, privacy: .public)] bookProgress done - \(String(format: "%.3f", phase2Elapsed), privacy: .public)s  items:\(self.progress.count, privacy: .public)")
             } else {
                 self.progress = []
             }
@@ -71,7 +71,7 @@ final class ClubModel {
         }
 
         let totalElapsed = Date().timeIntervalSince(totalStart)
-        lagLog.info("[\(self.clubId, privacy: .public)] load() complete — total \(String(format: "%.3f", totalElapsed), privacy: .public)s")
+        lagLog.info("[\(self.clubId, privacy: .public)] load() complete - total \(String(format: "%.3f", totalElapsed), privacy: .public)s")
         loading = false
     }
 }

@@ -1,9 +1,9 @@
-// "Unlocked reactions" — the notification layer on top of the spoiler gate.
+// "Unlocked reactions" - the notification layer on top of the spoiler gate.
 // When a reader bumps their progress past a page, other members' reactions in
 // the crossed pages become visible (the gate opens); setProgress records those
 // as unseen `reaction_unlocks`. They surface in the feed's ✨ Unlocked tab
 // (src/views/feed.js), which renders them through the same card painter as the
-// mixed feed — this module carries just the moment-of-unlock toast that points
+// mixed feed - this module carries just the moment-of-unlock toast that points
 // there. Everything stays RLS-gated; nothing hidden can ever appear.
 import { navigate } from "../router.js";
 

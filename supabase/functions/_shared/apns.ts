@@ -2,13 +2,13 @@
 //
 // Sends a push to Apple using a provider authentication token (JWT, ES256)
 // signed with an Apple ".p8" auth key. This is the modern, key-based APNs auth
-// (no per-app certificate). Everything secret comes from env — NOTHING is
+// (no per-app certificate). Everything secret comes from env - NOTHING is
 // hardcoded. A human must set these secrets (see README in this folder):
 //
-//   APNS_KEY_ID       — the 10-char Key ID for the .p8 key
-//   APNS_TEAM_ID      — your 10-char Apple Developer Team ID
-//   APNS_BUNDLE_ID    — the app's bundle id (APNs "topic")
-//   APNS_PRIVATE_KEY  — the .p8 contents (PEM, may be single-line with \n escapes)
+//   APNS_KEY_ID       - the 10-char Key ID for the .p8 key
+//   APNS_TEAM_ID      - your 10-char Apple Developer Team ID
+//   APNS_BUNDLE_ID    - the app's bundle id (APNs "topic")
+//   APNS_PRIVATE_KEY  - the .p8 contents (PEM, may be single-line with \n escapes)
 //
 // If any are missing, sendPush throws a clear error rather than pretending to
 // deliver. Real delivery also requires the Push Notifications capability +

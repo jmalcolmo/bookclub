@@ -8,7 +8,7 @@ import Supabase
 
 // One reader's OWN footprint on a single book (API.userBookInvolvement): the
 // reactions they wrote, the replies they wrote (each carrying the parent
-// reaction they answered), and their reading-progress row — keyed by bookId +
+// reaction they answered), and their reading-progress row - keyed by bookId +
 // ownerId. Every row arrives already filtered by RLS (the spoiler gate), so the
 // view never re-implements gating. Reached from a profile shelf tap.
 struct InvolvementReply: Identifiable, Hashable, Sendable {

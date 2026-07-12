@@ -1,6 +1,6 @@
 // Guards the theme's font-name strings against the variable-font naming trap:
 // CrimsonPro.ttf registers its non-Regular instances under "CrimsonProRoman-*",
-// and a wrong name doesn't error — UIKit/SwiftUI silently substitute the system
+// and a wrong name doesn't error - UIKit/SwiftUI silently substitute the system
 // font, which is exactly the off-theme look this test exists to catch.
 
 import XCTest

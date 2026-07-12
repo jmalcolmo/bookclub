@@ -1,6 +1,6 @@
-// The feed's event card, extracted so every surface that shows feed events —
+// The feed's event card, extracted so every surface that shows feed events -
 // the mixed Feed tab, the ✨ Unlocked tab, and the per-book unlocked list the
-// post-bump banner pushes — renders the SAME component (web parity:
+// post-bump banner pushes - renders the SAME component (web parity:
 // feed.js eventCardHTML). Engagement bars + reply threads ride on the passed
 // EngageContext, so a card is fully live wherever it appears.
 
@@ -33,8 +33,8 @@ struct FeedEventCard: View {
         }
     }
 
-    // The small header every card carries: which club this happened in — or
-    // "Following" when it comes from a reader you follow outside your clubs —
+    // The small header every card carries: which club this happened in - or
+    // "Following" when it comes from a reader you follow outside your clubs -
     // with the book it's about right underneath.
     private var cardHead: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -61,7 +61,7 @@ struct FeedEventCard: View {
         }
     }
 
-    // The book a card is about — its own line, out of the sentence.
+    // The book a card is about - its own line, out of the sentence.
     @ViewBuilder
     private var bookLine: some View {
         if let title = event.bookTitle {
@@ -97,7 +97,7 @@ struct FeedEventCard: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Follow-path reactions are display-only — they live in clubs we're
+            // Follow-path reactions are display-only - they live in clubs we're
             // not members of, so no engagement bar or reply thread.
             if !event.isFollow {
                 EngagementBar(targetType: .reaction, targetId: item.id, context: context) {

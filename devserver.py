@@ -4,7 +4,7 @@
 Plain `python -m http.server` lets the browser heuristically cache our ES
 modules (it sends Last-Modified but no Cache-Control). After an edit that adds
 an export, the browser can end up with a fresh module importing a name from a
-stale one — the import link fails and the app hangs on the loading splash. This
+stale one - the import link fails and the app hangs on the loading splash. This
 server sends `Cache-Control: no-store` on every response so a normal refresh
 always pulls fresh modules.
 

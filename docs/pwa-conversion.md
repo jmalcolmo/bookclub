@@ -10,7 +10,7 @@
 > lovely. Ignore the "path to the App Store" framing below; that job now belongs to
 > native. Kept for reference and for the reusable web-polish scope.
 
-**Status:** Superseded as a mobile strategy — web-polish items still optional/backlogged.
+**Status:** Superseded as a mobile strategy - web-polish items still optional/backlogged.
 **Scoped:** 2026-06-24. **Superseded:** 2026-07-01.
 **Goal (original):** Make the existing web app installable to a phone home screen and
 fast on cold boot, without a rewrite and without introducing a build step. Keep it
@@ -39,13 +39,13 @@ We are *further along than a typical web app*:
 ### 1. Web app manifest (new file: `manifest.webmanifest`)
 - `name`, `short_name`, `description`, `theme_color` / `background_color` (use the
   parchment `--bg` token), `display: standalone`, icon list.
-- **CRITICAL — subpath scope.** Prod is served from `https://jmalcolmo.github.io/bookclub/`
+- **CRITICAL - subpath scope.** Prod is served from `https://jmalcolmo.github.io/bookclub/`
   (a subpath, not a root domain), while dev is at root (`localhost:5174`). So
   `start_url` and `scope` must resolve to `/bookclub/` in prod (use relative paths,
   or branch by host the way `config.js` already does). This is the #1 thing that
   silently breaks GitHub Pages PWAs. The service worker scope has the same constraint.
 
-### 2. Icons (new assets — we currently have NONE; only node_modules favicons)
+### 2. Icons (new assets - we currently have NONE; only node_modules favicons)
 - Maskable 512×512 + 192×192 PNG, Apple touch icon 180×180, ideally an SVG source.
 - Source art: the `📚` brand mark + parchment theme ("Deranged Granny Square").
 - iOS ignores most of the manifest, so also add `apple-touch-icon` + iOS splash /
@@ -53,14 +53,14 @@ We are *further along than a typical web app*:
 
 ### 3. Service worker (new file: `sw.js`) + registration in `src/main.js`
 - Cache the app shell: `index.html`, `styles.css`, `club.css`, `src/*.js`.
-- **CRITICAL — do not reintroduce the stale-module hang.** `devserver.py` deliberately
+- **CRITICAL - do not reintroduce the stale-module hang.** `devserver.py` deliberately
   sends `Cache-Control: no-store` because a stale ES module can hang the app on the
   loading splash (after an edit that adds an export, a fresh module imports a name from
   a cached stale one). A naive "cache everything forever" SW would reproduce that bug
-  *in production* and worse — users stuck on an old module set after a deploy.
+  *in production* and worse - users stuck on an old module set after a deploy.
   - Use **network-first** (or stale-while-revalidate with a version bump per deploy)
     for the JS modules.
-  - **Never cache Supabase API / Realtime calls** — pass straight to network.
+  - **Never cache Supabase API / Realtime calls** - pass straight to network.
   - Register the SW **only in prod** (or scope-guard it) so it doesn't interfere with
     the `no-store` dev workflow.
 
@@ -70,7 +70,7 @@ We are *further along than a typical web app*:
 
 ### 5. Mobile-responsive audit (partly done)
 - Tab bar exists, but there is a known `mobile-horizontal-scroll` issue and the Chrome
-  preview tools **cannot reproduce it** (`overflow:clip` masks it) — fix at the source
+  preview tools **cannot reproduce it** (`overflow:clip` masks it) - fix at the source
   on real phone widths. Fuzziest line item: an afternoon to a few days depending on
   how many layouts misbehave. (See the `mobile-horizontal-scroll` memory.)
 
@@ -79,7 +79,7 @@ We are *further along than a typical web app*:
   from the correct `/bookclub/` path and not blocked by Pages config.
 
 ## Effort estimate
-- Manifest + icons + careful service worker: **1–2 focused days.**
+- Manifest + icons + careful service worker: **1-2 focused days.**
 - Responsive audit: variable (afternoon → few days).
 - **No build step introduced; stays vanilla static files on the existing deploy.**
 
@@ -92,7 +92,7 @@ We are *further along than a typical web app*:
 - **Apple App Store: effectively no.** Apple rejects pure PWA wrappers (guideline 4.2).
   Getting into the Apple store requires the **Capacitor** path ($99/yr + native-OAuth
   rework). If "must be in the Apple App Store" is ever a hard requirement, jump to
-  Capacitor instead — but the PWA work above is still reusable.
+  Capacitor instead - but the PWA work above is still reusable.
 
 ## Prerequisite for ALL mobile paths
 The mobile-responsive pass (item 5) is a prerequisite regardless of PWA vs Capacitor

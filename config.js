@@ -1,7 +1,7 @@
 // ============================================================================
 // ENVIRONMENT CONFIG
 // ----------------------------------------------------------------------------
-// Anon keys are SAFE to commit — they only grant access allowed by Row-Level
+// Anon keys are SAFE to commit - they only grant access allowed by Row-Level
 // Security. Do NOT put the service_role key here; it bypasses RLS.
 //
 // The environment is chosen by hostname:

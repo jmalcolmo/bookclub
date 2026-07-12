@@ -1,5 +1,5 @@
 -- ============================================================================
--- THE MARBLE RACE — BOOK CLUB EDITION
+-- THE MARBLE RACE - BOOK CLUB EDITION
 -- Supabase / Postgres schema + Row-Level Security
 -- ----------------------------------------------------------------------------
 -- Run this in the SQL editor of EACH Supabase project (dev and prod).
@@ -96,7 +96,7 @@ as $$
 $$;
 
 -- Does the current user follow _other? Powers the FOLLOW system: a follower gets
--- an additive, consensual view of a followee's SOLO reading — their own
+-- an additive, consensual view of a followee's SOLO reading - their own
 -- progress/reactions on books in clubs the FOLLOWER is NOT a member of. The
 -- non-member guard lives in the callers' policies, so this never widens the
 -- spoiler gate inside a shared club. SECURITY DEFINER so it doesn't recurse on
@@ -130,7 +130,7 @@ $$;
 
 -- Can the current user SEE a given reaction? Mirrors the spoiler gate in the
 -- reactions SELECT policy exactly. Replies and engagements on a reaction inherit
--- this — a reply/like/emoji on a reaction is visible iff the reaction itself is,
+-- this - a reply/like/emoji on a reaction is visible iff the reaction itself is,
 -- so they can never leak the existence of a spoiler-gated reaction.
 create or replace function public.reaction_visible(_id uuid)
 returns boolean
@@ -223,12 +223,12 @@ alter table profiles add column if not exists is_admin boolean not null default 
 alter table profiles enable row level security;
 
 -- You can see your OWN profile and the profiles of people you share a club with.
--- (Previously any authenticated user could read every profile — a full member
+-- (Previously any authenticated user could read every profile - a full member
 -- directory. With open Google signup at scale that's needless exposure.) Every
--- user_id the client ever surfaces — club rosters, reaction/review/progress
--- authors — already comes from a club you belong to, so this doesn't break any
+-- user_id the client ever surfaces - club rosters, reaction/review/progress
+-- authors - already comes from a club you belong to, so this doesn't break any
 -- legitimate read.
--- FOLLOW PATH (additive): you can also read the profile of someone you follow —
+-- FOLLOW PATH (additive): you can also read the profile of someone you follow -
 -- otherwise the "people you follow" feed couldn't show their name/avatar. This
 -- is consensual (you chose to follow them) and exposes only their public profile.
 drop policy if exists "profiles_select_all" on profiles;
@@ -280,7 +280,7 @@ where id in (select id from auth.users where email = 'malcolm.olexa24@gmail.com'
 -- ============================================================================
 -- A directed edge: follower_id follows followee_id. Powers the "people you
 -- follow" feed and the additive RLS paths above (a follower gets a consensual
--- view of a followee's SOLO reading — their own progress/reactions on books in
+-- view of a followee's SOLO reading - their own progress/reactions on books in
 -- clubs the follower isn't in; the club spoiler gate is never widened).
 create table if not exists follows (
   follower_id uuid not null references auth.users(id) on delete cascade,
@@ -339,7 +339,7 @@ alter table clubs add column if not exists photo_url text;
 alter table clubs enable row level security;
 
 -- Members (and the creator) can see their clubs. Non-members must use the
--- find_club_by_code() RPC below to discover a club to join — this keeps join
+-- find_club_by_code() RPC below to discover a club to join - this keeps join
 -- codes private and stops anyone from enumerating every club.
 drop policy if exists "clubs_select_member_or_auth" on clubs;
 drop policy if exists "clubs_select_member" on clubs;
@@ -375,7 +375,7 @@ $$;
 
 -- This RPC bypasses RLS (SECURITY DEFINER) to look up a club by its private join
 -- code. Only logged-in users ever need it (you join after signing in), so deny it
--- to the anonymous role — that way an unauthenticated visitor can't sit on the
+-- to the anonymous role - that way an unauthenticated visitor can't sit on the
 -- endpoint guessing the 6-char code space. Logged-in users are accountable.
 revoke execute on function public.find_club_by_code(text) from public, anon;
 grant  execute on function public.find_club_by_code(text) to authenticated;
@@ -403,7 +403,7 @@ update club_members set role = 'creator' where role = 'owner';
 alter table club_members enable row level security;
 
 -- Members can see the roster of clubs they belong to. The `or user_id = auth.uid()`
--- is essential: it lets you see your OWN membership row. Without it, joining fails —
+-- is essential: it lets you see your OWN membership row. Without it, joining fails -
 -- the app inserts with RETURNING (supabase-js `.select()`), which applies this SELECT
 -- policy to the new row, but `is_club_member` (a STABLE function) can't see a row the
 -- same command just inserted, so the row is invisible and the insert is rejected.
@@ -469,7 +469,7 @@ alter table books enable row level security;
 
 -- FOLLOW PATH (additive): you can also read a book row when someone you follow
 -- has SOLO reading on it (a progress row or a reaction) AND you are NOT a member
--- of its club — so the "people you follow" feed can show the book's title/cover
+-- of its club - so the "people you follow" feed can show the book's title/cover
 -- alongside their activity. This exposes only the book metadata, never other
 -- members' gated content; the reactions/progress spoiler rules are unchanged.
 drop policy if exists "books_select_member" on books;
@@ -497,7 +497,7 @@ drop policy if exists "books_insert_member" on books;
 create policy "books_insert_member" on books
   for insert with check (is_club_member(club_id));
 
--- Only the club creator/owner can update book state — mark the book finished for
+-- Only the club creator/owner can update book state - mark the book finished for
 -- the whole club, extend the deadline, edit metadata. (A member's own reading
 -- progress lives in reading_progress, not books, so this doesn't restrict that.)
 -- The old, looser "books_update_member" policy is dropped for parity on re-run.
@@ -508,7 +508,7 @@ create policy "books_update_owner" on books
 
 -- DELETE is a time-bounded undo, not a permanent history-erase: the club owner or
 -- the member who picked the book may remove it, but ONLY within 3 days of when it
--- was added (created_at). After that window the book is permanent — ending/finishing
+-- was added (created_at). After that window the book is permanent - ending/finishing
 -- is the history-preserving exit. The `created_at` guard only ADDS a restriction;
 -- it never widens who may delete.
 drop policy if exists "books_delete_owner_or_picker" on books;
@@ -541,7 +541,7 @@ alter table reading_progress enable row level security;
 -- Members can see everyone's progress in their club (powers "who's where" + gating UI).
 --
 -- FOLLOW PATH (additive): you may ALSO see the progress of someone you follow,
--- but ONLY on a book in a club you are NOT a member of — their SOLO reading
+-- but ONLY on a book in a club you are NOT a member of - their SOLO reading
 -- outside your shared clubs. The non-member guard keeps club privacy intact:
 -- following never grants a foothold into a club you don't belong to beyond the
 -- followee's own reading activity, and inside a shared club the member rule is
@@ -561,7 +561,7 @@ create policy "progress_upsert_own" on reading_progress
   for insert with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
 -- Parity with progress_upsert_own: an UPDATE must satisfy the same predicate as
--- an INSERT — you own the row AND you're still a member of the book's club. Without
+-- an INSERT - you own the row AND you're still a member of the book's club. Without
 -- the membership clause a user who left a club could keep mutating their progress
 -- row on that club's book. The added clause only RESTRICTS; it never widens.
 drop policy if exists "progress_update_own" on reading_progress;
@@ -572,19 +572,19 @@ create policy "progress_update_own" on reading_progress
 -- A reader may remove their OWN progress row (e.g. reset "I haven't started this
 -- after all"). Owner-only: another member can never wipe your progress. Deleting
 -- your row re-locks any reactions you'd unlocked by reading past them, so the
--- spoiler gate stays intact — it reads live from reading_progress via has_read_to.
+-- spoiler gate stays intact - it reads live from reading_progress via has_read_to.
 drop policy if exists "progress_delete_own" on reading_progress;
 create policy "progress_delete_own" on reading_progress
   for delete using (user_id = auth.uid());
 
--- The DATABASE owns reading_progress timestamps — a client clock must never set
+-- The DATABASE owns reading_progress timestamps - a client clock must never set
 -- them, or a wrong/rolled-back device time can corrupt history. This BEFORE
 -- trigger stamps them on every write:
---   updated_at  — always bumped to now().
---   started_at  — stamped ONCE, the first time the row is 'reading' or 'finished',
+--   updated_at  - always bumped to now().
+--   started_at  - stamped ONCE, the first time the row is 'reading' or 'finished',
 --                 then preserved (coalesce). This is the fix for the data-loss bug
 --                 where re-saving while 'reading' overwrote the true start date.
---   finished_at — stamped when status becomes 'finished' (coalesce preserves an
+--   finished_at - stamped when status becomes 'finished' (coalesce preserves an
 --                 existing date), and CLEARED when a book returns to 'reading' so a
 --                 later re-finish earns an honest new date instead of a stale one.
 create or replace function public.stamp_reading_progress()
@@ -641,7 +641,7 @@ alter table reactions enable row level security;
 -- HONESTY-BASED BY DESIGN: the gate keys off the reader's SELF-REPORTED
 -- reading_progress.current_page (they set it via progress_update_own). A reader
 -- who wants to spoil themselves can simply bump their page to the end and unlock
--- everything — this is intentional. The gate is a COURTESY against ACCIDENTAL
+-- everything - this is intentional. The gate is a COURTESY against ACCIDENTAL
 -- spoilers (stumbling onto a late-book reaction you didn't mean to read), NOT an
 -- adversarial control against a reader determined to spoil their own experience.
 -- What it DOES guarantee server-side: you never see another member's reaction for
@@ -672,7 +672,7 @@ create policy "reactions_insert_member" on reactions
 -- The author may edit their own reaction (body / page). Owner-only: WITH CHECK
 -- re-asserts ownership + club membership so an edit can never reassign the row to
 -- someone else or move it into a club you don't belong to. The spoiler gate is a
--- SELECT concern and is unaffected — the author can always see their own reaction.
+-- SELECT concern and is unaffected - the author can always see their own reaction.
 drop policy if exists "reactions_update_own" on reactions;
 create policy "reactions_update_own" on reactions
   for update using (user_id = auth.uid())
@@ -805,7 +805,7 @@ create policy "engagements_delete_own" on engagements
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
--- CLUB POSTS  (lightweight Twitter/X-style posts — NO spoiler gate)
+-- CLUB POSTS  (lightweight Twitter/X-style posts - NO spoiler gate)
 -- ============================================================================
 -- A short text update OR a single photo shared to a club. These are explicitly
 -- NOT reviews and carry NO page number, so there is NO spoiler gate on them.
@@ -832,7 +832,7 @@ create index if not exists club_posts_club_idx on club_posts(club_id);
 alter table club_posts enable row level security;
 
 -- MEMBERSHIP-SCOPED (no spoiler gate). A post is visible only to members of its
--- club — never to non-members, and never widened by follows. There is no page
+-- club - never to non-members, and never widened by follows. There is no page
 -- gate: any member sees every post in the club regardless of reading progress.
 drop policy if exists "posts_select_member" on club_posts;
 create policy "posts_select_member" on club_posts
@@ -902,7 +902,7 @@ create policy "annreads_insert_own" on announcement_reads
   for insert with check (user_id = auth.uid());
 
 -- ============================================================================
--- SELECTIONS  (how the next picker was chosen — wheel / vote / pick / race)
+-- SELECTIONS  (how the next picker was chosen - wheel / vote / pick / race)
 -- ============================================================================
 create table if not exists selections (
   id          uuid primary key default gen_random_uuid(),
@@ -934,7 +934,7 @@ drop policy if exists "selections_insert_member" on selections;
 create policy "selections_insert_member" on selections
   for insert with check (is_club_member(club_id) and created_by = auth.uid());
 
--- Only the person who opened the selection (or a club owner) can finalize it —
+-- Only the person who opened the selection (or a club owner) can finalize it -
 -- set result_user / flip it to 'decided'. Members participate by casting votes in
 -- selection_votes, not by mutating the selection row. (Previously ANY member
 -- could crown the winner, overriding the host.) The wheel/pick/vote-close flows
@@ -1053,7 +1053,7 @@ create policy "storage_read_public" on storage.objects
   for select using (bucket_id in ('avatars','club-images','post-images'));
 
 -- WRITE SCOPING. The previous policies allowed ANY authenticated user to write to
--- ANY path in these buckets — so anyone could overwrite anyone's avatar or any
+-- ANY path in these buckets - so anyone could overwrite anyone's avatar or any
 -- club's cover. The client writes under `${user.id}/...` (avatars) and
 -- `${club.id}/...` (club-images); enforce that convention server-side via the
 -- first path segment. `upsert: true` in the client hits both INSERT and UPDATE,
@@ -1107,7 +1107,7 @@ create policy "clubimg_delete_owner" on storage.objects
   );
 
 -- post-images: any MEMBER of a club may write a photo under that club's folder
--- (club posts are not owner-restricted — any member can post). The client writes
+-- (club posts are not owner-restricted - any member can post). The client writes
 -- under `${club.id}/${user.id}/...`; the FIRST path segment scopes the write to
 -- the club server-side, and the SECOND segment must equal the uploader's own id
 -- (auth.uid()) so one member cannot write into another member's subfolder and
@@ -1144,12 +1144,12 @@ create policy "postimg_delete_member" on storage.objects
 -- ----------------------------------------------------------------------------
 -- Purely additive; changes NO existing table or policy. See
 -- docs/unlocked-notifications-design.md. The server-side spoiler gate stays the
--- sole authority — nothing here can surface a reaction the reactions SELECT
+-- sole authority - nothing here can surface a reaction the reactions SELECT
 -- policy wouldn't already return to this reader.
 -- ============================================================================
 
 -- Reactions by OTHER users whose page falls in (_from_page, _to_page], that the
--- CALLER is now allowed to see. SECURITY INVOKER (the default) — the reactions
+-- CALLER is now allowed to see. SECURITY INVOKER (the default) - the reactions
 -- SELECT policy (the spoiler gate) still applies inside this function, so it can
 -- never leak a reaction the caller couldn't already SELECT directly.
 -- _from_page/_to_page only narrow the scan to the window just crossed; they never
@@ -1195,8 +1195,8 @@ drop policy if exists "reaction_unlocks_select_own" on reaction_unlocks;
 create policy "reaction_unlocks_select_own" on reaction_unlocks
   for select using (user_id = auth.uid());
 
--- INSERT guarded by reaction_visible() — the SAME gate as the reactions SELECT
--- policy — so you can only record an unlock for a reaction you can currently see.
+-- INSERT guarded by reaction_visible() - the SAME gate as the reactions SELECT
+-- policy - so you can only record an unlock for a reaction you can currently see.
 -- This stops the table from ever confirming a hidden reaction's existence.
 drop policy if exists "reaction_unlocks_insert_own_visible" on reaction_unlocks;
 create policy "reaction_unlocks_insert_own_visible" on reaction_unlocks

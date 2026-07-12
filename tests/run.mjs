@@ -1,9 +1,9 @@
 // ============================================================================
-// The Reading Room — end-to-end action test (against the DEV Supabase project)
+// The Reading Room - end-to-end action test (against the DEV Supabase project)
 // ----------------------------------------------------------------------------
 // Exercises every user action EXCEPT Google login (which can't be automated).
 // Instead it signs two test users in by password and drives the real database
-// through the same RLS the app relies on — including the spoiler gate.
+// through the same RLS the app relies on - including the spoiler gate.
 //
 // Run:  npm test
 // Needs: two test users in the DEV project + their creds (see the `test` skill).
@@ -74,7 +74,7 @@ let avatarPath, coverPath, postImagePath;
 const tag = Date.now();
 
 // A real (tiny 1×1) JPEG. The cropper bakes an image/jpeg blob and uploads it, so
-// the test uploads genuine JPEG bytes — the buckets restrict allowed_mime_types.
+// the test uploads genuine JPEG bytes - the buckets restrict allowed_mime_types.
 const TINY_JPEG = Buffer.from(
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////" +
   "////////////////////////////////////////////////8AAEQgAAQABAwEiAAIR" +
@@ -83,11 +83,11 @@ const TINY_JPEG = Buffer.from(
   "EQA/AL+AAf/Z", "base64");
 const blobJ = () => new Blob([TINY_JPEG], { type: "image/jpeg" });
 
-console.log(`\nThe Reading Room — action test (dev)\n`);
+console.log(`\nThe Reading Room - action test (dev)\n`);
 
 await step("sign in user A (password)", async () => {
   const { data, error } = await cA.auth.signInWithPassword({ email: creds.a.email, password: creds.a.password });
-  if (error) throw new Error(error.message + " — is the test user created & confirmed?");
+  if (error) throw new Error(error.message + " - is the test user created & confirmed?");
   A = data.user;
 });
 await step("sign in user B (password)", async () => {
@@ -137,7 +137,7 @@ await step("PROFILE GATE: B cannot read A's profile before sharing a club (RLS)"
 
 await step("B joins the club", async () => {
   // Mirror the app exactly: joinClub() inserts WITH RETURNING (.select()). This is
-  // load-bearing — a plain insert hides the members_select_same_club RLS bug where
+  // load-bearing - a plain insert hides the members_select_same_club RLS bug where
   // RETURNING can't see your own just-inserted membership row. Keep the .select().
   const { error } = await cB.from("club_members")
     .insert({ club_id: club.id, user_id: B.id, role: "member" })
@@ -160,7 +160,7 @@ await step("B can read A's profile once they share a club", async () => {
 
 await step("MY CLUBS: a 2-member club appears exactly once (no dupes)", async () => {
   // Mirror api.js myClubs() exactly. The membership SELECT policy returns the FULL
-  // roster of clubs you belong to, so this MUST filter to your own user_id — without
+  // roster of clubs you belong to, so this MUST filter to your own user_id - without
   // it a club comes back once per member and shows up duplicated in "my clubs".
   // The club now has 2 members (A creator + B), which previously triggered the dupe.
   const { data: memberships, error } = await cB.from("club_members")
@@ -192,7 +192,7 @@ await step("CLUB UPDATE GATE: B (member, not creator) cannot edit club settings 
 // ---- CLUB POSTS: member-scoped, NON-spoiler-gated lightweight feed -----------
 await step("A creates a club post (text + photo)", async () => {
   // Upload the photo under the club folder (member-scoped storage RLS), then
-  // insert the post row — mirrors api.js uploadPostImage() + addPost().
+  // insert the post row - mirrors api.js uploadPostImage() + addPost().
   postImagePath = `${club.id}/${tag}.jpg`;
   const { error: upErr } = await cA.storage.from("post-images")
     .upload(postImagePath, blobJ(), { upsert: true, contentType: "image/jpeg" });
@@ -236,7 +236,7 @@ await step("POST DELETE GATE: B cannot delete A's post (RLS)", async () => {
 await step("POST IMAGE GATE: a non-member cannot upload into a club's post folder (storage RLS)", async () => {
   // Use a fresh signed-out client as a stand-in for a non-member: the write must
   // be denied because post-images writes require club membership on the folder's
-  // first path segment. (cB is a member, so it would succeed — the point of the
+  // first path segment. (cB is a member, so it would succeed - the point of the
   // gate is that NON-members can't. We prove it with the anon client which has no
   // membership at all.)
   const anon = client();
@@ -263,7 +263,7 @@ await step("MULTI-CLUB POST: A fans one post out to two clubs (addPostToClubs)",
     .insert({ name: `Test Club 2 ${tag}`, accent: "yarn-slate", created_by: A.id }).select().single();
   if (c2err) throw c2err;
 
-  // Upload the photo ONCE (under the first club's folder) and share the URL —
+  // Upload the photo ONCE (under the first club's folder) and share the URL -
   // exactly what addPostToClubs' callers do.
   const sharedImagePath = `${club.id}/multi-${tag}.jpg`;
   const { error: upErr } = await cA.storage.from("post-images")
@@ -285,7 +285,7 @@ await step("MULTI-CLUB POST: A fans one post out to two clubs (addPostToClubs)",
   assert(new Set(created.map((p) => p.club_id)).size === 2, "the two rows landed in different clubs");
   assert(created.every((p) => p.image_url === pub.publicUrl), "the shared image URL was not reused across clubs");
 
-  // B (co-member of `club`, NOT of club2) sees only the row in the shared club —
+  // B (co-member of `club`, NOT of club2) sees only the row in the shared club -
   // the per-club member gate still holds for a fanned-out post.
   const { data: bSees } = await cB.from("club_posts").select("club_id").eq("body", `cross-post ${tag}`);
   const bClubIds = new Set((bSees || []).map((p) => p.club_id));
@@ -298,7 +298,7 @@ await step("MULTI-CLUB POST: A fans one post out to two clubs (addPostToClubs)",
   await cA.from("clubs").delete().eq("id", club2.id);
 });
 
-// (Stories feature removed in fleet run 3 — its steps were pruned; the stories /
+// (Stories feature removed in fleet run 3 - its steps were pruned; the stories /
 // story_views tables and shares_any_club helper no longer exist in the schema.)
 
 await step("A adds the current book", async () => {
@@ -332,7 +332,7 @@ await step("A logs reading progress (page 50)", async () => {
 
 await step("DB TIMESTAMPS: trigger stamps started_at once; page bumps never move it", async () => {
   // Fleet run 4 (stamp_reading_progress BEFORE trigger): the client no longer
-  // sends updated_at/started_at/finished_at — the DB owns them. started_at is
+  // sends updated_at/started_at/finished_at - the DB owns them. started_at is
   // coalesce()'d so it's set on the FIRST reading save and preserved forever
   // after (the old client re-sent it on every save, destroying the true start
   // date). Mirrors the new api.setProgress, which sends only page + status.
@@ -374,7 +374,7 @@ await step("REACTION→PROGRESS SYNC: A's logged page can't stay below a reactio
   const maxReaction = Math.max(...(reacts || []).map((r) => r.page));
   const { data: before } = await cA.from("reading_progress").select("current_page")
     .eq("book_id", book.id).eq("user_id", A.id).single();
-  // A is logged at p.50 but posted a p.200 reaction — the popup (or its dismissal) syncs.
+  // A is logged at p.50 but posted a p.200 reaction - the popup (or its dismissal) syncs.
   if (maxReaction > before.current_page) {
     const { error } = await cA.from("reading_progress").upsert(
       { book_id: book.id, user_id: A.id, current_page: maxReaction, status: "reading" },
@@ -410,7 +410,7 @@ await step("author sees all own reactions (A sees p.30 and p.200)", async () => 
 // ---- UNLOCKED REACTIONS: the notification layer on top of the spoiler gate ----
 // B is at p.40, so A's p.30 reaction is visible and the p.200 is still gated.
 // This is exactly the scenario the feature targets: a bump crosses pages and
-// surfaces the reactions that opened up — WITHOUT ever weakening the gate.
+// surfaces the reactions that opened up - WITHOUT ever weakening the gate.
 await step("UNLOCK RPC: window (0,40] returns others' now-visible reactions, not gated ones", async () => {
   const { data, error } = await cB.rpc("unlocked_reactions",
     { _book_id: book.id, _from_page: 0, _to_page: 40 });
@@ -422,7 +422,7 @@ await step("UNLOCK RPC: window (0,40] returns others' now-visible reactions, not
 });
 
 await step("UNLOCK RPC: an over-wide to_page can't reveal past the reader's real page", async () => {
-  // B is at p.40; even asking for (0,250] must NOT reveal the p.200 reaction — the
+  // B is at p.40; even asking for (0,250] must NOT reveal the p.200 reaction - the
   // SECURITY INVOKER RPC is subject to the same spoiler gate, which bounds visibility
   // to the reader's actual current_page. The window can only narrow, never widen.
   const { data, error } = await cB.rpc("unlocked_reactions",
@@ -442,8 +442,8 @@ await step("UNLOCK RECORD: B records the unlocked reaction (unseen)", async () =
 });
 
 await step("UNLOCK INSERT GATE: B cannot record an unlock for a reaction it can't see (RLS)", async () => {
-  // reaction_unlocks_insert_own_visible re-checks reaction_visible() — the same gate
-  // — so the table can never be coaxed into confirming a hidden reaction's existence.
+  // reaction_unlocks_insert_own_visible re-checks reaction_visible() - the same gate
+  // - so the table can never be coaxed into confirming a hidden reaction's existence.
   const { error } = await cB.from("reaction_unlocks").insert({ user_id: B.id, reaction_id: r200 });
   assert(error, "UNLOCK LEAK: recorded an unlock for a spoiler-gated reaction");
 });
@@ -470,7 +470,7 @@ await step("UNLOCK MARK SEEN: B marks the unlock seen; it leaves the unseen set"
 
 await step("UNLOCK PRUNE ON RESET: the api.js reset prune drops this book's unlock rows", async () => {
   // Mirror what api.js/iOS deleteProgress does after re-locking (delete my unlock
-  // rows for this book's reactions). Don't actually reset B's progress — later steps
+  // rows for this book's reactions). Don't actually reset B's progress - later steps
   // still expect B's position; just exercise the prune query and assert it clears.
   const { data: rx } = await cB.from("reactions").select("id").eq("book_id", book.id);
   const ids = (rx || []).map((r) => r.id);
@@ -688,7 +688,7 @@ await step("INVOLVEMENT (self): A sees A's own reactions/replies/progress on the
 });
 
 await step("CROSS-READER SHELF: co-member B resolves A's finished shelf (readingHistoryFor)", async () => {
-  // Mirror api.readingHistoryFor(A.id) from B's perspective — the entry point
+  // Mirror api.readingHistoryFor(A.id) from B's perspective - the entry point
   // for the shelf on ANOTHER reader's profile. B is a co-member of the club, so
   // progress_select_member returns A's finished rows and the book resolves.
   const { data: prog } = await cB.from("reading_progress").select("book_id,finished_at,updated_at")
@@ -702,7 +702,7 @@ await step("CROSS-READER SHELF: co-member B resolves A's finished shelf (reading
     "co-member could not resolve the book row for A's shelf entry");
 });
 
-await step("INVOLVEMENT SPOILER GATE: B opens A's involvement — only gate-visible reactions", async () => {
+await step("INVOLVEMENT SPOILER GATE: B opens A's involvement - only gate-visible reactions", async () => {
   // The cross-reader path end-to-end: from A's shelf entry (previous step) B
   // opens A's involvement view for this book. Keyed by bookId + A's id, but
   // still routed through the SELECT gate. Re-assert the invariant cleanly:
@@ -739,7 +739,7 @@ await step("SHARED CLUBS: sharedClubsForWork returns the co-shared club for this
 });
 
 await step("SHARED CLUBS: empty open_library_id yields no shared clubs (button hidden)", async () => {
-  // The api short-circuits to [] when the work has no open_library_id — nothing
+  // The api short-circuits to [] when the work has no open_library_id - nothing
   // to correlate across clubs, so the "Show complete reactions" button hides.
   const { data } = await cB.from("books").select("id")
     .in("club_id", [club.id]).eq("open_library_id", "");
@@ -764,7 +764,7 @@ await step("UN-FINISH: B marks 'still reading' → status reading, page kept, fi
   // New client behavior (progress.js/book.js unfinish + iOS unfinish): flip
   // status back to reading without touching current_page. Reversible; the
   // review gate re-locks. Round-trip so downstream (B finished) stays valid.
-  // Fleet run 4: the stamp_reading_progress trigger owns finished_at — it must
+  // Fleet run 4: the stamp_reading_progress trigger owns finished_at - it must
   // be CLEARED on un-finish, and a later re-finish must earn an honest NEW date.
   const { data: before } = await cB.from("reading_progress").select("current_page,finished_at")
     .eq("book_id", book.id).eq("user_id", B.id).single();
@@ -783,7 +783,7 @@ await step("UN-FINISH: B marks 'still reading' → status reading, page kept, fi
   // Reviews re-lock while reading.
   const { data: revs } = await cB.from("reviews").select("id").eq("book_id", book.id);
   assert((revs || []).length === 0, "REVIEW LEAK: reviews still visible after un-finishing");
-  // Re-finish B so later steps that assume B finished still hold — and confirm
+  // Re-finish B so later steps that assume B finished still hold - and confirm
   // the trigger stamps a NEW finished_at rather than resurrecting the old one.
   await new Promise((r) => setTimeout(r, 25));
   await cB.from("reading_progress").upsert(
@@ -852,7 +852,7 @@ await step("RESET PROGRESS: B deletes own progress → the spoiler gate re-locks
   assert(!(seen || []).some((r) => r.page === 200), "SPOILER LEAK: p.200 still visible after B reset progress");
 });
 
-await step("picker — wheel geometry: marker always matches the winner", async () => {
+await step("picker - wheel geometry: marker always matches the winner", async () => {
   // Pure-math invariant, exercised through the SAME src/wheel.js the view imports:
   // whatever slice CENTER we spin under the top pointer is exactly the slice
   // winnerIndex() reads back. This is the guarantee the picker redesign makes, so
@@ -868,7 +868,7 @@ await step("picker — wheel geometry: marker always matches the winner", async 
   }
 });
 
-await step("picker — wheel selection records a result", async () => {
+await step("picker - wheel selection records a result", async () => {
   const { data: sel, error } = await cA.from("selections").insert(
     { club_id: club.id, method: "wheel", created_by: A.id, status: "decided", result_user: B.id, decided_at: new Date().toISOString() }
   ).select().single();
@@ -876,7 +876,7 @@ await step("picker — wheel selection records a result", async () => {
   assert(sel.result_user === B.id, "selection result not stored");
 });
 
-await step("picker — vote: open, both cast, tally = 2", async () => {
+await step("picker - vote: open, both cast, tally = 2", async () => {
   const { data: vote, error } = await cA.from("selections").insert(
     { club_id: club.id, method: "vote", created_by: A.id, status: "open" }).select().single();
   if (error) throw error;
@@ -886,7 +886,7 @@ await step("picker — vote: open, both cast, tally = 2", async () => {
   assert((votes || []).length === 2, "expected 2 votes");
 });
 
-await step("picker — creator finalizes a selection (decideSelection)", async () => {
+await step("picker - creator finalizes a selection (decideSelection)", async () => {
   const { data: sel, error } = await cA.from("selections")
     .insert({ club_id: club.id, method: "vote", created_by: A.id, status: "open" }).select().single();
   if (error) throw error;
@@ -899,7 +899,7 @@ await step("picker — creator finalizes a selection (decideSelection)", async (
   assert(decided.announced === false, "deciding a selection should leave announced=false");
 });
 
-await step("picker — creator announces a decided selection (announceSelection)", async () => {
+await step("picker - creator announces a decided selection (announceSelection)", async () => {
   const { data: sel, error } = await cA.from("selections")
     .insert({ club_id: club.id, method: "pick", created_by: A.id, status: "decided", result_user: B.id, decided_at: new Date().toISOString() })
     .select().single();
@@ -953,7 +953,7 @@ await step("profile update", async () => {
 });
 
 // --- push: device-token registration (device_tokens is owner-only; real APNs delivery
-//     is device-only and out of scope here — this covers the RLS registerDeviceToken uses) ---
+//     is device-only and out of scope here - this covers the RLS registerDeviceToken uses) ---
 await step("PUSH: A registers a device token (registerDeviceToken upsert as self)", async () => {
   // Mirror api.js registerDeviceToken: upsert on the unique token, owned by the caller.
   const { data, error } = await cA.from("device_tokens")
@@ -1020,7 +1020,7 @@ await step("CLUB ICON GATE: B (member, not creator) cannot upload the club's cov
 });
 
 await step("DELETE GATE: B (member, not creator) cannot delete the club (RLS)", async () => {
-  // RLS (clubs_delete_owner) silently affects 0 rows for a non-owner — no error.
+  // RLS (clubs_delete_owner) silently affects 0 rows for a non-owner - no error.
   await cB.from("clubs").delete().eq("id", club.id);
   const { data } = await cA.from("clubs").select("id").eq("id", club.id);
   assert((data || []).length === 1, "DELETE LEAK: a non-creator member deleted the club");
@@ -1057,7 +1057,7 @@ await step("B can leave the club", async () => {
 
 // ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) -------------
 // B owns a private club A never joins, with a book, a reaction and progress.
-// A follows B and then sees B's SOLO reading via the ADDITIVE follow RLS path —
+// A follows B and then sees B's SOLO reading via the ADDITIVE follow RLS path -
 // without joining. This must never be a club-gate bypass: A isn't a member, and
 // only B's OWN authored reading is surfaced. Mirrors src/api.js follows + feed.
 let bClub, bBook, bReaction, bPost;
@@ -1093,7 +1093,7 @@ await step("FOLLOW GATE: before following, A can't see B's solo profile/reaction
 
 await step("POST MEMBERSHIP GATE: a non-member cannot read a club's posts (RLS)", async () => {
   // Posts are strictly club-member-scoped and NOT part of the additive follow
-  // path — A (not a member of B's solo club) sees nothing.
+  // path - A (not a member of B's solo club) sees nothing.
   const { data } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
   assert((data || []).length === 0, "POST LEAK: a non-member read a club's posts");
 });
@@ -1120,7 +1120,7 @@ await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)"
   assert((prof || []).length === 1, "follow path did not expose the followee's profile");
   const { data: bk } = await cA.from("books").select("id").eq("id", bBook.id);
   assert((bk || []).length === 1, "follow path did not expose the followee's book row for the feed");
-  // Posts are NOT part of the follow path — following B must never expose the
+  // Posts are NOT part of the follow path - following B must never expose the
   // posts of a club A isn't a member of.
   const { data: posts } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
   assert((posts || []).length === 0, "POST LEAK: following exposed a non-member club's posts");
@@ -1128,7 +1128,7 @@ await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)"
 
 await step("FOLLOWING ROSTER: A resolves B's current book + page (followingReading)", async () => {
   // Mirrors api.js followingReading(): the newest visible progress row per
-  // followee, decorated with its book — "Book Title  p.X / Y" on Following.
+  // followee, decorated with its book - "Book Title  p.X / Y" on Following.
   const { data: prog } = await cA.from("reading_progress").select("*")
     .eq("user_id", B.id).order("updated_at", { ascending: false });
   assert((prog || []).length >= 1, "no visible progress for the followee");
@@ -1157,7 +1157,7 @@ await step("cleanup: B removes the solo club (cascades)", async () => {
 
 // ---- global announcements (admin broadcast) --------------------------------
 await step("ANNOUNCEMENT GATE: a non-admin cannot broadcast (RLS)", async () => {
-  // announcements_insert_admin: with check is_admin() — A is not an admin.
+  // announcements_insert_admin: with check is_admin() - A is not an admin.
   const { data, error } = await cA.from("announcements")
     .insert({ body: `should be blocked ${tag}`, created_by: A.id }).select().single();
   assert(error && !data, "ANNOUNCEMENT LEAK: a non-admin user broadcast to everyone");
@@ -1193,13 +1193,13 @@ if (SERVICE_ROLE) {
     }
   });
 } else {
-  results.push([true, "ADMIN broadcast path (skipped — no SERVICE_ROLE)"]);
+  results.push([true, "ADMIN broadcast path (skipped - no SERVICE_ROLE)"]);
   console.log("  ⚠ ADMIN broadcast path skipped (set SUPABASE_SERVICE_ROLE to exercise it)");
 }
 
 // ---- cleanup ----------------------------------------------------------------
 await step("cleanup: remove uploaded storage objects", async () => {
-  // Storage objects aren't cascade-deleted with the club, so clean them up here —
+  // Storage objects aren't cascade-deleted with the club, so clean them up here -
   // the club cover MUST be removed before the club (clubimg_delete_owner needs the
   // club to still exist for is_club_owner()).
   if (avatarPath) await cA.storage.from("avatars").remove([avatarPath]);

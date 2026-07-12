@@ -1,5 +1,5 @@
 // The app's home screen: a social-media style activity FEED across every club you
-// belong to, flanked by two rails — clubs (left) and your reading (right).
+// belong to, flanked by two rails - clubs (left) and your reading (right).
 //
 // Like book.js, the feed is derived ENTIRELY client-side from existing api.js
 // data (reactions are already spoiler-filtered by RLS server-side; we never
@@ -134,7 +134,7 @@ async function boot(root, initialTab = "feed") {
   let myClubs = [];
 
   // Which stream the center column shows: the mixed feed, or the reactions my
-  // progress bumps have unlocked (TikTok-style "For You / Following" split — here
+  // progress bumps have unlocked (TikTok-style "For You / Following" split - here
   // "Feed / Unlocked"). Both render through the SAME card painter.
   let activeTab = initialTab;
   let feedEvents = [];        // the mixed feed
@@ -150,7 +150,7 @@ async function boot(root, initialTab = "feed") {
     const [data, followed, unlocks] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
       // Readers I follow: their solo reading OUTSIDE my clubs (already
-      // RLS-filtered). Items inside a shared club are dropped below — the club
+      // RLS-filtered). Items inside a shared club are dropped below - the club
       // events cover those.
       api.followFeed().catch(() => ({ items: [] })),
       // Everything my progress bumps have unlocked (feeds the Unlocked tab).
@@ -161,7 +161,7 @@ async function boot(root, initialTab = "feed") {
     const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
 
     // Bulk-load (in three queries, not per-club) the reply threads, the global
-    // announcements, and every engagement on anything visible on this screen —
+    // announcements, and every engagement on anything visible on this screen -
     // including the Unlocked tab's reactions, so its cards carry the same live
     // engagement bars + reply threads as the mixed feed.
     const reactionIds = [...new Set([
@@ -185,7 +185,7 @@ async function boot(root, initialTab = "feed") {
     const ctx = buildContext(shared);
 
     // Build events once so the greeting can derive the "new activity" count
-    // from the same data the feed will render — no extra API call.
+    // from the same data the feed will render - no extra API call.
     const events = [
       ...buildEvents(shared.data, ctx),
       ...buildFollowEvents(followItems),
@@ -217,7 +217,7 @@ async function boot(root, initialTab = "feed") {
     }
   }
 
-  // Paint whichever stream the active tab shows — both go through the same
+  // Paint whichever stream the active tab shows - both go through the same
   // eventCardHTML painter, so the Unlocked tab reads exactly like the feed.
   // The greeting and announcements belong to the mixed feed; the Unlocked tab
   // is just the caught-up reactions.
@@ -231,7 +231,7 @@ async function boot(root, initialTab = "feed") {
         <div class="feed-empty patch">
           <p>nothing unlocked yet.</p>
           <p class="faint">reactions club-mates left in pages you've read appear here
-          once you log progress past them — spoiler-free until you get there.</p>
+          once you log progress past them - spoiler-free until you get there.</p>
         </div>` }, sharedCtx, load);
       markUnlockedSeen();
     } else {
@@ -239,7 +239,7 @@ async function boot(root, initialTab = "feed") {
     }
   }
 
-  // Viewing the Unlocked tab marks its rows seen (server-side, cross-device —
+  // Viewing the Unlocked tab marks its rows seen (server-side, cross-device -
   // same semantics as dismissing an announcement) and clears the badge.
   function markUnlockedSeen() {
     if (!unseenUnlockIds.length) return;
@@ -259,7 +259,7 @@ async function boot(root, initialTab = "feed") {
   await load();
 
   // The "+" compose hub: a floating action button that opens a small menu of
-  // two create actions (post / start a book). Wired once — the shell
+  // two create actions (post / start a book). Wired once - the shell
   // stays mounted across live refreshes, and it reads myClubs fresh each open.
   wireComposeHub(root, () => myClubs, load);
 
@@ -366,7 +366,7 @@ function paintReadingRail(root, data) {
     selections.filter((s) => s.status === "open").map((s) => `
       <button class="vote-alert" data-go="/club/${club.id}/picker">
         <span class="vote-alert-icon">🗳️</span>
-        <span class="vote-alert-text">Vote open in <strong>${esc(club.name)}</strong> — cast your ballot</span>
+        <span class="vote-alert-text">Vote open in <strong>${esc(club.name)}</strong> - cast your ballot</span>
       </button>`)).join("");
 
   host.innerHTML = `
@@ -442,7 +442,7 @@ function paintGreeting(root, events) {
   host.innerHTML = `
     <div class="feed-greeting-inner">
       <p class="greeting-line">${esc(quote.text)}</p>
-      <p class="greeting-attribution">— ${esc(quote.author)}, <em>${esc(quote.work)}</em> (${esc(String(quote.year))})</p>
+      <p class="greeting-attribution">- ${esc(quote.author)}, <em>${esc(quote.work)}</em> (${esc(String(quote.year))})</p>
       ${countChip}
     </div>`;
 }
@@ -474,7 +474,7 @@ function paintFeed(root, shared, ctx, reload) {
 // so the Unlocked tab renders through eventCardHTML like everything else. Sorted
 // newest-unlock first, then by page within a batch (walk forward through the
 // pages you just crossed). Club names resolve from the loaded snapshots; a book
-// from a club not in the snapshot (e.g. finished long ago) still renders — the
+// from a club not in the snapshot (e.g. finished long ago) still renders - the
 // chip just falls back to the book line alone.
 function buildUnlockedEvents(unlocks, data) {
   const clubNameById = {};
@@ -645,7 +645,7 @@ function buildEvents(data) {
       const t = { targetType: "selection", targetId: s.id, club: club.name };
       if (s.status === "open") {
         events.push({ kind: "notif", type: "pick", ts: s.created_at, icon: "🗳️",
-          highlight: true, text: "A vote opened — pick who chooses next",
+          highlight: true, text: "A vote opened - pick who chooses next",
           go: `/club/${club.id}/picker`, ...t });
       } else if (s.status === "decided" && s.announced) {
         // Opt-in: only surface the decided selection once the decider/owner has
@@ -660,8 +660,8 @@ function buildEvents(data) {
   return events;
 }
 
-// The small header every card carries: which club this happened in — or
-// "Following" when it comes from a reader you follow outside your clubs —
+// The small header every card carries: which club this happened in - or
+// "Following" when it comes from a reader you follow outside your clubs -
 // with the book it's about right underneath.
 function cardHeadHTML(e) {
   const chip = e.club
@@ -675,7 +675,7 @@ function eventCardHTML(e, ctx) {
   const typeClass = `feed-kind-${e.type || "progress"}`;
   if (e.kind === "reaction") {
     const r = e.reaction;
-    // Follow-path reactions are display-only (no engagement bar or replies —
+    // Follow-path reactions are display-only (no engagement bar or replies -
     // they live in clubs we're not members of), and tap to the reader's profile.
     const foot = e.follow ? "" : `
         <div class="card-foot">
@@ -694,7 +694,7 @@ function eventCardHTML(e, ctx) {
         <p class="reaction-body">${esc(r.body)}</p>${foot}
       </article>`;
   }
-  // notification (activity) card — likeable when backed by a real row.
+  // notification (activity) card - likeable when backed by a real row.
   const goAttr = e.go ? ` data-go="${e.go}"` : "";
   const bar = e.targetId
     ? `<div class="card-foot">${engagementBarHTML(e.targetType, e.targetId, ctx.engOf(e.targetId), ctx.nameOf, ctx.myId)}</div>`
@@ -742,8 +742,8 @@ function wireDrawers(root) {
 
 /* ------------------------------------------------------- COMPOSE HUB ("+") */
 // A floating action button opening a menu of two create actions:
-//   1. Create post  — the multi-club post composer (composePostToClubs)
-//   2. Start a book — pick a club, then the existing OpenLibrary addBookModal
+//   1. Create post  - the multi-club post composer (composePostToClubs)
+//   2. Start a book - pick a club, then the existing OpenLibrary addBookModal
 // `getClubs` returns the feed's latest myClubs snapshot; `reload` repaints the
 // feed after a post so a fresh item shows immediately.
 function wireComposeHub(root, getClubs, reload) {

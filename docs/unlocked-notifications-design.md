@@ -1,15 +1,15 @@
 # Design: "Unlocked reactions" notifications
 
 **Status:** IMPLEMENTED (2026-07-08) on web + iOS, per this design. Schema
-(`unlocked_reactions` RPC + `reaction_unlocks` table) is in `supabase/schema.sql` — apply that
+(`unlocked_reactions` RPC + `reaction_unlocks` table) is in `supabase/schema.sql` - apply that
 additive tail to dev, then prod at release (idempotent). The DEFERRED push path (§5) remains
 unbuilt. This doc is retained as the reference for the design.
 
 **Goal:** When a reader bumps their reading progress on a book, reactions that *other*
 members wrote in the pages they just crossed become newly visible to them (the spoiler
-gate opens for those rows). Today nothing tells the reader this happened — those
+gate opens for those rows). Today nothing tells the reader this happened - those
 reactions just quietly appear the next time they open the book. This design surfaces
-them: "N reactions unlocked while you were away — View?", leading to a dedicated,
+them: "N reactions unlocked while you were away - View?", leading to a dedicated,
 filtered space (not the mixed feed), plus a global "Unlocked" inbox across books, with a
 DEFERRED push path over the existing `device_tokens` / WS4 plumbing.
 
@@ -20,7 +20,7 @@ storage/RPC/push decision below is checked against that.
 
 ---
 
-## 1. Detection — what counts as "newly unlocked"
+## 1. Detection - what counts as "newly unlocked"
 
 ### The gate, restated
 
@@ -48,7 +48,7 @@ upserts the reader's `reading_progress` row. The bump is `oldPage → newPage`.
 - iOS `MyProgressView` / `BookView`: `myProgress(bookId:)` returns the same row before the
   write; `.currentPage` is `oldPage`.
 
-So detection does not need a DB trigger to know the old value — the *caller* of
+So detection does not need a DB trigger to know the old value - the *caller* of
 `setProgress` knows both endpoints.
 
 ### 1.2 The newly-visible set
@@ -72,7 +72,7 @@ Notes / edge cases:
 - **First-time progress** (`oldPage` absent, no prior row): treat `oldPage = 0`. A reader
   who was `not_started` had `current_page` default `0`, so `(0, newPage]` is correct.
 - **Backwards edits / resets:** if `newPage <= oldPage` there is nothing to unlock; skip.
-  `deleteProgress` (reset) RE-LOCKS reactions — it does not unlock anything and must not
+  `deleteProgress` (reset) RE-LOCKS reactions - it does not unlock anything and must not
   generate notifications. (It should arguably prune already-recorded unlock rows; see
   §2.4.)
 - **`finished` status:** finishing sets `current_page` too (clients pass the page). Unlock
@@ -81,10 +81,10 @@ Notes / edge cases:
 - The set is *reactions by other users*; the reader's own reactions were never gated from
   them, so they are never "unlocked".
 
-### 1.3 Who computes it — and why NOT the client alone
+### 1.3 Who computes it - and why NOT the client alone
 
 The client knows `oldPage`/`newPage`, but it must NOT compute the unlocked set by reading
-all reactions and filtering by page locally — that would require the client to hold
+all reactions and filtering by page locally - that would require the client to hold
 reactions it may not be allowed to see, re-implementing the gate client-side (violates
 rule 2). Instead the set is computed **server-side under the caller's own RLS** via an
 RPC (§2.1) that runs as the invoking user (`SECURITY INVOKER`), so it can only ever return
@@ -110,7 +110,7 @@ these" persists across devices.
 
 ### 2.1 RPC: `unlocked_reactions(book_id, from_page, to_page)`
 
-`SECURITY INVOKER` (the DEFAULT — do NOT make it `SECURITY DEFINER`). Running as the
+`SECURITY INVOKER` (the DEFAULT - do NOT make it `SECURITY DEFINER`). Running as the
 caller means the function body is subject to the same `reactions` SELECT RLS as a normal
 query, so it structurally cannot return a hidden reaction. It exists only to (a) bound the
 scan by the page window the caller crossed and (b) return a tidy shape.
@@ -151,7 +151,7 @@ source of truth. Either way the gate is enforced by RLS, never by the RPC's WHER
 > `to_page`. The client calls the RPC AFTER the `setProgress` upsert has committed, so
 > `has_read_to` sees the new page and the gate admits exactly the crossed window. If the
 > RPC were (mis)called with `to_page` beyond the reader's real `current_page`, the gate
-> still hides anything past their true page — the window can only ever be a subset of
+> still hides anything past their true page - the window can only ever be a subset of
 > what the gate allows.
 
 ### 2.2 Per-user seen table: `reaction_unlocks` (modeled on `announcement_reads`)
@@ -178,7 +178,7 @@ create index if not exists reaction_unlocks_user_unseen_idx
 alter table reaction_unlocks enable row level security;
 
 -- Owner-only, exactly like announcement_reads: a user sees/writes ONLY their own
--- unlock rows. This table stores which reaction_ids unlocked for me — it must never
+-- unlock rows. This table stores which reaction_ids unlocked for me - it must never
 -- be readable by anyone else.
 drop policy if exists "reaction_unlocks_select_own" on reaction_unlocks;
 create policy "reaction_unlocks_select_own" on reaction_unlocks
@@ -208,10 +208,10 @@ create policy "reaction_unlocks_delete_own" on reaction_unlocks
 ```
 
 `reaction_visible(_id)` already exists in `schema.sql` (used by replies/engagements) and
-mirrors the spoiler gate exactly — reusing it keeps this table honest with zero new gate
+mirrors the spoiler gate exactly - reusing it keeps this table honest with zero new gate
 logic.
 
-Realtime: `reaction_unlocks` does NOT need to go in the `supabase_realtime` publication —
+Realtime: `reaction_unlocks` does NOT need to go in the `supabase_realtime` publication -
 it is written by the reader's own client and read back by the same client; there is no
 cross-user live push. (Cross-device sync is via the persisted `seen_at`, same as
 `announcement_reads`.)
@@ -220,11 +220,11 @@ cross-user live push. (Cross-device sync is via the persisted `seen_at`, same as
 
 The RPC alone answers "what's visible in this window right now", but the UX needs:
 
-1. **"while you were away" count** — a durable set of *unseen* unlocks that survives app
+1. **"while you were away" count** - a durable set of *unseen* unlocks that survives app
    restarts and syncs across devices. That is inherently stateful → the table.
-2. **Grouping across books / a global inbox** — a single cheap query
+2. **Grouping across books / a global inbox** - a single cheap query
    (`reaction_unlocks where seen_at is null`) instead of re-deriving windows per book.
-3. **Idempotency** — the PK `(user_id, reaction_id)` means recording an unlock twice
+3. **Idempotency** - the PK `(user_id, reaction_id)` means recording an unlock twice
    (re-bumping across the same page, two devices) is a no-op upsert; the first
    `unlocked_at` wins and it only shows once.
 
@@ -235,15 +235,15 @@ After `setProgress` resolves for a bump where `newPage > oldPage`:
 1. `rpc unlocked_reactions(book, oldPage, newPage)` → the newly-visible reactions.
 2. If any, upsert `reaction_unlocks(user_id, reaction_id)` rows (ON CONFLICT DO NOTHING,
    `seen_at` left null). RLS `reaction_unlocks_insert_own_visible` re-checks each is
-   actually visible — belt and suspenders.
-3. Surface the count in the UI (§4). Do not block the `setProgress` UX on this — record
+   actually visible - belt and suspenders.
+3. Surface the count in the UI (§4). Do not block the `setProgress` UX on this - record
    opportunistically; a failure just means no toast this time.
 
 Optional hardening for `deleteProgress` (reset): the re-lock means those reactions are no
 longer visible, so their unseen unlock rows are stale. Since the client can't see the
 now-hidden reactions to enumerate them, the simplest correct approach is: on reset, delete
 ALL of my `reaction_unlocks` rows for that book (`reaction_id in (select id from reactions
-where book_id = …)`, which RLS scopes). Deferred as a nicety — a stale unseen row is
+where book_id = …)`, which RLS scopes). Deferred as a nicety - a stale unseen row is
 harmless (tapping it resolves to nothing via the RLS re-join in §3) but slightly
 confusing. Tracked as an open question (§7).
 
@@ -251,12 +251,12 @@ confusing. Tracked as an open question (§7).
 
 ## 3. api.js / iOS signatures
 
-### 3.1 Web — additions to `src/api.js` (all DB access stays here, rule 1)
+### 3.1 Web - additions to `src/api.js` (all DB access stays here, rule 1)
 
 ```js
 // ---------------------------------------------------- UNLOCKED REACTIONS ---
 // Reactions by OTHER members that fall in (fromPage, toPage] and are now visible
-// to me — i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
+// to me - i.e. that my latest progress bump just unlocked. Runs a SECURITY INVOKER
 // RPC, so RLS (the spoiler gate) still decides what comes back; fromPage/toPage
 // only bound the window. Decorated with the author profile like bookReactions().
 export async function unlockedReactions(bookId, fromPage, toPage) {
@@ -323,7 +323,7 @@ export async function markUnlocksSeen(reactionIds) {
 }
 ```
 
-Recommended call site — fold recording into `setProgress` so every caller
+Recommended call site - fold recording into `setProgress` so every caller
 (`progress.js`, `book.js`) gets it for free and detection lives in one place:
 
 ```js
@@ -345,7 +345,7 @@ export async function setProgress(bookId, currentPage, status, { prevPage } = {}
 keeps the one-place rule and means the mixed feed and book page don't each re-implement
 detection.
 
-### 3.2 iOS — new `API+Unlocks.swift` (mirrors the web, port style of `API+Announcements.swift`)
+### 3.2 iOS - new `API+Unlocks.swift` (mirrors the web, port style of `API+Announcements.swift`)
 
 ```swift
 extension API {
@@ -392,7 +392,7 @@ argument; the views already fetch `myProgress` first).
 
 Two surfaces, both driven off `reaction_unlocks`:
 
-### 4.1 The moment of unlock — inline banner / toast
+### 4.1 The moment of unlock - inline banner / toast
 
 Right after a progress bump that unlocked ≥1 reaction, on the book page and the My
 Progress card:
@@ -407,7 +407,7 @@ Progress card:
 
 ### 4.2 Dedicated "Unlocked" space (per book)
 
-A filtered view that shows ONLY the reactions this reader just unlocked — separate from
+A filtered view that shows ONLY the reactions this reader just unlocked - separate from
 the book's full reaction stream and separate from the mixed home feed. This matters
 because the mixed feed interleaves everything; a reader who just crossed a chapter wants a
 clean "here's what people said about the part you just read" reading list.
@@ -416,7 +416,7 @@ clean "here's what people said about the part you just read" reading list.
 - Ordered by reaction `page` ascending (walk forward through the pages you crossed), which
   matches `bookReactions()` ordering.
 - Each item: author avatar + name, page tag, body, and the normal engagement bar / reply
-  affordances (reuse `engage.js` on web, `EngagementBar` / `ReplyThreadView` on iOS) —
+  affordances (reuse `engage.js` on web, `EngagementBar` / `ReplyThreadView` on iOS) -
   these are all gated by the SAME RLS, so nothing new leaks.
 - **Marked seen on view:** when the space is shown, call `markUnlocksSeen(ids)` for the
   rows displayed. Consistent with `dismissAnnouncement` semantics (server-side, cross
@@ -479,7 +479,7 @@ FeedView header:            ClubsView / tab bar:
 │ YOUR FEED    🔔 3 │                                          ▲ badge = unseen
 └───────────────────┘
 
-UnlockedView (List, sectioned by book — PatchCard rows):
+UnlockedView (List, sectioned by book - PatchCard rows):
 ┌─────────────────────────────────────────┐
 │ Unlocked                                 │
 │                                          │
@@ -508,7 +508,7 @@ web `go`/`highlight` convention.
 
 ## 5. DEFERRED push path (device_tokens / WS4)
 
-**Deferred — not built in this workstream.** Documented so the storage model above is
+**Deferred - not built in this workstream.** Documented so the storage model above is
 push-ready.
 
 The plumbing already exists: `device_tokens` (owner-only, `platform`/`environment`,
@@ -529,11 +529,11 @@ of MY action, the natural trigger is a DB change on MY `reading_progress` row.
 - A Postgres trigger (or Realtime-driven Edge Function) on `reading_progress` UPDATE/INSERT
   fires when `new.current_page > coalesce(old.current_page, 0)`. It computes the unlocked
   set for `new.user_id` in `(old.current_page, new.current_page]`. Running with elevated
-  rights it must scope strictly to `new.user_id` and re-apply the gate itself — OR, simpler
+  rights it must scope strictly to `new.user_id` and re-apply the gate itself - OR, simpler
   and safer, it just COUNTS and sends "N reactions unlocked", letting the app fetch details
   under RLS on open.
 - The Edge Function looks up `device_tokens where user_id = new.user_id` (service role,
-  bypassing RLS — same pattern already noted in `schema.sql`'s device_tokens comment) and
+  bypassing RLS - same pattern already noted in `schema.sql`'s device_tokens comment) and
   sends an APNs push **only to the acting user's own devices**. It never pushes another
   user's content, so there is no cross-user leak surface.
 - **Payload carries only a count + book reference, never reaction bodies.** The body text
@@ -545,7 +545,7 @@ of MY action, the natural trigger is a DB change on MY `reading_progress` row.
 ### Push safety checklist (for when it's built)
 
 - Push target = `new.user_id`'s own tokens only. Never fan out to a club.
-- No reaction body / author in the notification payload — count + book title at most.
+- No reaction body / author in the notification payload - count + book title at most.
 - The count in the push is advisory; the authoritative list is always the RLS-gated fetch
   on open, so a stale/over-count push can never reveal a hidden reaction.
 - Respect `environment` (sandbox vs production) already tracked on `device_tokens`.
@@ -558,7 +558,7 @@ of MY action, the natural trigger is a DB change on MY `reading_progress` row.
    `reactions_select_spoiler_gated` still applies. The `page` window only narrows the scan;
    it cannot return a reaction the caller couldn't already `SELECT`. This is the crux of not
    weakening the gate.
-2. **`reaction_unlocks` INSERT is guarded by `reaction_visible(reaction_id)`** — the exact
+2. **`reaction_unlocks` INSERT is guarded by `reaction_visible(reaction_id)`** - the exact
    gate function already in `schema.sql`. You can only record an unlock for a reaction you
    can currently see, so the table can never be coaxed into confirming a hidden reaction.
 3. **`reaction_unlocks` SELECT/UPDATE/DELETE are owner-only** (`user_id = auth.uid()`),
@@ -567,20 +567,20 @@ of MY action, the natural trigger is a DB change on MY `reading_progress` row.
    is no longer visible (deleted or re-locked after a reset), so a stale unlock row can
    never surface hidden content.
 5. **Push payloads carry no bodies**; details are always fetched under RLS on open.
-6. Follow-path reactions are excluded from unlock detection (§1.4) — they were never
+6. Follow-path reactions are excluded from unlock detection (§1.4) - they were never
    page-gated, so they aren't "unlocked".
 
 Net: every path that could surface a reaction routes through the same RLS the app already
 trusts. This feature adds a *notification/bookkeeping* layer on top of the gate; it never
 becomes a second, weaker gate.
 
-### Schema application ritual (CLAUDE.md rule 5) — when implemented
+### Schema application ritual (CLAUDE.md rule 5) - when implemented
 
 `reaction_unlocks` + `unlocked_reactions` must be added to `supabase/schema.sql`
 (idempotent: `create table if not exists`, `create or replace function`, `drop policy if
 exists` before each `create policy`) and applied to **dev then prod**. `reaction_unlocks`
 does NOT need adding to the `supabase_realtime` publication. No changes to existing tables
-or policies are required — this is purely additive.
+or policies are required - this is purely additive.
 
 ---
 
@@ -589,18 +589,18 @@ or policies are required — this is purely additive.
 1. **Fold detection into `api.js setProgress` (recommended) vs. call it from each view?**
    Folding it in means the mixed feed / book page / progress tab all get notifications for
    free and keeps the one-place rule; the cost is `setProgress` gains a `prevPage` argument.
-2. **Reset (`deleteProgress`) cleanup of stale unseen unlock rows** — do it eagerly
+2. **Reset (`deleteProgress`) cleanup of stale unseen unlock rows** - do it eagerly
    (delete this book's unlock rows on reset) or leave harmless stale rows that resolve to
    nothing on tap? (§2.4)
-3. **Global inbox placement on iOS** — a dedicated tab (would make 5 tabs:
-   Feed/Progress/Clubs/Unlocked/Me — tight) vs. a bell in the feed header alongside
+3. **Global inbox placement on iOS** - a dedicated tab (would make 5 tabs:
+   Feed/Progress/Clubs/Unlocked/Me - tight) vs. a bell in the feed header alongside
    announcements?
-4. **RPC vs. plain filtered query** — both are gate-safe; confirm the RPC is worth the extra
+4. **RPC vs. plain filtered query** - both are gate-safe; confirm the RPC is worth the extra
    schema object for the single-source-of-truth win, or prefer a plain
    `.from("reactions")` query in `api.js`.
-5. **Batching / noise** — if a reader bumps 200 pages at once and unlocks 40 reactions, is
+5. **Batching / noise** - if a reader bumps 200 pages at once and unlocks 40 reactions, is
    "40 reactions unlocked" the right message, or cap/summarize? (Storage handles it fine;
    this is a UX polish call.)
-6. **Reviews as a future extension** — reviews unlock at `finished` (not page-gated). A
+6. **Reviews as a future extension** - reviews unlock at `finished` (not page-gated). A
    parallel "reviews unlocked" signal could reuse this exact pattern later; explicitly out
    of scope here.

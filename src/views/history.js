@@ -35,7 +35,7 @@ export async function renderHistory({ params }) {
           <strong class="book-title">${esc(b.title)}</strong>
           <span class="book-author faint">${esc(b.author || "")}</span>
           <span class="history-meta faint">
-            picked by ${esc(picker?.display_name || "—")} · finished ${fmtDate(b.finished_at)}</span>
+            picked by ${esc(picker?.display_name || "-")} · finished ${fmtDate(b.finished_at)}</span>
         </div>
         <div class="history-rating" aria-label="${r ? `Average rating ${r.avg.toFixed(1)} stars from ${r.n} ${r.n === 1 ? "review" : "reviews"}` : "No ratings yet"}">
           ${r ? `<span class="rating-num" aria-hidden="true">${r.avg.toFixed(1)}</span><span class="rating-stars" aria-hidden="true">★</span>
@@ -49,7 +49,7 @@ export async function renderHistory({ params }) {
     <div class="screen-pad">
       <div class="screen-header">
         <button class="btn-back" data-nav="club">← ${esc(club.name)}</button>
-        <h2 class="stamp-title small">SHELF — BOOKS READ</h2><span></span>
+        <h2 class="stamp-title small">SHELF - BOOKS READ</h2><span></span>
       </div>
       ${finished.length ? `<div class="history-list">${rows}</div>` : `
         <div class="empty-state"><p>no finished books yet.</p>

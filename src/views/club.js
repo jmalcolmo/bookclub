@@ -58,7 +58,7 @@ export async function renderClub({ params }) {
           <p class="book-author">${esc(book.author || "")}</p>
           <p class="book-sub faint">
             ${book.page_count ? `${book.page_count} pages · ` : ""}
-            picked by ${esc(picker?.display_name || "—")}</p>
+            picked by ${esc(picker?.display_name || "-")}</p>
           ${dlBadge}
         </div>
         <span class="book-panel-go">open →</span>
@@ -169,7 +169,7 @@ export function addBookModal(club, onDone) {
           const books = await searchBooks(term);
           // Drop stale responses. A slow request for an earlier (e.g. misspelled)
           // term can resolve AFTER a later one and clobber good results with an
-          // empty "no matches" — the "results flash then vanish" bug.
+          // empty "no matches" - the "results flash then vanish" bug.
           if (q.value.trim() !== term) return;
           results.innerHTML = books.length ? books.map((b, i) => `
             <button class="ol-row" data-i="${i}">

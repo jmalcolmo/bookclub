@@ -1,6 +1,6 @@
 ---
 name: test
-description: Run the end-to-end action test for The Reading Room — exercises every user action except Google login against the dev database and reports pass/fail. Use when asked to test the app, run the tests, verify nothing broke, or after adding/changing a feature. New user actions MUST be added to this test.
+description: Run the end-to-end action test for The Reading Room - exercises every user action except Google login against the dev database and reports pass/fail. Use when asked to test the app, run the tests, verify nothing broke, or after adding/changing a feature. New user actions MUST be added to this test.
 ---
 
 # Test
@@ -19,14 +19,14 @@ Install deps once: `npm install`.
 Then provision two test users in the **dev** project. Easiest is the helper:
 
 ```bash
-# pre-confirmed via admin API (no emails, no rate limit) — recommended:
+# pre-confirmed via admin API (no emails, no rate limit) - recommended:
 SUPABASE_SERVICE_ROLE="$(cat .passwords/dev-service-role.txt)" node tests/provision-users.mjs
 ```
 
 `tests/provision-users.mjs` creates the users and writes `.passwords/test-users.json`
 (git-ignored). Notes:
 - The dev project has **"Confirm email" ON**, so plain sign-up tries to send mail and
-  hits the email rate limit — that's why the **service_role** path (pre-confirmed,
+  hits the email rate limit - that's why the **service_role** path (pre-confirmed,
   emailless) is used. The key lives in `.passwords/dev-service-role.txt` (git-ignored).
 - Supabase rejects `example.com`; the helper defaults to gmail plus-addressing
   (`malcolm.olexa24+rrtesta@gmail.com` / `+rrtestb`) which is valid and self-delivering.
@@ -44,7 +44,7 @@ npm test
 ```
 
 - Targets the **dev** project by default (override with `SUPABASE_URL` /
-  `SUPABASE_PUBLISHABLE_KEY`). **Never point this at prod** — it writes and deletes data.
+  `SUPABASE_PUBLISHABLE_KEY`). **Never point this at prod** - it writes and deletes data.
 - Output is a ✓/✗ checklist; exit code is non-zero if any step fails. Each run uses a
   unique club name and **cleans up** by deleting the club it created (cascades).
 
@@ -59,14 +59,14 @@ post-update gate (non-author can't edit); post-delete gate (non-author can't del
 gate (non-member can't upload to the club folder); membership gate (non-member can't read/insert a
 club's posts, and following does NOT expose them))** · add book · edit book
 deadline · read current book + books list · log
-progress · **DB-owned progress timestamps (trigger stamps started_at once — page bumps never
+progress · **DB-owned progress timestamps (trigger stamps started_at once - page bumps never
 move it; finished_at cleared on un-finish, re-finish earns a new date)** ·
 post reactions · **spoiler gate (B sees p.30, not p.200)** · author sees own ·
 **reaction→progress sync (logged page can never sit below a reaction you posted)** ·
 delete own reaction · **reaction-delete gate (non-author cannot delete)** ·
 post reaction reply · author reads reply · **reply-delete gate (non-author cannot delete)** ·
 **reply spoiler gate (reply inherits the parent
-reaction's page gate — B can't see/post on a gated reaction)** · like a reaction · emoji
+reaction's page gate - B can't see/post on a gated reaction)** · like a reaction · emoji
 tapback · **engagement spoiler gate (can't like a gated reaction)** · like a club-activity item
 (book) · un-like (toggle off) · **reply + engagement gates OPEN once read past the page** ·
 delete own reply · progress unlocks later reactions · finish + write review ·
@@ -80,7 +80,7 @@ book for the club)** · creator marks finished → history · profile update ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
 **follows: A follows B and sees B's SOLO reading (progress/reaction/book/profile) on a club A
-isn't in — the additive follow RLS path — while a non-follower sees nothing; follow only from
+isn't in - the additive follow RLS path - while a non-follower sees nothing; follow only from
 self; unfollow re-locks the solo view live** ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
@@ -101,6 +101,6 @@ exercised transitively by the membership/gate steps and don't each need a dedica
 ## Notes
 
 - This tests the data/RLS layer (where the real logic and the gates live) by replicating
-  the same operations `src/api.js` performs — it does not import `api.js` (that's
+  the same operations `src/api.js` performs - it does not import `api.js` (that's
   browser-only). If you change an action's DB behavior in `api.js`, mirror it here.
 - It does not test pixel-level UI; use the preview tools + a screenshot for visual checks.
