@@ -95,30 +95,6 @@ as $$
   );
 $$;
 
--- Does the current user share AT LEAST ONE club with _other? (No specific club
--- id — is_club_member() takes a club id and can't answer "any club".) Powers
--- STORIES visibility: an ephemeral personal story is visible to the author, to
--- anyone who follows them, OR to anyone who shares any club with them. This is
--- the same club-graph question shares_club_with() answers for profile
--- visibility; kept as a distinct name so the callers read clearly and either can
--- evolve independently. SECURITY DEFINER so it doesn't recurse on the
--- club_members SELECT policy.
-create or replace function public.shares_any_club(_other uuid)
-returns boolean
-language sql
-security definer
-stable
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from club_members me
-    join club_members them on them.club_id = me.club_id
-    where me.user_id = auth.uid()
-      and them.user_id = _other
-  );
-$$;
-
 -- Does the current user follow _other? Powers the FOLLOW system: a follower gets
 -- an additive, consensual view of a followee's SOLO reading — their own
 -- progress/reactions on books in clubs the FOLLOWER is NOT a member of. The
@@ -530,9 +506,17 @@ drop policy if exists "books_update_owner" on books;
 create policy "books_update_owner" on books
   for update using (is_club_owner(club_id)) with check (is_club_owner(club_id));
 
+-- DELETE is a time-bounded undo, not a permanent history-erase: the club owner or
+-- the member who picked the book may remove it, but ONLY within 3 days of when it
+-- was added (created_at). After that window the book is permanent — ending/finishing
+-- is the history-preserving exit. The `created_at` guard only ADDS a restriction;
+-- it never widens who may delete.
 drop policy if exists "books_delete_owner_or_picker" on books;
 create policy "books_delete_owner_or_picker" on books
-  for delete using (is_club_owner(club_id) or picked_by = auth.uid());
+  for delete using (
+    (is_club_owner(club_id) or picked_by = auth.uid())
+    and created_at > now() - interval '3 days'
+  );
 
 -- ============================================================================
 -- READING PROGRESS  (one row per user per book)
@@ -576,9 +560,14 @@ drop policy if exists "progress_upsert_own" on reading_progress;
 create policy "progress_upsert_own" on reading_progress
   for insert with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
+-- Parity with progress_upsert_own: an UPDATE must satisfy the same predicate as
+-- an INSERT — you own the row AND you're still a member of the book's club. Without
+-- the membership clause a user who left a club could keep mutating their progress
+-- row on that club's book. The added clause only RESTRICTS; it never widens.
 drop policy if exists "progress_update_own" on reading_progress;
 create policy "progress_update_own" on reading_progress
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid() and is_club_member(book_club(book_id)));
 
 -- A reader may remove their OWN progress row (e.g. reset "I haven't started this
 -- after all"). Owner-only: another member can never wipe your progress. Deleting
@@ -587,6 +576,39 @@ create policy "progress_update_own" on reading_progress
 drop policy if exists "progress_delete_own" on reading_progress;
 create policy "progress_delete_own" on reading_progress
   for delete using (user_id = auth.uid());
+
+-- The DATABASE owns reading_progress timestamps — a client clock must never set
+-- them, or a wrong/rolled-back device time can corrupt history. This BEFORE
+-- trigger stamps them on every write:
+--   updated_at  — always bumped to now().
+--   started_at  — stamped ONCE, the first time the row is 'reading' or 'finished',
+--                 then preserved (coalesce). This is the fix for the data-loss bug
+--                 where re-saving while 'reading' overwrote the true start date.
+--   finished_at — stamped when status becomes 'finished' (coalesce preserves an
+--                 existing date), and CLEARED when a book returns to 'reading' so a
+--                 later re-finish earns an honest new date instead of a stale one.
+create or replace function public.stamp_reading_progress()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  if new.status in ('reading', 'finished') then
+    new.started_at := coalesce(new.started_at, now());
+  end if;
+  if new.status = 'finished' then
+    new.finished_at := coalesce(new.finished_at, now());
+  elsif new.status = 'reading' then
+    new.finished_at := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_stamp_reading_progress on reading_progress;
+create trigger trg_stamp_reading_progress
+  before insert or update on reading_progress
+  for each row execute function public.stamp_reading_progress();
 
 -- ============================================================================
 -- REACTIONS  (page-tagged; SPOILER-GATED in the SELECT policy)
@@ -615,6 +637,16 @@ alter table reactions enable row level security;
 -- clubs. The `not is_club_member(...)` guard is essential: inside a club you
 -- share, the spoiler gate above stays the sole authority, so following someone
 -- can never reveal their page-200 reaction before you've read to page 200.
+--
+-- HONESTY-BASED BY DESIGN: the gate keys off the reader's SELF-REPORTED
+-- reading_progress.current_page (they set it via progress_update_own). A reader
+-- who wants to spoil themselves can simply bump their page to the end and unlock
+-- everything — this is intentional. The gate is a COURTESY against ACCIDENTAL
+-- spoilers (stumbling onto a late-book reaction you didn't mean to read), NOT an
+-- adversarial control against a reader determined to spoil their own experience.
+-- What it DOES guarantee server-side: you never see another member's reaction for
+-- a page beyond your recorded progress without taking the deliberate step of
+-- advancing that progress yourself.
 drop policy if exists "reactions_select_spoiler_gated" on reactions;
 create policy "reactions_select_spoiler_gated" on reactions
   for select using (
@@ -824,112 +856,6 @@ create policy "posts_delete_own" on club_posts
   for delete using (user_id = auth.uid());
 
 -- ============================================================================
--- STORIES  (ephemeral 72h personal posts — photo + text)
--- ============================================================================
--- A personal, self-expiring post: a single photo and/or a short caption that
--- disappears 72h after it was created. Unlike club_posts, a story is NOT tied to
--- a club — it belongs to the author and is shown to their audience: the author
--- themselves, anyone who FOLLOWS them, OR anyone who shares ANY club with them
--- (shares_any_club). There is NO spoiler gate (stories carry no page number).
--- Expiry is server-computed as created_at + 72h and enforced in the SELECT
--- policy (expires_at > now()), so an expired story can never be read even before
--- a cleanup job removes it. Photos reuse the user-scoped 'avatars' storage bucket
--- under `${user.id}/stories/...` (avatars_insert_own scopes writes by uid).
-create table if not exists stories (
-  id         uuid primary key default gen_random_uuid(),
-  user_id    uuid not null references auth.users(id) on delete cascade,
-  body       text,                     -- short caption (nullable when it's a photo-only story)
-  image_url  text,                     -- public URL of the single photo (nullable)
-  created_at timestamptz not null default now(),
-  -- expires 72h after creation. Defaulted here and (idempotently) pinned by the
-  -- trigger below so it can never drift from created_at.
-  expires_at timestamptz not null default (now() + interval '72 hours'),
-  -- a story must carry SOMETHING: a caption or a photo (or both)
-  check (
-    (body is not null and length(btrim(body)) > 0)
-    or (image_url is not null and length(image_url) > 0)
-  )
-);
-
-create index if not exists stories_user_idx on stories(user_id);
-create index if not exists stories_expires_idx on stories(expires_at);
-
--- Pin expires_at to exactly created_at + 72h on every insert, regardless of what
--- (if anything) the client sent — the 72h window is a server invariant, not a
--- client choice.
-create or replace function public.set_story_expiry()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.expires_at := new.created_at + interval '72 hours';
-  return new;
-end;
-$$;
-
-drop trigger if exists on_story_created on stories;
-create trigger on_story_created
-  before insert on stories
-  for each row execute function public.set_story_expiry();
-
-alter table stories enable row level security;
-
--- AUDIENCE-SCOPED (no spoiler gate), and only while UNEXPIRED. A story is visible
--- iff it hasn't expired AND (you wrote it OR you follow the author OR you share a
--- club with them). The expires_at guard means the ephemeral window is enforced
--- server-side — the client never decides who may read a story, or for how long.
-drop policy if exists "stories_select_audience" on stories;
-create policy "stories_select_audience" on stories
-  for select using (
-    expires_at > now()
-    and (
-      user_id = auth.uid()
-      or is_following(user_id)
-      or shares_any_club(user_id)
-    )
-  );
-
--- Only the author may post a story, and only as themselves.
-drop policy if exists "stories_insert_own" on stories;
-create policy "stories_insert_own" on stories
-  for insert with check (user_id = auth.uid());
-
--- The author may delete their own story (take it down early). There is NO UPDATE
--- policy — stories are immutable once posted (edit = delete + repost).
-drop policy if exists "stories_delete_own" on stories;
-create policy "stories_delete_own" on stories
-  for delete using (user_id = auth.uid());
-
--- Per-viewer "seen" record, so the unseen/seen ring persists across devices. One
--- row per (story, viewer); unique so marking-seen is an idempotent upsert.
-create table if not exists story_views (
-  story_id  uuid not null references stories(id) on delete cascade,
-  viewer_id uuid not null references auth.users(id) on delete cascade,
-  seen_at   timestamptz not null default now(),
-  primary key (story_id, viewer_id),
-  unique (story_id, viewer_id)
-);
-
-create index if not exists story_views_viewer_idx on story_views(viewer_id);
-
-alter table story_views enable row level security;
-
--- A viewer sees and writes ONLY their own view records (scoped to viewer_id =
--- auth.uid()). This never reveals who else viewed a story — it's a private
--- per-viewer seen flag, not a public view count.
-drop policy if exists "story_views_select_own" on story_views;
-create policy "story_views_select_own" on story_views
-  for select using (viewer_id = auth.uid());
-
-drop policy if exists "story_views_insert_own" on story_views;
-create policy "story_views_insert_own" on story_views
-  for insert with check (viewer_id = auth.uid());
-
-drop policy if exists "story_views_delete_own" on story_views;
-create policy "story_views_delete_own" on story_views
-  for delete using (viewer_id = auth.uid());
-
--- ============================================================================
 -- ANNOUNCEMENTS  (global broadcasts the app admin pushes to every user)
 -- ============================================================================
 create table if not exists announcements (
@@ -1061,8 +987,6 @@ begin
   begin execute 'alter publication supabase_realtime add table reaction_replies'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table announcements'; exception when others then null; end;
   begin execute 'alter publication supabase_realtime add table club_posts'; exception when others then null; end;
-  begin execute 'alter publication supabase_realtime add table stories'; exception when others then null; end;
-  begin execute 'alter publication supabase_realtime add table story_views'; exception when others then null; end;
 end $$;
 
 -- ============================================================================
@@ -1184,23 +1108,29 @@ create policy "clubimg_delete_owner" on storage.objects
 
 -- post-images: any MEMBER of a club may write a photo under that club's folder
 -- (club posts are not owner-restricted — any member can post). The client writes
--- under `${club.id}/...`; the first path segment scopes the write server-side.
--- A malformed, non-uuid first segment makes is_club_member() return false →
--- denied. A member may delete their own uploads to clean up.
+-- under `${club.id}/${user.id}/...`; the FIRST path segment scopes the write to
+-- the club server-side, and the SECOND segment must equal the uploader's own id
+-- (auth.uid()) so one member cannot write into another member's subfolder and
+-- spoof authorship of an image object. A malformed, non-uuid first segment makes
+-- is_club_member() return false → denied. A member may delete their own uploads
+-- to clean up.
 drop policy if exists "postimg_insert_member" on storage.objects;
 create policy "postimg_insert_member" on storage.objects
   for insert with check (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   );
 drop policy if exists "postimg_update_member" on storage.objects;
 create policy "postimg_update_member" on storage.objects
   for update using (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   ) with check (
     bucket_id = 'post-images'
     and is_club_member(nullif((storage.foldername(name))[1], '')::uuid)
+    and (storage.foldername(name))[2] = auth.uid()::text
   );
 drop policy if exists "postimg_delete_member" on storage.objects;
 create policy "postimg_delete_member" on storage.objects

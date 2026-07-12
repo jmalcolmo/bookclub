@@ -1,6 +1,6 @@
 // Minimal hash router. Routes are matched in order; the first match wins.
 // A route handler receives { params } and renders into #app.
-import { toast } from "./ui.js";
+import { toast, esc } from "./ui.js";
 
 const routes = [];
 let notFound = () => { document.getElementById("app").innerHTML = "<p>Not found.</p>"; };
@@ -52,7 +52,7 @@ export async function resolve() {
         console.error(err);
         toast(err.message || "Something went wrong", "error");
         app.innerHTML = `<div class="screen-pad"><p class="faint">Couldn't load this page.</p>
-          <pre class="err-pre">${(err.message || err)}</pre></div>`;
+          <pre class="err-pre">${esc(err.message || err)}</pre></div>`;
       }
       return;
     }

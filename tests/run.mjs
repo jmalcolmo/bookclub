@@ -70,8 +70,7 @@ let A, B, club, book;
 let r30, r200;            // reaction ids (page 30 visible to B early; page 200 gated)
 let replyId, lateReplyId; // reaction reply ids
 let postId;               // a club post id (non-spoiler-gated, member-scoped)
-let storyId;              // an ephemeral story id (72h, audience-scoped)
-let avatarPath, coverPath, postImagePath, storyImagePath;
+let avatarPath, coverPath, postImagePath;
 const tag = Date.now();
 
 // A real (tiny 1×1) JPEG. The cropper bakes an image/jpeg blob and uploads it, so
@@ -299,83 +298,8 @@ await step("MULTI-CLUB POST: A fans one post out to two clubs (addPostToClubs)",
   await cA.from("clubs").delete().eq("id", club2.id);
 });
 
-// ---- STORIES: ephemeral (72h) personal posts, audience-scoped (follower OR
-//      club-mate), NOT spoiler-gated. A and B currently share `club`, so a story
-//      A posts is visible to B via shares_any_club. Mirrors api.js addStory /
-//      uploadStoryImage / activeStories / markStoryViewed.
-await step("POST-STORY: A posts a story (photo + caption); expires_at = created_at + 72h", async () => {
-  // Photo goes in the user-scoped 'avatars' bucket under `${A.id}/stories/...`
-  // (avatars_insert_own scopes writes by uid) — the same reuse api.uploadStoryImage does.
-  storyImagePath = `${A.id}/stories/${tag}.jpg`;
-  const { error: upErr } = await cA.storage.from("avatars")
-    .upload(storyImagePath, blobJ(), { upsert: true, contentType: "image/jpeg" });
-  if (upErr) throw upErr;
-  const { data: pub } = cA.storage.from("avatars").getPublicUrl(storyImagePath);
-  const { data, error } = await cA.from("stories")
-    .insert({ user_id: A.id, body: `my story ${tag}`, image_url: pub.publicUrl })
-    .select().single();
-  if (error) throw error;
-  storyId = data.id;
-  // The BEFORE-INSERT trigger pins expires_at to created_at + 72h regardless of input.
-  const delta = new Date(data.expires_at).getTime() - new Date(data.created_at).getTime();
-  const hours = delta / 3_600_000;
-  assert(Math.abs(hours - 72) < 0.05, `story expiry should be 72h after creation, got ${hours}h`);
-});
-
-await step("STORY AUDIENCE: B (club-mate) can see A's active story (shares_any_club)", async () => {
-  const { data, error } = await cB.from("stories").select("id,expires_at").eq("id", storyId);
-  if (error) throw error;
-  assert((data || []).some((s) => s.id === storyId), "club-mate could not see an active story");
-});
-
-await step("VIEW-STORY: B marks A's story viewed (markStoryViewed upsert as self)", async () => {
-  const { error } = await cB.from("story_views")
-    .upsert({ story_id: storyId, viewer_id: B.id }, { onConflict: "story_id,viewer_id" });
-  if (error) throw error;
-  const { data } = await cB.from("story_views").select("story_id").eq("story_id", storyId).eq("viewer_id", B.id);
-  assert((data || []).length === 1, "B's story view was not recorded");
-});
-
-await step("VIEW-STORY GATE: B cannot forge a view as A (story_views_insert_own with-check)", async () => {
-  // viewer_id must equal auth.uid(); forging A's id must be rejected.
-  const { error } = await cB.from("story_views")
-    .insert({ story_id: storyId, viewer_id: A.id });
-  assert(error, "STORY VIEW FORGERY: B recorded a view owned by A");
-});
-
-await step("STORY VIEW PRIVACY: A sees only their OWN view rows, not B's (story_views_select_own)", async () => {
-  // A queries views on their own story: B's private "seen" row must NOT come back.
-  const { data } = await cA.from("story_views").select("viewer_id").eq("story_id", storyId);
-  assert(!(data || []).some((v) => v.viewer_id === B.id),
-    "STORY VIEW LEAK: an author read another viewer's private seen record");
-});
-
-await step("STORY AUDIENCE GATE: a signed-out (non-audience) client cannot read the story", async () => {
-  // A stranger who neither follows A nor shares a club with A sees nothing.
-  const anon = client();
-  const { data } = await anon.from("stories").select("id").eq("id", storyId);
-  assert((data || []).length === 0, "STORY LEAK: a non-audience client read a personal story");
-});
-
-await step("STORY INSERT GATE: B cannot post a story as A (stories_insert_own with-check)", async () => {
-  const { error } = await cB.from("stories")
-    .insert({ user_id: A.id, body: `forged story ${tag}` });
-  assert(error, "STORY FORGERY: B posted a story owned by A");
-});
-
-await step("STORY DELETE GATE: B cannot delete A's story (stories_delete_own)", async () => {
-  await cB.from("stories").delete().eq("id", storyId);
-  const { data } = await cA.from("stories").select("id").eq("id", storyId);
-  assert((data || []).length === 1, "STORY DELETE LEAK: a non-author deleted someone else's story");
-});
-
-await step("DELETE STORY: A takes down their own story early (deleteStory)", async () => {
-  const { error } = await cA.from("stories").delete().eq("id", storyId);
-  if (error) throw error;
-  const { data } = await cA.from("stories").select("id").eq("id", storyId);
-  assert((data || []).length === 0, "author could not delete their own story");
-  storyId = null;
-});
+// (Stories feature removed in fleet run 3 — its steps were pruned; the stories /
+// story_views tables and shares_any_club helper no longer exist in the schema.)
 
 await step("A adds the current book", async () => {
   const { data, error } = await cA.from("books").insert({
@@ -404,6 +328,29 @@ await step("A logs reading progress (page 50)", async () => {
   const { error } = await cA.from("reading_progress").upsert(
     { book_id: book.id, user_id: A.id, current_page: 50, status: "reading" }, { onConflict: "book_id,user_id" });
   if (error) throw error;
+});
+
+await step("DB TIMESTAMPS: trigger stamps started_at once; page bumps never move it", async () => {
+  // Fleet run 4 (stamp_reading_progress BEFORE trigger): the client no longer
+  // sends updated_at/started_at/finished_at — the DB owns them. started_at is
+  // coalesce()'d so it's set on the FIRST reading save and preserved forever
+  // after (the old client re-sent it on every save, destroying the true start
+  // date). Mirrors the new api.setProgress, which sends only page + status.
+  const { data: t0 } = await cA.from("reading_progress")
+    .select("started_at,finished_at,updated_at")
+    .eq("book_id", book.id).eq("user_id", A.id).single();
+  assert(t0.started_at, "trigger did not stamp started_at on the first 'reading' save");
+  assert(!t0.finished_at, "finished_at must stay null while status is 'reading'");
+  await new Promise((r) => setTimeout(r, 25));
+  const { error } = await cA.from("reading_progress").upsert(
+    { book_id: book.id, user_id: A.id, current_page: 55, status: "reading" }, { onConflict: "book_id,user_id" });
+  if (error) throw error;
+  const { data: t1 } = await cA.from("reading_progress").select("started_at,updated_at")
+    .eq("book_id", book.id).eq("user_id", A.id).single();
+  assert(t1.started_at === t0.started_at,
+    `STARTED_AT MOVED: a page bump re-stamped the start date (${t0.started_at} → ${t1.started_at})`);
+  assert(new Date(t1.updated_at) > new Date(t0.updated_at),
+    "updated_at did not advance on a later save");
 });
 
 await step("A posts a reaction at page 30", async () => {
@@ -813,28 +760,40 @@ await step("B finishes and now sees A's review", async () => {
   assert((data || []).length >= 1, "B should see reviews after finishing");
 });
 
-await step("UN-FINISH: B marks 'still reading' → status reading, current_page kept", async () => {
+await step("UN-FINISH: B marks 'still reading' → status reading, page kept, finished_at CLEARED", async () => {
   // New client behavior (progress.js/book.js unfinish + iOS unfinish): flip
   // status back to reading without touching current_page. Reversible; the
   // review gate re-locks. Round-trip so downstream (B finished) stays valid.
-  const { data: before } = await cB.from("reading_progress").select("current_page")
+  // Fleet run 4: the stamp_reading_progress trigger owns finished_at — it must
+  // be CLEARED on un-finish, and a later re-finish must earn an honest NEW date.
+  const { data: before } = await cB.from("reading_progress").select("current_page,finished_at")
     .eq("book_id", book.id).eq("user_id", B.id).single();
+  assert(before.finished_at, "trigger did not stamp finished_at when B finished");
   const { error } = await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: before.current_page, status: "reading" },
     { onConflict: "book_id,user_id" });
   if (error) throw error;
-  const { data: after } = await cB.from("reading_progress").select("current_page,status")
+  const { data: after } = await cB.from("reading_progress").select("current_page,status,finished_at")
     .eq("book_id", book.id).eq("user_id", B.id).single();
   assert(after.status === "reading", "un-finish did not revert status to reading");
   assert(after.current_page === before.current_page,
     `un-finish must keep current_page (${before.current_page}), got ${after.current_page}`);
+  assert(after.finished_at === null,
+    "STALE FINISH DATE: un-finish did not clear finished_at (trigger should null it)");
   // Reviews re-lock while reading.
   const { data: revs } = await cB.from("reviews").select("id").eq("book_id", book.id);
   assert((revs || []).length === 0, "REVIEW LEAK: reviews still visible after un-finishing");
-  // Re-finish B so later steps that assume B finished still hold.
+  // Re-finish B so later steps that assume B finished still hold — and confirm
+  // the trigger stamps a NEW finished_at rather than resurrecting the old one.
+  await new Promise((r) => setTimeout(r, 25));
   await cB.from("reading_progress").upsert(
     { book_id: book.id, user_id: B.id, current_page: 300, status: "finished" },
     { onConflict: "book_id,user_id" });
+  const { data: refin } = await cB.from("reading_progress").select("finished_at")
+    .eq("book_id", book.id).eq("user_id", B.id).single();
+  assert(refin.finished_at, "re-finish did not stamp finished_at");
+  assert(new Date(refin.finished_at) > new Date(before.finished_at),
+    "re-finish must get a NEW finished_at, not the stale pre-un-finish date");
 });
 
 await step("REVIEW DELETE GATE: B cannot delete A's review (RLS)", async () => {
@@ -1250,7 +1209,6 @@ await step("cleanup: remove uploaded storage objects", async () => {
   if (postImagePath) await cA.storage.from("post-images").remove([postImagePath]);
   // Story photo lives in avatars under A's own uid folder (user-scoped write);
   // A can remove it any time via avatars_delete_own.
-  if (storyImagePath) await cA.storage.from("avatars").remove([storyImagePath]);
 });
 
 await step("cleanup: A (creator) deletes the club (cascades)", async () => {
