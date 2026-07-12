@@ -6,14 +6,14 @@ description: Scaffold a new screen/feature in The Reading Room following its est
 # New screen / feature
 
 This app has one fixed pattern for adding UI. Follow all five steps so the codebase
-stays consistent. (No build step — everything is vanilla ES modules.)
+stays consistent. (No build step - everything is vanilla ES modules.)
 
 ## The pattern
 
 1. **Data access → `src/api.js`.** Add a function for every DB read/write the feature
    needs. Views must NEVER call `supabase.from(...)` directly. Use the `unwrap()` helper
    and follow the existing style (e.g. `clubBooks`, `bookReactions`). If it reads gated
-   data, remember RLS already filters it — render whatever comes back.
+   data, remember RLS already filters it - render whatever comes back.
 
 2. **View → `src/views/<name>.js`.** Export a `renderX({ params })` function that builds
    HTML and calls `render(html, after)` from `router.js`. Conventions:

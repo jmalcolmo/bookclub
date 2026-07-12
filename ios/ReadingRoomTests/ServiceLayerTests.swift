@@ -168,7 +168,7 @@ final class ServiceLayerTests: XCTestCase {
             }
         }
 
-        // B (co-member) reads it — NO spoiler gate, just membership.
+        // B (co-member) reads it - NO spoiler gate, just membership.
         let bSeesPosts: [ClubPost] = try await cB.from("club_posts").select()
             .eq("club_id", value: club.id.uuidString).execute().value
         XCTAssertTrue(bSeesPosts.contains { $0.id == post.id },
@@ -510,7 +510,7 @@ final class ServiceLayerTests: XCTestCase {
 
         // ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) ----------
         // B owns a private club A never joins, with a book, a reaction and progress.
-        // A follows B and should see B's SOLO reading there WITHOUT joining — the
+        // A follows B and should see B's SOLO reading there WITHOUT joining - the
         // additive follow RLS path. Crucially this must NOT be a club-gate bypass:
         // A is not a member, and it only surfaces B's OWN authored reading.
         struct NewClubRaw: Encodable { let name: String; let accent: String; let createdBy: UUID }

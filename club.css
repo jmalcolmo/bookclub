@@ -1,16 +1,16 @@
 /* =============================================================================
-   BOOK CLUB EDITION — layout, nav, clubs, books, reactions, picker, profile
+   BOOK CLUB EDITION - layout, nav, clubs, books, reactions, picker, profile
    Builds on the granny-square system in styles.css (variables + base classes).
    ============================================================================= */
 
 /* `overflow-x: clip` (not `hidden`) still clips the rotated patches sideways but
-   does NOT make <body> a scroll container — so position:sticky (the nav + the book
+   does NOT make <body> a scroll container - so position:sticky (the nav + the book
    detail's side rails) sticks to the viewport instead of scrolling away. The base
    `html, body { overflow-x: hidden }` in styles.css would otherwise break sticky.
 
    IMPORTANT (mobile): clip the <html> element too, not just <body>. Clipping body
    alone relies on the overflow propagating up to the viewport, which mobile Safari
-   and some Android browsers do NOT do reliably — so a stray sub-pixel-wide child
+   and some Android browsers do NOT do reliably - so a stray sub-pixel-wide child
    (a rotated .patch, a long unbroken title) leaves a horizontal touch-"pan" that
    drags the whole page sideways even though nothing is visibly cut off. Clipping
    html removes that horizontal scroll container; overscroll-behavior-x kills the
@@ -221,7 +221,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 /* ---- BOOK DETAIL · social-feed layout ----
    Three columns: the book (fixed left rail), the activity feed (center, scrolls),
    and my progress (fixed right rail). Rails are sticky so they stay put as the
-   feed scrolls — the social-media reading-room layout. */
+   feed scrolls - the social-media reading-room layout. */
 .book-feed { max-width: 1320px; margin: 0 auto; padding: 24px 22px 80px;
   display: grid; gap: 24px; align-items: start;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(240px, 330px); }
@@ -291,7 +291,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .reaction-edit:hover { color: var(--yarn-slate); }
 .reaction-del { background: none; border: none; cursor: pointer; color: var(--negative); font-size: 1.1rem; }
 .reaction-body { margin: 0; font-size: 1.02rem; line-height: 1.45; }
-/* inline edit form (reactions) — reuses the composer look */
+/* inline edit form (reactions) - reuses the composer look */
 .reaction-edit-form { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
 .reaction-edit-form textarea { width: 100%; }
 .reaction-edit-form .edit-actions { display: flex; gap: 8px; }
@@ -407,7 +407,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .feed-chip-follow { color: var(--yarn-mauve); border-color: var(--yarn-mauve);
   background: color-mix(in srgb, var(--yarn-mauve) 12%, var(--surface)); }
 
-/* the book a card is about — its own line, out of the sentence */
+/* the book a card is about - its own line, out of the sentence */
 .feed-book-line { font-family: var(--font-display); font-style: italic;
   color: var(--yarn-rust); font-size: .95rem; line-height: 1.25; }
 
@@ -532,7 +532,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 
 /* On mobile the feed is the priority: a single, clean scrolling column. The two
    side rails (clubs / reading) are dropped here because Clubs and Progress now
-   have their own bottom-tab destinations — no drawers, no clutter. */
+   have their own bottom-tab destinations - no drawers, no clutter. */
 @media (max-width: 900px) {
   .feed-shell { grid-template-columns: 1fr; gap: 14px; }
   .feed-title-desktop { display: block; }
@@ -541,7 +541,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
   .feed-drawer-backdrop { display: none; }
 
   /* the greeting becomes a welcome mat: centered, ~the top quarter of the
-     screen, before the stream starts (phones only — desktop keeps the slim row) */
+     screen, before the stream starts (phones only - desktop keeps the slim row) */
   .feed-greeting-inner { flex-direction: column; align-items: center; justify-content: center;
     text-align: center; gap: 14px; min-height: 25vh; padding: 18px 12px; }
   .greeting-line { font-size: 1.7rem; }
@@ -565,7 +565,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .result-sub { font-family: var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
   color: var(--yarn-rust); margin: 0 0 8px; }
 
-/* wheel — SVG pie with names; slices + labels share one coordinate system */
+/* wheel - SVG pie with names; slices + labels share one coordinate system */
 .wheel-wrap { position: relative; width: 300px; height: 300px; max-width: 82vw; max-height: 82vw;
   filter: drop-shadow(3px 4px 0 rgba(72,56,40,.35)); }
 .wheel-pointer { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 3;
@@ -624,7 +624,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 
 /* ---- FINISHED BOOKS (progress tab + book page) ---- */
 /* Finished cards stay listed but read as "done": a sage tint, a checked
-   border, and no editable page form — just a badge and a way back in. */
+   border, and no editable page form - just a badge and a way back in. */
 .progress-card-finished { border-color: var(--yarn-moss);
   background: color-mix(in srgb, var(--yarn-sage) 12%, var(--surface)); }
 .progress-actions-finished { flex-direction: column; gap: 10px; }
@@ -690,7 +690,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
   width: 100%; min-height: 0;
   display: flex; text-align: left; padding: 12px 2px; cursor: pointer;
   font: inherit; color: inherit; }
-/* dashed seam between rows — after the row reset so the border-top survives */
+/* dashed seam between rows - after the row reset so the border-top survives */
 .section-box .section-rows > * + * { border-top: 1px dashed var(--yarn-clay); }
 .section-box .activity-row { align-items: flex-start; gap: 10px; }
 .section-box .history-row { flex-direction: row; align-items: center; gap: 14px; }
@@ -784,7 +784,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 
   /* The screen header is a flex row (back · title · action). A user-typed club
      name in .stamp-title won't wrap unless the flex item is allowed to shrink
-     (min-width:0) — otherwise a long name pushes the row wider than the screen.
+     (min-width:0) - otherwise a long name pushes the row wider than the screen.
      This is the club-creation repro: the name you enter overflows the header. */
   .screen-header { gap: 10px; }
   .screen-header .stamp-title, .stamp-title.small {
@@ -799,7 +799,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
   img, .book-cover { max-width: 100%; }
   .club-toolbar { flex-wrap: wrap; }
 
-  /* Toasts live in a position:fixed container — the one kind of element that can
+  /* Toasts live in a position:fixed container - the one kind of element that can
      extend the page past overflow:clip on real mobile browsers. Pin it to both
      edges (instead of shrink-to-fit at right:20) so it can never sit off-screen
      or exceed the viewport width. */
@@ -840,7 +840,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .post-body { margin: 0 0 8px; font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
 .post-image { display: block; width: 100%; max-height: 460px; object-fit: cover; border-radius: 10px;
   border: 2px solid var(--yarn-clay); margin-top: 4px; }
-/* inline edit form (posts) — reuses the composer look */
+/* inline edit form (posts) - reuses the composer look */
 .post-edit-form { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
 .post-edit-form textarea { width: 100%; }
 .post-edit-form .edit-actions { display: flex; gap: 8px; }
@@ -849,7 +849,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
    PERSONAL INVOLVEMENT (one reader's own footprint on a book)
    Reached from a profile shelf tap: their reactions/replies/progress only.
    Reuses the granny-square .patch + feed-card look; nothing spoiler-related is
-   styled here — the gate is entirely server-side (RLS).
+   styled here - the gate is entirely server-side (RLS).
    ============================================================================ */
 .book-cover.md { width: 72px; height: 108px; }
 .involvement-book { display: flex; flex-direction: row; align-items: center; gap: 18px;
@@ -1048,7 +1048,7 @@ body.story-viewer-open { overflow: hidden; }
 }
 
 /* ============================================================================
-   UNLOCKED REACTIONS — the feed's Feed/✨Unlocked tab strip + post-bump toast.
+   UNLOCKED REACTIONS - the feed's Feed/✨Unlocked tab strip + post-bump toast.
    The Unlocked tab reuses the feed's own card styles; only the strip and the
    actionable toast are new. Yarn-ochre = the "something opened up" signal.
    ========================================================================== */
@@ -1095,7 +1095,7 @@ body.story-viewer-open { overflow: hidden; }
 }
 
 /* Post-bump actionable toast (built in unlocked.js, sits in the toast container
-   which is pointer-events:none — re-enable clicks on our toast). */
+   which is pointer-events:none - re-enable clicks on our toast). */
 .toast-unlock {
   display: flex;
   align-items: center;

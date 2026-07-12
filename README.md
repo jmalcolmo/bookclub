@@ -1,4 +1,4 @@
-# The Reading Room — Book Club Edition
+# The Reading Room - Book Club Edition
 
 A social space for book clubs, built on the "Deranged Granny Square" theme from the
 original Marble Race. Members sign in, join or create clubs, track who's reading
@@ -8,7 +8,7 @@ direct pick. The original marble race is parked at `race.html` and will return a
 fourth picker method.
 
 - **Frontend:** vanilla HTML/CSS/JS, ES modules, no build step.
-- **Backend:** [Supabase](https://supabase.com) — Postgres + Auth (Google) + Realtime + Storage.
+- **Backend:** [Supabase](https://supabase.com) - Postgres + Auth (Google) + Realtime + Storage.
 - **Spoiler-gating** is enforced *server-side* via Row-Level Security, not just in the UI.
 - **Hosting:** static (GitHub Pages) for prod; localhost for dev. Two Supabase projects.
 
@@ -21,11 +21,11 @@ fourth picker method.
 | **App URL** | http://localhost:5174 | https://jmalcolmo.github.io/bookclub/ |
 | **Supabase project ref** | `wwzvwjhohkyudytoqvfl` | `kxiyvqpmmfbibeoygmnw` |
 | **Selected when** | hostname is `localhost`/`127.0.0.1` | any other hostname |
-| **Data** | throwaway test data | real users — keep clean |
+| **Data** | throwaway test data | real users - keep clean |
 
 - Repo: <https://github.com/jmalcolmo/bookclub> (public). GitHub Pages deploys from
   the `master` branch root; every `git push` rebuilds prod automatically.
-- The two environments are fully isolated databases — data does **not** cross over.
+- The two environments are fully isolated databases - data does **not** cross over.
 - `config.js` holds only the public **publishable** keys (safe to commit; guarded by
   RLS). Secrets (DB password, `service_role`/`secret` keys) live in `.passwords/`,
   which is git-ignored and must never be committed.
@@ -87,7 +87,7 @@ The environment is chosen automatically by hostname:
 
 3. **Copy the keys into `config.js`.** From Dashboard → Project Settings → API,
    copy the **Project URL** and the **anon public** key into the matching block
-   in `config.js`. (The anon key is safe to commit — RLS guards everything. Never
+   in `config.js`. (The anon key is safe to commit - RLS guards everything. Never
    put the `service_role` key in the repo.)
 
 ---
@@ -106,14 +106,14 @@ npx serve -l 5174
 
 Then open <http://localhost:5174>. It will use the **dev** Supabase project.
 (Port 5174 is what's registered in the dev project's Redirect URLs, so Google
-sign-in works locally — use that port, or add your chosen port there too.)
+sign-in works locally - use that port, or add your chosen port there too.)
 
 ---
 
 ## Deploy to production (GitHub Pages)
 
 GitHub Pages is **already configured** for this repo (source: `master` branch,
-`/` root). To ship, just push — see "Deploy workflow" above. The site publishes at
+`/` root). To ship, just push - see "Deploy workflow" above. The site publishes at
 <https://jmalcolmo.github.io/bookclub/>, which uses the **prod** Supabase project.
 
 `.nojekyll` is included so GitHub Pages serves the `src/` modules as-is.
@@ -137,7 +137,7 @@ gh api -X POST repos/<owner>/<repo>/pages -f "source[branch]=master" -f "source[
 A reaction is tagged with the page it's about. The RLS `SELECT` policy on
 `reactions` only returns a row to you if you wrote it **or** your own saved
 `reading_progress.current_page` for that book is `>=` the reaction's page. The
-client literally never receives reactions past where you've read — so there's
+client literally never receives reactions past where you've read - so there's
 nothing to leak in the network tab. Log your progress honestly and reactions
 unlock as you go. Reviews are full spoilers and unlock only once you've marked the
 book finished.

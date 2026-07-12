@@ -346,7 +346,7 @@ private struct ProgressBookCard: View {
                 if !silent { toasts.show("Progress saved", .success) }
                 if !saved.unlocked.isEmpty {
                     let n = saved.unlocked.count
-                    toasts.show("\u{2728} \(n) reaction\(n == 1 ? "" : "s") unlocked — see the Unlocked tab on your feed", .success)
+                    toasts.show("\u{2728} \(n) reaction\(n == 1 ? "" : "s") unlocked - see the Unlocked tab on your feed", .success)
                 }
                 await onChange()
             } catch {

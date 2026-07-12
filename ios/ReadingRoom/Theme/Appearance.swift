@@ -1,13 +1,13 @@
 // Global UIKit appearance proxy for the chrome SwiftUI can't reach with a
 // .font() modifier: UINavigationBar titles and UITabBar item labels. SwiftUI
-// renders those through UIKit, which otherwise draws them in the system font —
+// renders those through UIKit, which otherwise draws them in the system font -
 // leaving them the only readable text in the app not wearing the theme face.
 // Call Appearance.apply() once at launch (from ReadingRoomApp.init).
 //
 // Scope is deliberately fonts (+ the title's theme ink) only: we mirror the
-// system's default backgrounds — opaque material when content scrolls under the
+// system's default backgrounds - opaque material when content scrolls under the
 // bar, transparent at the scroll edge so large titles keep floating over the
-// parchment — so nothing but the typeface changes.
+// parchment - so nothing but the typeface changes.
 
 import UIKit
 
@@ -21,7 +21,7 @@ enum Appearance {
     }
 
     // Crimson Pro for display headings (nav titles), DM Mono for the small
-    // label role (tab bar captions) — the same split styles.css uses on the web.
+    // label role (tab bar captions) - the same split styles.css uses on the web.
     static func apply() {
         applyNavigationBar()
         applyTabBar()
@@ -44,7 +44,7 @@ enum Appearance {
         standard.largeTitleTextAttributes = largeTitleAttributes
 
         // Transparent at the scroll edge so large titles float over Theme.bg,
-        // matching the untouched default look — only the typeface differs.
+        // matching the untouched default look - only the typeface differs.
         let scrollEdge = UINavigationBarAppearance()
         scrollEdge.configureWithTransparentBackground()
         scrollEdge.titleTextAttributes = titleAttributes

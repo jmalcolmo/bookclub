@@ -11,7 +11,7 @@ import Foundation
 import Supabase
 
 extension API {
-    // (fromPage, toPage] reactions by OTHER users now visible to me — the set my
+    // (fromPage, toPage] reactions by OTHER users now visible to me - the set my
     // latest progress bump unlocked. The RPC is SECURITY INVOKER, so the reactions
     // SELECT policy (spoiler gate) still applies; fromPage/toPage only bound the scan.
     static func unlockedReactions(bookId: UUID, fromPage: Int, toPage: Int)

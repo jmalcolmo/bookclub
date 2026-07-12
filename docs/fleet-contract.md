@@ -1,4 +1,4 @@
-# Fleet Orchestration Contract — v1
+# Fleet Orchestration Contract - v1
 
 The shared agreement between three parties in the plan → compile → run pipeline:
 
@@ -6,7 +6,7 @@ The shared agreement between three parties in the plan → compile → run pipel
 - **`/plan-compile` (producer):** turns your freeform plan into the canonical **fleet-plan
   block** below, and validates the safety invariants. Emits errors you must resolve.
 - **`/fleet` (consumer):** executes a fleet-plan block. Before dispatching it **re-validates**
-  against this same contract — it never assumes a plan was compiled.
+  against this same contract - it never assumes a plan was compiled.
 
 Both skills READ this file so their rules can't drift apart. If you change a rule here, both
 sides pick it up. Bump `contract_version` when you make a breaking change.
@@ -56,7 +56,7 @@ waves:                           # ordered; each wave runs concurrently
 
 ## Safety invariants (enforced by BOTH compile and fleet)
 
-A plan is **valid to run** only if all hold. Violations are hard errors — resolve them at
+A plan is **valid to run** only if all hold. Violations are hard errors - resolve them at
 compile time, not by hoping the orchestrator copes.
 
 1. **No shared files within a wave.** For any two workstreams in the same wave, their
@@ -71,7 +71,7 @@ compile time, not by hoping the orchestrator copes.
    paths, and no workstream targets `main` or the prod Supabase project.
 
 If `/plan-compile` cannot satisfy these automatically (e.g. two streams genuinely need the
-same file), it reports the conflict and asks you to split, reorder, or serialize — it does not
+same file), it reports the conflict and asks you to split, reorder, or serialize - it does not
 silently guess.
 
 ---

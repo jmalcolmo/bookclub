@@ -1,4 +1,4 @@
-// Push notifications (APNs) registration. There is no web equivalent — the web
+// Push notifications (APNs) registration. There is no web equivalent - the web
 // app has no push. This is the iOS-only path that:
 //   1. asks the user for notification permission,
 //   2. registers with APNs for a device token,
@@ -25,7 +25,7 @@ enum PushRegistrar {
     static var onError: ((Error) -> Void)?
 
     // Ask for permission and, if granted, kick off APNs registration. Safe to
-    // call every launch — iOS coalesces and won't re-prompt once decided.
+    // call every launch - iOS coalesces and won't re-prompt once decided.
     static func requestAuthorizationAndRegister() {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in

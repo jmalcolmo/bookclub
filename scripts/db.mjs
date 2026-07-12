@@ -2,7 +2,7 @@
 // Ad-hoc SQL runner against a Supabase Postgres project (DDL-capable).
 // ----------------------------------------------------------------------------
 // The supabase-js client speaks PostgREST only (no DDL/RLS), so schema and
-// policy work needs a real Postgres connection — that's what this is for.
+// policy work needs a real Postgres connection - that's what this is for.
 //
 // Connection string is read from (in order):
 //   1. $DATABASE_URL
@@ -45,7 +45,7 @@ try {
     if (r.rows?.length) console.table(r.rows);
   }
   if (commit) { await client.query("commit"); console.log("\n✅ COMMITTED"); }
-  else { await client.query("rollback"); console.log("\n↩️  ROLLED BACK (dry run — re-run with --commit to persist)"); }
+  else { await client.query("rollback"); console.log("\n↩️  ROLLED BACK (dry run - re-run with --commit to persist)"); }
 } catch (e) {
   await client.query("rollback").catch(() => {});
   console.error(`\n❌ ${e.message}`);

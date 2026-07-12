@@ -56,7 +56,7 @@ extension API {
     // members' reactions in the crossed pages; detection lives here (one place) so
     // every caller records for free, and the newly-unlocked list rides back in the
     // result so a caller can show the banner without a second fetch. Recording never
-    // fails the save — a bookkeeping error just means no banner this time.
+    // fails the save - a bookkeeping error just means no banner this time.
     @discardableResult
     static func setProgress(bookId: UUID, currentPage: Int, status: ProgressStatus,
                             prevPage: Int? = nil) async throws -> ProgressSave {
@@ -96,7 +96,7 @@ extension API {
             .eq("user_id", value: uid.uuidString)
             .execute()
         // Resetting re-locks this book's reactions, so my unlock rows for it are
-        // stale — drop them (mirrors api.js deleteProgress).
+        // stale - drop them (mirrors api.js deleteProgress).
         let rx: [IdRow] = try await supabase.from("reactions")
             .select("id")
             .eq("book_id", value: bookId.uuidString)

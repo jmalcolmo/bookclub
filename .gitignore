@@ -17,7 +17,7 @@ npm-debug.log*
 *.service_role*
 supabase/.temp/
 
-# Local secrets folder — never commit
+# Local secrets folder - never commit
 .passwords/
 
 # Claude Code / local AI tooling.
@@ -30,3 +30,6 @@ supabase/.temp/
 !.claude/agents/**
 .mcp.json
 scratchpad/
+
+# Python bytecode (devserver.py)
+__pycache__/

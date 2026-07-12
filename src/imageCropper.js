@@ -1,7 +1,7 @@
 // Circular / rounded-square image cropper. Lets the user pan, zoom, and frame an
 // image before it's saved, then BAKES the framing into a square JPEG so display
 // code stays unchanged (avatars are CSS circles with background-size:cover, club
-// icons are rounded squares — both just show the top-left-to-cover square we emit).
+// icons are rounded squares - both just show the top-left-to-cover square we emit).
 //
 // Usage:
 //   const blob = await cropImage(file, { shape: "circle" }); // or "rounded"

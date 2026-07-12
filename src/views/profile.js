@@ -35,18 +35,18 @@ export async function renderProfile({ params } = {}) {
       </section>
 
       <section class="profile-history">
-        <h3 class="stamp-title small">MY SHELF — BOOKS I'VE READ</h3>
+        <h3 class="stamp-title small">MY SHELF - BOOKS I'VE READ</h3>
         ${history.length ? `<div class="patch section-box" data-shelf></div>` : `
           <div class="empty-state"><p>no finished books yet.</p>
-            <p class="faint">books you mark finished — in any club — land on your shelf.</p></div>`}
+            <p class="faint">books you mark finished - in any club - land on your shelf.</p></div>`}
       </section>
     </div>
   `, (root) => {
-    loadActivity(root); // async — don't block the profile paint
+    loadActivity(root); // async - don't block the profile paint
     const shelf = root.querySelector("[data-shelf]");
     if (shelf) paintCollapsible(shelf, historyRows, "books", (box) => {
       // Tapping a shelf book opens MY personal involvement view for it (my own
-      // reactions/replies/progress), not the whole club feed — keyed by my id.
+      // reactions/replies/progress), not the whole club feed - keyed by my id.
       box.querySelectorAll("[data-book]").forEach((b) =>
         b.addEventListener("click", () => navigate(`/reader/${store.user.id}/book/${b.dataset.book}`)));
     });
@@ -55,7 +55,7 @@ export async function renderProfile({ params } = {}) {
 }
 
 // One shelf row (a finished book from readingHistoryFor / myReadingHistory).
-// Shared by my own shelf and the shelf on another reader's profile — tapping a
+// Shared by my own shelf and the shelf on another reader's profile - tapping a
 // row opens the owner's PERSONAL involvement view (wired by the caller).
 function shelfRowHTML(b) {
   return `
@@ -240,7 +240,7 @@ async function renderOtherProfile(userId) {
 
   // Their shelf: only the rows RLS lets ME see (their finished progress in
   // clubs we share, or via the follow path). An empty result just hides the
-  // section — no client-side gating is ever added here. (Named shelfBooks, not
+  // section - no client-side gating is ever added here. (Named shelfBooks, not
   // `history`, so window.history.back() below isn't shadowed.)
   let shelfBooks = [];
   try { shelfBooks = await api.readingHistoryFor(userId); } catch { /* hide shelf */ }
@@ -278,7 +278,7 @@ async function renderOtherProfile(userId) {
 
       ${shelfBooks.length ? `
         <section class="profile-history">
-          <h3 class="stamp-title small">THEIR SHELF — BOOKS THEY'VE READ</h3>
+          <h3 class="stamp-title small">THEIR SHELF - BOOKS THEY'VE READ</h3>
           <div class="patch section-box" data-shelf></div>
         </section>` : ""}
     </div>
@@ -287,7 +287,7 @@ async function renderOtherProfile(userId) {
     const shelf = root.querySelector("[data-shelf]");
     if (shelf) paintCollapsible(shelf, shelfBooks.map(shelfRowHTML), "books", (box) => {
       // Tapping a shelf book opens THEIR personal involvement view for it (their
-      // own reactions/replies/progress) — keyed by this reader's id. What shows
+      // own reactions/replies/progress) - keyed by this reader's id. What shows
       // inside is still spoiler-gated to ME by RLS.
       box.querySelectorAll("[data-book]").forEach((b) =>
         b.addEventListener("click", () => navigate(`/reader/${userId}/book/${b.dataset.book}`)));

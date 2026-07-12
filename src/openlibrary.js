@@ -1,4 +1,4 @@
-// Open Library search — free, no API key. Used for book auto-lookup.
+// Open Library search - free, no API key. Used for book auto-lookup.
 
 const SEARCH = "https://openlibrary.org/search.json";
 // Open Library can be slow or hang; cap each lookup so the search UI fails

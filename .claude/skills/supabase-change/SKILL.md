@@ -1,6 +1,6 @@
 ---
 name: supabase-change
-description: Safely change the Supabase database for The Reading Room — tables, columns, RLS policies, functions, storage. Use when adding/altering DB schema, writing or editing Row-Level Security policies, adding a table or column the app needs, or touching anything in supabase/schema.sql. Enforces the spoiler-gate invariant and the dev→prod apply ritual.
+description: Safely change the Supabase database for The Reading Room - tables, columns, RLS policies, functions, storage. Use when adding/altering DB schema, writing or editing Row-Level Security policies, adding a table or column the app needs, or touching anything in supabase/schema.sql. Enforces the spoiler-gate invariant and the dev→prod apply ritual.
 ---
 
 # Supabase change
@@ -8,7 +8,7 @@ description: Safely change the Supabase database for The Reading Room — tables
 The database is the riskiest surface in this app: auth + the **spoiler gate** live in
 Row-Level Security. A bad policy leaks spoilers or private data. Follow this exactly.
 
-## Invariants — never break these
+## Invariants - never break these
 
 1. **Spoiler gate (reactions).** The `reactions` SELECT policy must only return a row
    when the reader wrote it OR their `reading_progress.current_page >= reactions.page`,
@@ -17,7 +17,7 @@ Row-Level Security. A bad policy leaks spoilers or private data. Follow this exa
    `status = 'finished'`.
 3. **Membership-scoped reads.** Club data (books, progress, reactions, reviews,
    selections, votes) is readable only by members of that club. Use the
-   `is_club_member()` / `book_club()` helpers — never inline a subquery that could
+   `is_club_member()` / `book_club()` helpers - never inline a subquery that could
    recurse on `club_members`.
 4. **Join codes are private.** Non-members discover a club only via the
    `find_club_by_code` SECURITY DEFINER RPC, never by selecting from `clubs`.
@@ -48,12 +48,12 @@ Schema is hand-applied; dev and prod must stay in parity.
 - Project refs: dev `wwzvwjhohkyudytoqvfl`, prod `kxiyvqpmmfbibeoygmnw`.
 - **Never** apply to prod before dev is verified.
 - If the app code (api.js / views) depends on the new schema, the schema must be
-  applied to prod **before** the frontend PR merges to `main` — otherwise prod breaks.
+  applied to prod **before** the frontend PR merges to `main` - otherwise prod breaks.
   Call this out explicitly when shipping (the `ship` skill checks for it).
 
 ## Verify
 
-1. After applying to dev, run the `test` skill — it exercises RLS end-to-end,
+1. After applying to dev, run the `test` skill - it exercises RLS end-to-end,
    including the spoiler gate, against the dev project.
 2. For a new policy, reason through it as an attacker: "as a non-member / a member who
    hasn't read far enough, can I read this row?" If yes and shouldn't, fix it.

@@ -119,7 +119,7 @@ export function timeAgo(ts) {
 }
 
 export function fmtDate(ts) {
-  if (!ts) return "—";
+  if (!ts) return "-";
   return new Date(ts).toLocaleDateString(undefined, {
     year: "numeric", month: "short", day: "numeric",
   });
