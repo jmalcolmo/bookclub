@@ -147,18 +147,12 @@ async function boot(root, initialTab = "feed") {
   async function load() {
     const clubs = await api.myClubs();
     myClubs = clubs;
-    const [data, followed, unlocks] = await Promise.all([
+    const [data, unlocks] = await Promise.all([
       Promise.all(clubs.map(gatherClub)),
-      // Readers I follow: their solo reading OUTSIDE my clubs (already
-      // RLS-filtered). Items inside a shared club are dropped below - the club
-      // events cover those.
-      api.followFeed().catch(() => ({ items: [] })),
       // Everything my progress bumps have unlocked (feeds the Unlocked tab).
       // Already RLS-filtered; a failure just empties the tab.
       api.myUnlocks().catch(() => []),
     ]);
-    const myClubIds = new Set(clubs.map((c) => c.id));
-    const followItems = followed.items.filter((i) => !myClubIds.has(i.book.club_id));
 
     // Bulk-load (in three queries, not per-club) the reply threads, the global
     // announcements, and every engagement on anything visible on this screen -
@@ -181,14 +175,13 @@ async function boot(root, initialTab = "feed") {
       ...announcements.map((a) => a.id),
     ];
     const engagements = await api.engagementsFor(targetIds);
-    const shared = { data, followItems, replies, announcements, engagements, unlocks };
+    const shared = { data, replies, announcements, engagements, unlocks };
     const ctx = buildContext(shared);
 
     // Build events once so the greeting can derive the "new activity" count
     // from the same data the feed will render - no extra API call.
     const events = [
       ...buildEvents(shared.data, ctx),
-      ...buildFollowEvents(followItems),
       ...buildLikeNotifications(shared, ctx),
     ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
@@ -454,7 +447,6 @@ function paintFeed(root, shared, ctx, reload) {
   // them here (e.g. first render before refactor callers catch up).
   const events = shared.events
     || ([...buildEvents(shared.data, ctx),
-         ...buildFollowEvents(shared.followItems || []),
          ...buildLikeNotifications(shared, ctx)]
         .sort((a, b) => new Date(b.ts) - new Date(a.ts)));
 
@@ -562,29 +554,6 @@ function buildLikeNotifications(shared, ctx) {
   return events;
 }
 
-// Follow-feed items: solo reading by people I follow, outside my clubs. These
-// carry a "Following" header chip instead of a club name and tap through to the
-// reader's profile (their book lives in a club I'm not a member of).
-function buildFollowEvents(items) {
-  return items.map((i) => {
-    const name = esc(i.profile?.display_name || "A reader");
-    const go = i.profile ? `/user/${i.profile.id}` : undefined;
-    const base = { type: "follow", follow: true, ts: i.at, go, bookTitle: i.book.title };
-    if (i.kind === "reaction") {
-      return { kind: "reaction", ...base, reaction: {
-        id: i.id, user_id: i.profile?.id, profile: i.profile,
-        page: i.page, body: i.body, created_at: i.at,
-      } };
-    }
-    const of = i.book.page_count ? ` of ${i.book.page_count}` : "";
-    const text = i.status === "finished" ? `${name} finished the book`
-      : i.page > 0 ? `${name} read to page ${i.page}${of}`
-      : `${name} started reading`;
-    const icon = i.status === "finished" ? "🎉" : i.page > 0 ? "📖" : "🔖";
-    return { kind: "notif", ...base, icon, text };
-  });
-}
-
 function likeLabel(names) {
   if (names.length === 1) return esc(names[0]);
   if (names.length === 2) return `${esc(names[0])} and ${esc(names[1])}`;
@@ -595,7 +564,7 @@ function likeLabel(names) {
 // already spoiler-safe; progress milestones mirror book.js's buildNotifications.
 // Every event carries `club` (header chip) + `bookTitle` (its own line) instead
 // of baking them into the sentence, and a `type` that drives its look:
-//   progress · reaction · milestone · pick · social · follow
+//   progress · reaction · milestone · pick · social
 function buildEvents(data) {
   const me = store.user?.id;
   const events = [];
@@ -660,13 +629,10 @@ function buildEvents(data) {
   return events;
 }
 
-// The small header every card carries: which club this happened in - or
-// "Following" when it comes from a reader you follow outside your clubs -
-// with the book it's about right underneath.
+// The small header every card carries: which club this happened in, with the
+// book it's about right underneath.
 function cardHeadHTML(e) {
-  const chip = e.club
-    ? `<span class="feed-chip">${esc(e.club)}</span>`
-    : `<span class="feed-chip feed-chip-follow">✧ Following</span>`;
+  const chip = e.club ? `<span class="feed-chip">${esc(e.club)}</span>` : "";
   const bookLine = e.bookTitle ? `<span class="feed-book-line">${esc(e.bookTitle)}</span>` : "";
   return `<div class="feed-card-head">${chip}<span class="notif-time faint">${timeAgo(e.ts)}</span></div>${bookLine}`;
 }
@@ -675,9 +641,7 @@ function eventCardHTML(e, ctx) {
   const typeClass = `feed-kind-${e.type || "progress"}`;
   if (e.kind === "reaction") {
     const r = e.reaction;
-    // Follow-path reactions are display-only (no engagement bar or replies -
-    // they live in clubs we're not members of), and tap to the reader's profile.
-    const foot = e.follow ? "" : `
+    const foot = `
         <div class="card-foot">
           ${engagementBarHTML("reaction", r.id, ctx.engOf(r.id), ctx.nameOf, ctx.myId)}
           ${replyThreadHTML(r.id, ctx.repliesByReaction[r.id] || [], ctx.engOf, ctx.nameOf, ctx.myId)}

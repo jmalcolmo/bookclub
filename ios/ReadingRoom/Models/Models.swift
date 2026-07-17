@@ -15,14 +15,6 @@ struct Profile: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date
 }
 
-// MARK: - follows (a directed follow edge, outside of clubs)
-
-struct Follow: Codable, Hashable, Sendable {
-    let followerId: UUID
-    let followeeId: UUID
-    let createdAt: Date
-}
-
 // MARK: - clubs
 
 struct Club: Codable, Identifiable, Hashable, Sendable {

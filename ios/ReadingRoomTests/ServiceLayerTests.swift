@@ -508,11 +508,11 @@ final class ServiceLayerTests: XCTestCase {
             .eq("club_id", value: club.id.uuidString)
             .eq("user_id", value: b.uuidString).execute()
 
-        // ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) ----------
+        // ---- CLUB-SCOPE GATES (A and B now share NO club) -------------------------
         // B owns a private club A never joins, with a book, a reaction and progress.
-        // A follows B and should see B's SOLO reading there WITHOUT joining - the
-        // additive follow RLS path. Crucially this must NOT be a club-gate bypass:
-        // A is not a member, and it only surfaces B's OWN authored reading.
+        // The app is purely club-scoped (the follow system was removed July 2026):
+        // NOTHING of B's solo club may be visible to A, and the follows table
+        // itself must be gone. Mirrors tests/run.mjs's club-scope negative gates.
         struct NewClubRaw: Encodable { let name: String; let accent: String; let createdBy: UUID }
         let bClub: Club = try await cB.from("clubs")
             .insert(NewClubRaw(name: "B Solo Club \(tag)", accent: "yarn-mauve", createdBy: b))
@@ -526,53 +526,41 @@ final class ServiceLayerTests: XCTestCase {
             .upsert(BProgress(bookId: bBook.id, userId: b, currentPage: 120, status: "reading"),
                     onConflict: "book_id,user_id").execute()
         struct BReaction: Encodable { let bookId: UUID; let userId: UUID; let page: Int; let body: String }
-        let bReaction: Reaction = try await cB.from("reactions")
+        _ = try await cB.from("reactions")
             .insert(BReaction(bookId: bBook.id, userId: b, page: 90, body: "solo thought \(tag)"))
-            .select().single().execute().value
+            .execute()
         struct BPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
-        let bPost: ClubPost = try await cB.from("club_posts")
+        _ = try await cB.from("club_posts")
             .insert(BPost(clubId: bClub.id, userId: b, body: "solo post \(tag)"))
-            .select().single().execute().value
+            .execute()
 
-        // BEFORE following: A can't read B's solo profile/reactions/progress at all.
-        let preFollowProfiles: [Profile] = try await supabase.from("profiles").select()
+        // A can't read ANY of B's solo club content: profile, reactions,
+        // progress, or the book row itself.
+        let scopeProfiles: [Profile] = try await supabase.from("profiles").select()
             .eq("id", value: b.uuidString).execute().value
-        XCTAssertTrue(preFollowProfiles.isEmpty, "FOLLOW LEAK: saw a non-co-member profile before following")
-        let preFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+        XCTAssertTrue(scopeProfiles.isEmpty, "SCOPE LEAK: saw a profile without a shared club")
+        let scopeReactions: [Reaction] = try await supabase.from("reactions").select()
             .eq("book_id", value: bBook.id.uuidString).execute().value
-        XCTAssertTrue(preFollowReactions.isEmpty, "FOLLOW LEAK: saw a non-member's reaction before following")
-
-        // POST MEMBERSHIP GATE: a non-member cannot read a club's posts, and posts
-        // are NOT part of the follow path.
-        let preFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
-            .eq("club_id", value: bClub.id.uuidString).execute().value
-        XCTAssertTrue(preFollowPosts.isEmpty, "POST LEAK: a non-member read a club's posts")
-        _ = bPost // referenced below via the post-follow assertion
-        let preFeed = try await API.followFeed()
-        XCTAssertFalse(preFeed.items.contains { $0.id == bReaction.id },
-                       "FOLLOW LEAK: B's reaction showed in the feed before A followed")
-
-        // A follows B (the app API under test), then the follow paths open up.
-        _ = try await API.follow(b)
-        let isFollowing = try await API.isFollowing(b)
-        XCTAssertTrue(isFollowing, "follow did not register")
-        let following = try await API.following()
-        XCTAssertTrue(following.contains(b), "following() missing the followee")
-        let followingProfiles = try await API.followingProfiles()
-        XCTAssertTrue(followingProfiles.contains { $0.id == b },
-                      "followingProfiles() missing the followee's profile")
-
-        // Now A sees B's SOLO reaction + progress via the additive path.
-        let postFollowReactions: [Reaction] = try await supabase.from("reactions").select()
+        XCTAssertTrue(scopeReactions.isEmpty, "SCOPE LEAK: saw a non-member club's reaction")
+        let scopeProgress: [ReadingProgress] = try await supabase.from("reading_progress").select()
             .eq("book_id", value: bBook.id.uuidString).execute().value
-        XCTAssertTrue(postFollowReactions.contains { $0.id == bReaction.id },
-                      "follow path did not expose the followee's solo reaction")
+        XCTAssertTrue(scopeProgress.isEmpty, "SCOPE LEAK: saw a non-member club's progress")
+        let scopeBooks: [Book] = try await supabase.from("books").select()
+            .eq("id", value: bBook.id.uuidString).execute().value
+        XCTAssertTrue(scopeBooks.isEmpty, "SCOPE LEAK: saw a non-member club's book")
 
-        // Posts are NOT part of the follow path: following B must never expose
-        // the posts of a club A isn't a member of, and A can't insert into it.
-        let postFollowPosts: [ClubPost] = try await supabase.from("club_posts").select()
+        // FOLLOWS REMOVED: the legacy follows table no longer exists - a query
+        // against it must fail (relation does not exist), not return rows.
+        var followsGone = false
+        do {
+            _ = try await supabase.from("follows").select("follower_id").limit(1).execute()
+        } catch { followsGone = true }
+        XCTAssertTrue(followsGone, "follows table still exists (or is readable) after removal")
+
+        // POST MEMBERSHIP GATE: a non-member cannot read or write a club's posts.
+        let scopePosts: [ClubPost] = try await supabase.from("club_posts").select()
             .eq("club_id", value: bClub.id.uuidString).execute().value
-        XCTAssertTrue(postFollowPosts.isEmpty, "POST LEAK: following exposed a non-member club's posts")
+        XCTAssertTrue(scopePosts.isEmpty, "POST LEAK: a non-member read a club's posts")
         struct IntruderPost: Encodable { let clubId: UUID; let userId: UUID; let body: String }
         var postInsertBlocked = false
         do {
@@ -581,30 +569,6 @@ final class ServiceLayerTests: XCTestCase {
                 .select().single().execute().value
         } catch { postInsertBlocked = true }
         XCTAssertTrue(postInsertBlocked, "POST LEAK: a non-member inserted a post into a club they're not in")
-        let feed = try await API.followFeed()
-        XCTAssertTrue(feed.followees.contains { $0.id == b }, "feed roster missing the followee")
-        XCTAssertTrue(feed.items.contains { $0.kind == .reaction && $0.id == bReaction.id },
-                      "follow feed missing the followee's reaction")
-        XCTAssertTrue(feed.items.contains { $0.kind == .progress },
-                      "follow feed missing the followee's progress")
-
-        // Only follower A may follow FROM themselves: A can't forge B->A.
-        struct ForgedFollow: Encodable { let followerId: UUID; let followeeId: UUID }
-        var forgeBlocked = false
-        do {
-            _ = try await supabase.from("follows")
-                .insert(ForgedFollow(followerId: b, followeeId: a))
-                .select().single().execute()
-        } catch { forgeBlocked = true }
-        XCTAssertTrue(forgeBlocked, "FOLLOW LEAK: forged a follow edge on someone else's behalf")
-
-        // A unfollows -> the solo view re-locks live (RLS reads the graph each time).
-        try await API.unfollow(b)
-        let stillFollowing = try await API.isFollowing(b)
-        XCTAssertFalse(stillFollowing, "unfollow did not remove the edge")
-        let afterUnfollow: [Reaction] = try await supabase.from("reactions").select()
-            .eq("book_id", value: bBook.id.uuidString).execute().value
-        XCTAssertTrue(afterUnfollow.isEmpty, "FOLLOW LEAK: solo reaction still visible after unfollowing")
 
         // Clean up B's solo club (cascades its book/progress/reactions).
         _ = try await cB.from("clubs").delete().eq("id", value: bClub.id.uuidString).execute()

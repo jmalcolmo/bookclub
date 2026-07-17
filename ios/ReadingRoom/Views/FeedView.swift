@@ -22,8 +22,8 @@ struct ClubSnapshot {
 
 // A feed card. Ids are stable across reloads so SwiftUI keeps per-card state
 // (open reply threads, composer drafts) alive through realtime refreshes.
-// Every event carries `club` (header chip; nil = "Following") + `bookTitle`
-// (its own line) instead of baking them into the sentence, and an `eventType`
+// Every event carries `club` (header chip) + `bookTitle` (its own line)
+// instead of baking them into the sentence, and an `eventType`
 // that drives its look (web parity: feed-kind-* classes).
 struct FeedEvent: Identifiable {
     enum Kind {
@@ -32,9 +32,9 @@ struct FeedEvent: Identifiable {
     }
 
     // progress = sage log entry · reaction = slate · milestone = rust ·
-    // pick/vote = ochre · social (likes) = clay · follow = mauve
+    // pick/vote = ochre · social (likes) = clay
     enum EventType {
-        case progress, reaction, milestone, pick, social, follow
+        case progress, reaction, milestone, pick, social
     }
 
     let id: String
@@ -43,7 +43,6 @@ struct FeedEvent: Identifiable {
     var eventType: EventType = .progress
     var club: String?
     var bookTitle: String?
-    var isFollow: Bool = false
     var go: Route?
     var targetType: EngagementTarget?
     var targetId: UUID?
@@ -113,13 +112,6 @@ final class FeedModel {
             myId = try await API.currentUserId()
             let clubs = try await API.myClubs()
 
-            // Readers I follow: their solo reading OUTSIDE my clubs (already
-            // RLS-filtered). Items inside a shared club are dropped below -
-            // the club events cover those.
-            let myClubIds = Set(clubs.map(\.id))
-            let followItems = ((try? await API.followFeed())?.items ?? [])
-                .filter { item in item.book.map { !myClubIds.contains($0.clubId) } ?? false }
-
             // Everything my progress bumps have unlocked (feeds the ✨ Unlocked
             // tab). Already RLS-filtered; a failure just empties the tab.
             let unlocks = (try? await API.myUnlocks()) ?? []
@@ -168,7 +160,6 @@ final class FeedModel {
             announcements = anns
             context = ctx
             events = (Self.buildEvents(snapshots: gathered, myId: myId)
-                      + Self.buildFollowEvents(followItems)
                       + Self.buildLikeNotifications(snapshots: gathered,
                                                     replies: replies,
                                                     engagements: engagements,
@@ -355,40 +346,6 @@ final class FeedModel {
             }
         }
         return events
-    }
-
-    // Follow-feed items: solo reading by people I follow, outside my clubs.
-    // They carry a "Following" header chip (club == nil) and tap through to the
-    // reader's profile - their book lives in a club we're not a member of.
-    private static func buildFollowEvents(_ items: [FollowFeedItem]) -> [FeedEvent] {
-        items.compactMap { item in
-            guard let book = item.book else { return nil }
-            let go = item.profile.map { Route.reader($0.id) }
-            switch item.kind {
-            case .reaction:
-                let reaction = Reaction(id: item.id, bookId: book.id,
-                                        userId: item.profile?.id ?? UUID(),
-                                        page: item.page, body: item.body ?? "",
-                                        createdAt: item.at)
-                return FeedEvent(
-                    id: "follow-\(item.id)", ts: item.at,
-                    kind: .reaction(ReactionItem(reaction: reaction, profile: item.profile)),
-                    eventType: .follow, club: nil, bookTitle: book.title,
-                    isFollow: true, go: go)
-            case .progress:
-                let name = item.profile?.displayName ?? "A reader"
-                let of = book.pageCount.map { " of \($0)" } ?? ""
-                let (icon, text): (String, String) =
-                    item.status == .finished ? ("\u{1F389}", "\(name) finished the book")
-                    : item.page > 0 ? ("\u{1F4D6}", "\(name) read to page \(item.page)\(of)")
-                    : ("\u{1F516}", "\(name) started reading")
-                return FeedEvent(
-                    id: "follow-\(item.id)", ts: item.at,
-                    kind: .notif(icon: icon, text: text, highlight: false),
-                    eventType: .follow, club: nil, bookTitle: book.title,
-                    isFollow: true, go: go)
-            }
-        }
     }
 
     // "Someone liked your X" cards, derived from likes others left on my stuff

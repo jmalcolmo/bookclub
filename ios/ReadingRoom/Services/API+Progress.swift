@@ -113,8 +113,8 @@ extension API {
     // newest first - with their rating where the viewer may see the review.
     // Powers both my own shelf and the shelf on another reader's profile (port
     // of api.js readingHistoryFor). RLS does all the gating: their progress
-    // rows return only where the viewer is a co-member (progress_select_member)
-    // or via the follow path; books resolve only in clubs the viewer can see;
+    // rows return only where the viewer is a co-member (progress_select_member);
+    // books resolve only in clubs the viewer can see;
     // and the owner's review returns only when the VIEWER has finished that
     // book (the review gate), so a hidden rating just renders as "not rated".
     // Whatever RLS hides simply doesn't appear - an invisible reader yields [].

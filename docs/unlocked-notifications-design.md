@@ -29,8 +29,10 @@ From `supabase/schema.sql`, a reader may SELECT a reaction iff:
 ```
 is_club_member(book_club(book_id))
 AND ( user_id = auth.uid() OR has_read_to(book_id, page) )      -- club path
--- OR the additive follow path (non-member of the book's club); see §1.4
 ```
+
+(The additive follow path that used to OR onto this predicate was removed in
+July 2026 along with the whole follow system; §1.4 is retained as history.)
 
 `has_read_to(book, page)` is `current_page >= page` on the reader's own
 `reading_progress` row. So the visible/hidden boundary for a reader is exactly their
@@ -91,9 +93,12 @@ RPC (§2.1) that runs as the invoking user (`SECURITY INVOKER`), so it can only 
 rows the reader is now permitted to see. The client passes `oldPage`/`newPage` as
 *hints* to bound the query; the gate still decides.
 
-### 1.4 Interaction with the follow path
+### 1.4 Interaction with the follow path (HISTORICAL - follows removed July 2026)
 
-The additive follow path (`is_following(user_id) and not is_club_member(...)`) makes a
+The follow system no longer exists; this section is kept for the record of why
+unlock detection was club-gate-only from the start.
+
+The additive follow path (`is_following(user_id) and not is_club_member(...)`) made a
 followee's solo reactions visible regardless of the reader's page. Those are NOT
 page-gated for this reader, so they are never "unlocked" by a progress bump and are
 excluded by the `is_club_member(book_club(...))`-scoped RPC below. This feature concerns
@@ -567,8 +572,9 @@ of MY action, the natural trigger is a DB change on MY `reading_progress` row.
    is no longer visible (deleted or re-locked after a reset), so a stale unlock row can
    never surface hidden content.
 5. **Push payloads carry no bodies**; details are always fetched under RLS on open.
-6. Follow-path reactions are excluded from unlock detection (§1.4) - they were never
-   page-gated, so they aren't "unlocked".
+6. Follow-path reactions were excluded from unlock detection (§1.4, historical -
+   the follow system was removed July 2026) - they were never
+   page-gated, so they weren't "unlocked".
 
 Net: every path that could surface a reaction routes through the same RLS the app already
 trusts. This feature adds a *notification/bookkeeping* layer on top of the gate; it never

@@ -12,7 +12,7 @@ enum Route: Hashable {
     case history(clubId: UUID)
     case posts(clubId: UUID)   // the club's lightweight, non-spoiler-gated post feed
     case book(clubId: UUID, bookId: UUID)
-    case reader(UUID)   // another reader's read-only profile (with follow control)
+    case reader(UUID)   // another reader's read-only profile
     // A reader's PERSONAL involvement with a book (their own reactions/replies/
     // progress), keyed by ownerId + bookId. Reached from a profile shelf tap.
     case bookInvolvement(ownerId: UUID, bookId: UUID)
