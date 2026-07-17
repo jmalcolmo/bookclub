@@ -659,6 +659,25 @@ await step("A writes a review (unlocked by finishing)", async () => {
   if (error) throw error;
 });
 
+await step("INSTANT REVIEW modal flow: myReview prefill + saveReview update", async () => {
+  // The finish-flow modal (views/reviewModal.js) reads the user's own review to
+  // prefill (api.myReview), then upserts edits (api.saveReview). Mirror both.
+  const { data: mine } = await cA.from("reviews").select("*")
+    .eq("book_id", book.id).eq("user_id", A.id);
+  assert((mine || []).length === 1, "myReview prefill did not find A's own review");
+  assert(mine[0].rating === 4, "myReview prefill returned wrong rating");
+  const { data: updated, error } = await cA.from("reviews")
+    .upsert({ book_id: book.id, user_id: A.id, rating: 5, body: "grew on me" },
+      { onConflict: "book_id,user_id" }).select().single();
+  if (error) throw error;
+  assert(updated.rating === 5 && updated.body === "grew on me",
+    "saveReview upsert did not update the existing review");
+  // restore the original so downstream review steps read the expected row
+  const { error: reErr } = await cA.from("reviews").upsert(
+    { book_id: book.id, user_id: A.id, rating: 4, body: "solid read" }, { onConflict: "book_id,user_id" });
+  if (reErr) throw reErr;
+});
+
 await step("A's personal reading history includes the finished book (myReadingHistory)", async () => {
   // Mirror api.myReadingHistory(): my finished progress rows -> their books.
   const { data: prog } = await cA.from("reading_progress").select("book_id")

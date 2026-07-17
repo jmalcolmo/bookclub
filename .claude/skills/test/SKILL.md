@@ -70,6 +70,7 @@ reaction's page gate - B can't see/post on a gated reaction)** · like a reactio
 tapback · **engagement spoiler gate (can't like a gated reaction)** · like a club-activity item
 (book) · un-like (toggle off) · **reply + engagement gates OPEN once read past the page** ·
 delete own reply · progress unlocks later reactions · finish + write review ·
+**instant review modal flow (myReview prefill + saveReview upsert-update)** ·
 personal reading history includes finished book · **review gate (hidden until finished)** · review visible
 after finishing · wheel selection · vote tally · finalize selection (decide winner) ·
 **selection gate (non-creator cannot finalize a

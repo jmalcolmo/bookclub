@@ -10,6 +10,7 @@ import { esc, daysUntil, toast } from "../ui.js";
 import * as api from "../api.js";
 import { openModal, closeModal } from "./clubs.js";
 import { unlockToast } from "./unlocked.js";
+import { openReviewModal } from "./reviewModal.js";
 
 export async function renderProgress() {
   render(`
@@ -82,6 +83,7 @@ function card({ club, book, mine }) {
           <span class="finished-badge">✓ Finished</span>
           <button type="button" class="btn-ghost small" data-act="unfinish">Mark as still reading</button>
         </div>
+        <button type="button" class="btn-ghost small" data-act="review">★ review</button>
         <button type="button" class="btn-ghost small progress-add-reaction"
           data-go="/club/${club.id}/book/${book.id}">💬 add a reaction</button>
       </div>`
@@ -139,9 +141,10 @@ function wireCard(host, { club, book, mine }, reload) {
     reload();
   };
 
-  // Finished card: editing is locked. Only wire the reversible "still reading"
-  // control (keeps current_page, flips status back to reading) - the "add a
-  // reaction" button rides the shared [data-go] handler to the book page.
+  // Finished card: editing is locked. Wire the reversible "still reading"
+  // control (keeps current_page, flips status back to reading) and the
+  // "★ review" shortcut - the "add a reaction" button rides the shared
+  // [data-go] handler to the book page.
   if (mine?.status === "finished") {
     card.querySelector("[data-act='unfinish']")?.addEventListener("click", async () => {
       try {
@@ -149,6 +152,7 @@ function wireCard(host, { club, book, mine }, reload) {
         toast("Marked as still reading", "success");
       } catch (err) { toast(err.message, "error"); }
     });
+    card.querySelector("[data-act='review']")?.addEventListener("click", () => openReviewModal(book));
     return;
   }
 
@@ -169,8 +173,10 @@ function wireCard(host, { club, book, mine }, reload) {
   });
 
   pForm.querySelector("[data-act='finished']")?.addEventListener("click", async () => {
-    try { await applyProgress(book.page_count || Number(pForm.page.value) || 0, "finished"); }
-    catch (err) { toast(err.message, "error"); }
+    try {
+      await applyProgress(book.page_count || Number(pForm.page.value) || 0, "finished");
+      openReviewModal(book); // straight into reviewing - dismissing is fine
+    } catch (err) { toast(err.message, "error"); }
   });
 
   pForm.querySelector("[data-act='react-toggle']").addEventListener("click", (e) => {
@@ -231,16 +237,18 @@ function wireCard(host, { club, book, mine }, reload) {
   }
 
   // Entered a page at/past the last page: ask whether the book is complete.
-  // Yes → finished at page_count. Dismiss → just save the reading progress.
+  // Yes → finished at page_count, then straight into the review modal.
+  // Dismiss → just save the reading progress.
   function promptComplete(page) {
     let handled = false;
     const done = async (status) => {
-      if (handled) return;
+      if (handled) return false;
       handled = true;
       try {
         if (status === "finished") await applyProgress(book.page_count, "finished");
         else await applyProgress(page);
-      } catch (err) { toast(err.message, "error"); }
+        return true;
+      } catch (err) { toast(err.message, "error"); return false; }
     };
     const modal = openModal(`
       <h3>Did you complete this book?</h3>
@@ -254,8 +262,9 @@ function wireCard(host, { club, book, mine }, reload) {
     `, (m) => {
       m.querySelector("[data-form]").addEventListener("submit", async (e) => {
         e.preventDefault();
-        await done("finished");
+        const ok = await done("finished");
         closeModal();
+        if (ok) openReviewModal(book);
       });
       m.querySelector("[data-dismiss]").addEventListener("click", async () => {
         await done("reading");

@@ -3,6 +3,7 @@ import { esc, toast, avatarHTML, timeAgo, fmtDate, daysUntil, userLinkHTML, wire
 import { store } from "../store.js";
 import * as api from "../api.js";
 import { openModal, closeModal, confirmDialog } from "./clubs.js";
+import { openReviewModal } from "./reviewModal.js";
 import { engagementBarHTML, replyThreadHTML, wireEngagementUI, makeNameResolver } from "../engage.js";
 import { unlockToast } from "./unlocked.js";
 
@@ -379,11 +380,12 @@ function wire(root, { clubId, book, mine }) {
   });
 
   // Reached the last page: prompt to mark the book complete. Yes → finished at
-  // page_count (and route back so the panel locks); dismiss → just save reading.
+  // page_count (route back so the panel locks), then straight into the review
+  // modal; dismiss → just save reading.
   function promptComplete(page) {
     let handled = false;
     const done = async (status) => {
-      if (handled) return;
+      if (handled) return false;
       handled = true;
       try {
         if (status === "finished") {
@@ -392,7 +394,8 @@ function wire(root, { clubId, book, mine }) {
         } else {
           await applyProgress(page);
         }
-      } catch (err) { toast(err.message, "error"); }
+        return true;
+      } catch (err) { toast(err.message, "error"); return false; }
     };
     const modal = openModal(`
       <h3>Did you complete this book?</h3>
@@ -406,8 +409,9 @@ function wire(root, { clubId, book, mine }) {
     `, (m) => {
       m.querySelector("[data-form]").addEventListener("submit", async (e) => {
         e.preventDefault();
-        await done("finished");
+        const ok = await done("finished");
         closeModal();
+        if (ok) openReviewModal(book, { onSaved: () => navigate(`/club/${clubId}/book/${book.id}`) });
       });
       m.querySelector("[data-dismiss]").addEventListener("click", async () => {
         await done("reading");
@@ -469,9 +473,14 @@ function wire(root, { clubId, book, mine }) {
     // Backdrop click also counts as dismiss → still bump to the reaction page.
     modal.addEventListener("click", (e) => { if (e.target === modal) done(reactionPage); });
   }
-  pForm?.querySelector("[data-act='finished']")?.addEventListener("click", () => {
+  pForm?.querySelector("[data-act='finished']")?.addEventListener("click", async () => {
     if (book.page_count) pForm.page.value = book.page_count;
-    save("finished").then(() => navigate(`/club/${clubId}/book/${book.id}`));
+    try {
+      await applyProgress(Number(pForm.page.value) || 0, "finished");
+      navigate(`/club/${clubId}/book/${book.id}`); // re-render: panel locks, review form unlocks
+      // Straight into reviewing; saving re-renders so the reviews list shows it.
+      openReviewModal(book, { onSaved: () => navigate(`/club/${clubId}/book/${book.id}`) });
+    } catch (err) { toast(err.message, "error"); }
   });
 
   root.querySelector("[data-act='edit-deadline']")?.addEventListener("click", () => {
