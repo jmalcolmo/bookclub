@@ -199,6 +199,9 @@ struct AnnouncementRead: Codable, Hashable, Sendable {
 // MARK: - selections + votes
 
 enum SelectionMethod: String, Codable, Sendable {
+    // 'race' has no UI anymore (the marble race is a separate standalone thing)
+    // but stays decodable: the DB check still allows it and historical
+    // selections may carry it.
     case wheel, vote, pick, race
 }
 

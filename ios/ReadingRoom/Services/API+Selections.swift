@@ -1,5 +1,5 @@
 // Selections + votes (port of the SELECTIONS section of src/api.js): how the
-// club decides who picks the next book (wheel / vote / pick / race).
+// club decides who picks the next book (wheel / vote / pick).
 
 import Foundation
 import Supabase

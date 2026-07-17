@@ -1,8 +1,7 @@
 // "Who picks next?" (port of views/picker.js): choose a method, then run the
 // spin wheel, the live vote, or a direct pick. The wheel is pure SwiftUI - the
 // same shared WheelMath decides the winner FROM the final geometry, so the
-// marker can never disagree with the announced name. The marble race stays
-// parked, like the web.
+// marker can never disagree with the announced name.
 
 import SwiftUI
 import Observation
@@ -19,7 +18,6 @@ struct PickerView: View {
         case pick
         case voteIntro
         case vote(Selection)
-        case race
     }
 
     @State private var club: Club?
@@ -100,8 +98,6 @@ struct PickerView: View {
             }
             methodCard("\u{1F449}", "Just Pick", "choose a member directly",
                        active: isStage(.pick)) { stage = .pick }
-            methodCard("\u{1F52E}", "Marble Race", "the classic - being rebuilt",
-                       active: isStage(.race)) { stage = .race }
         }
     }
 
@@ -127,7 +123,7 @@ struct PickerView: View {
     private func isStage(_ s: Stage) -> Bool {
         switch (stage, s) {
         case (.wheel, .wheel), (.pick, .pick), (.voteIntro, .voteIntro),
-             (.race, .race), (.none, .none):
+             (.none, .none):
             return true
         default:
             return false
@@ -160,8 +156,6 @@ struct PickerView: View {
                 result = winner
                 openVote = nil
             }
-        case .race:
-            raceStage
         }
     }
 
@@ -202,21 +196,6 @@ struct PickerView: View {
                 .buttonStyle(.primary)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var raceStage: some View {
-        VStack(spacing: 8) {
-            Text("\u{1F52E} The marble race is being rebuilt and isn't wired into clubs yet.")
-                .font(Theme.displayFont(15))
-                .foregroundStyle(Theme.textPrimary)
-                .multilineTextAlignment(.center)
-            Text("The classic standalone version lives on the web app.")
-                .font(Theme.monoFont(12))
-                .foregroundStyle(Theme.textMuted)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .patch(seed: "race-parked")
     }
 
     private func resultBanner(_ winner: Member) -> some View {
