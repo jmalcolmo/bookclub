@@ -37,9 +37,6 @@ export async function renderPicker({ params }) {
         <button class="method-card patch" data-m="pick">
           <span class="method-emoji">👉</span><span class="method-name">Just Pick</span>
           <span class="method-desc">choose a member directly</span></button>
-        <button class="method-card patch method-parked" data-m="race">
-          <span class="method-emoji">🔮</span><span class="method-name">Marble Race</span>
-          <span class="method-desc">the classic - being rebuilt</span></button>
       </div>
       <div data-stage class="picker-stage"></div>
     </div>
@@ -59,7 +56,6 @@ export async function renderPicker({ params }) {
         if (openVote) renderVote({ clubId, club, members, selection: openVote });
         else startVoteStage(stage, { clubId });
       }
-      else raceStage(stage);
     }));
   });
 }
@@ -237,15 +233,6 @@ function startVoteStage(stage, { clubId }) {
     try { await api.openVote(clubId); navigate(`/club/${clubId}/picker`); }
     catch (err) { toast(err.message, "error"); e.currentTarget.disabled = false; }
   });
-}
-
-function raceStage(stage) {
-  stage.innerHTML = `
-    <div class="parked-note patch">
-      <p>🔮 The marble race is being rebuilt and isn't wired into clubs yet.</p>
-      <p class="faint">You can still play the classic standalone version.</p>
-      <a class="btn-ghost" href="race.html">Open classic race ↗</a>
-    </div>`;
 }
 
 // ---- live vote screen ----

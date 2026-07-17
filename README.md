@@ -4,8 +4,9 @@ A social space for book clubs, built on the "Deranged Granny Square" theme from 
 original Marble Race. Members sign in, join or create clubs, track who's reading
 what, drop **spoiler-gated reactions** (only visible to people who've read that far),
 review finished books, and decide who picks next via a spinning wheel, a vote, or a
-direct pick. The original marble race is parked at `race.html` and will return as a
-fourth picker method.
+direct pick. The original marble race lives on as a standalone page at `race.html`,
+separate from the club app (planned: race/wheel/vote each become their own tool with
+an import connector to The Reading Room).
 
 - **Frontend:** vanilla HTML/CSS/JS, ES modules, no build step.
 - **Backend:** [Supabase](https://supabase.com) - Postgres + Auth (Google) + Realtime + Storage.
@@ -47,7 +48,7 @@ git push
 
 ```
 index.html        book club shell (loads src/main.js)
-race.html         the original marble race (parked, untouched)
+race.html         the original marble race (standalone page, not part of the club app)
 config.js         dev/prod Supabase creds, chosen by hostname
 styles.css        original granny-square theme (shared)
 club.css          book club styles

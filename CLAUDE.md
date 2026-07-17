@@ -8,8 +8,10 @@ up to date when conventions change.
 **The Reading Room** - a multi-user book club web app. Members sign in, join/create
 clubs, track reading progress, post **spoiler-gated reactions**, review finished
 books, and decide who picks next (spin-the-wheel / vote / direct pick). It was
-pivoted from a marble-racing game; the original race is **parked** at `race.html`
-(+ `app.js`) and untouched - do not work on it unless explicitly asked.
+pivoted from a marble-racing game; the original race lives at `race.html` (+ `app.js`)
+as a STANDALONE page with no links from the club app - do not work on it unless
+explicitly asked. Long-term plan: race, wheel, and vote each become their own
+standalone tool (one hosted site, import connectors to The Reading Room).
 
 ## Stack & hosting
 
@@ -40,7 +42,7 @@ pivoted from a marble-racing game; the original race is **parked** at `race.html
 
 ```
 index.html         book club shell (loads src/main.js)
-race.html          parked marble race (do not touch)
+race.html          standalone marble race (not part of the club app; do not touch)
 config.js          dev/prod creds by hostname
 styles.css         original granny-square theme (shared base)
 club.css           book club styles
