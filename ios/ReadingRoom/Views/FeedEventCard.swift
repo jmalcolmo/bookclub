@@ -29,28 +29,26 @@ struct FeedEventCard: View {
         case .milestone: return Theme.yarnRust
         case .pick: return Theme.yarnOchre
         case .social: return Theme.yarnClay
-        case .follow: return Theme.yarnMauve
         }
     }
 
-    // The small header every card carries: which club this happened in - or
-    // "Following" when it comes from a reader you follow outside your clubs -
-    // with the book it's about right underneath.
+    // The small header every card carries: which club this happened in, with
+    // the book it's about right underneath.
     private var cardHead: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(event.club ?? "\u{2727} Following")
+                Text(event.club ?? "")
                     .font(Theme.monoFont(10))
                     .kerning(1.2)
                     .textCase(.uppercase)
-                    .foregroundStyle(event.club == nil ? Theme.yarnMauve : Theme.yarnBark)
+                    .foregroundStyle(Theme.yarnBark)
                     .lineLimit(1)
                     .padding(.vertical, 2)
                     .padding(.horizontal, 9)
                     .background(
-                        Capsule().fill((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.10)))
+                        Capsule().fill(Theme.yarnBark.opacity(0.10)))
                     .overlay(
-                        Capsule().stroke((event.club == nil ? Theme.yarnMauve : Theme.yarnBark).opacity(0.45),
+                        Capsule().stroke(Theme.yarnBark.opacity(0.45),
                                          lineWidth: 1.5))
                 Spacer()
                 Text(Format.timeAgo(event.ts))
@@ -76,7 +74,7 @@ struct FeedEventCard: View {
         VStack(alignment: .leading, spacing: 8) {
             cardHead
             // The author chip links to their profile; the body still links to
-            // the book (or the reader for follow items). Two separate links, so
+            // the book. Two separate links, so
             // the header sits OUTSIDE the card-level navigable.
             HStack(spacing: 8) {
                 ReaderLink(userId: item.reaction.userId) {
@@ -97,15 +95,11 @@ struct FeedEventCard: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Follow-path reactions are display-only - they live in clubs we're
-            // not members of, so no engagement bar or reply thread.
-            if !event.isFollow {
-                EngagementBar(targetType: .reaction, targetId: item.id, context: context) {
-                    await reload()
-                }
-                ReplyThreadView(reactionId: item.id, context: context) {
-                    await reload()
-                }
+            EngagementBar(targetType: .reaction, targetId: item.id, context: context) {
+                await reload()
+            }
+            ReplyThreadView(reactionId: item.id, context: context) {
+                await reload()
             }
         }
         .patch(accent: accent(), seed: event.id)
@@ -132,7 +126,7 @@ struct FeedEventCard: View {
                     Spacer(minLength: 0)
                 }
             }
-            if !event.isFollow, let type = event.targetType, let id = event.targetId {
+            if let type = event.targetType, let id = event.targetId {
                 EngagementBar(targetType: type, targetId: id, context: context) {
                     await reload()
                 }

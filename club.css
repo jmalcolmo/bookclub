@@ -385,7 +385,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .vote-alert-icon { font-size: 1.2rem; flex: 0 0 auto; }
 .vote-alert-text { font-family: var(--font-display); font-size: .92rem; color: var(--text-primary); }
 
-/* center · feed cards (clickable; every card leads with a club/following chip) */
+/* center · feed cards (clickable; every card leads with a club chip) */
 .feed-item[data-go] { cursor: pointer; }
 .notif-card[data-go]:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-lift); }
 .feed-reaction { background: var(--surface); border: 3px solid var(--yarn-slate); border-radius: 12px;
@@ -396,7 +396,7 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .feed-reaction .reaction-body { font-size: 1rem; }
 .feed-empty { text-align: center; padding: 40px 24px; }
 
-/* the small header on every feed card: club name (or "Following") + timestamp */
+/* the small header on every feed card: club name + timestamp */
 .feed-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .feed-chip { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .12em;
   text-transform: uppercase; color: var(--yarn-bark);
@@ -404,16 +404,13 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
   border: 2px solid color-mix(in srgb, var(--yarn-bark) 40%, var(--surface));
   border-radius: 999px; padding: 2px 10px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
-.feed-chip-follow { color: var(--yarn-mauve); border-color: var(--yarn-mauve);
-  background: color-mix(in srgb, var(--yarn-mauve) 12%, var(--surface)); }
-
 /* the book a card is about - its own line, out of the sentence */
 .feed-book-line { font-family: var(--font-display); font-style: italic;
   color: var(--yarn-rust); font-size: .95rem; line-height: 1.25; }
 
 /* ---- per-event-type looks (same theme, different yarn) ----
    progress = sage log entry (mono, compact) · reaction = slate (existing)
-   milestone = rust, bolder · pick/vote = ochre · follow = mauve · social = clay */
+   milestone = rust, bolder · pick/vote = ochre · social = clay */
 .feed-kind-progress { border-color: var(--yarn-sage); }
 .feed-kind-progress .notif-text { font-family: var(--font-mono); font-size: .88rem; }
 .feed-kind-milestone { border-color: var(--yarn-rust);
@@ -424,9 +421,6 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .feed-kind-pick .notif-text { font-weight: 600; }
 .feed-kind-social { border-color: var(--yarn-clay); }
 .feed-kind-social .notif-text { font-size: .92rem; color: var(--text-muted); }
-.feed-kind-follow { border-color: var(--yarn-mauve);
-  background: color-mix(in srgb, var(--yarn-mauve) 6%, var(--surface)); }
-.feed-reaction.feed-kind-follow { border-color: var(--yarn-mauve); }
 
 /* app-feed density: cards ~1.5x taller and double the gap between them, so the
    stream breathes and fewer notifications crowd one screen. Scoped to the home
@@ -648,7 +642,6 @@ input:focus-visible, textarea:focus-visible { outline: none; border-color: var(-
 .signed-as { margin-top: 6px; }
 .other-name { margin: 2px 0 0; }
 .other-bio { max-width: 420px; margin: 0; color: var(--text-primary); }
-.follow-hint { max-width: 360px; margin: 2px 0 0; }
 
 /* ---- USER LINKS (any avatar/name is a door to that reader's profile) ---- */
 .user-link { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;

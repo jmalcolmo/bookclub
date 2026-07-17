@@ -110,7 +110,7 @@ struct UnlockedView: View {
                     FeedEvent(id: "unlock-\(u.reaction.id)", ts: u.unlock.unlockedAt,
                               kind: .reaction(ReactionItem(reaction: u.reaction, profile: u.profile)),
                               eventType: .reaction,
-                              club: "✨ Unlocked",   // nil would render the "Following" chip
+                              club: "✨ Unlocked",   // the card's header chip
                               bookTitle: u.book.title,
                               go: .book(clubId: u.book.clubId, bookId: u.book.id))
                 }

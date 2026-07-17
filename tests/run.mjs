@@ -1074,13 +1074,13 @@ await step("B can leave the club", async () => {
   if (error) throw error;
 });
 
-// ---- FOLLOWS + the SOLO follow feed (A and B now share NO club) -------------
+// ---- CLUB-SCOPE GATES (A and B now share NO club) ---------------------------
 // B owns a private club A never joins, with a book, a reaction and progress.
-// A follows B and then sees B's SOLO reading via the ADDITIVE follow RLS path -
-// without joining. This must never be a club-gate bypass: A isn't a member, and
-// only B's OWN authored reading is surfaced. Mirrors src/api.js follows + feed.
-let bClub, bBook, bReaction, bPost;
-await step("FOLLOW SETUP: B owns a solo club A never joins", async () => {
+// The app is purely club-scoped (the follow system was removed July 2026):
+// NOTHING of B's solo club may be visible to A, and the follows table itself
+// must be gone. These are the negative cases proving club-as-unit privacy.
+let bClub, bBook;
+await step("CLUB-SCOPE SETUP: B owns a solo club A never joins", async () => {
   const { data: c, error: ce } = await cB.from("clubs")
     .insert({ name: `B Solo Club ${tag}`, accent: "yarn-mauve", created_by: B.id }).select().single();
   if (ce) throw ce;
@@ -1093,26 +1093,35 @@ await step("FOLLOW SETUP: B owns a solo club A never joins", async () => {
   const { error: pe } = await cB.from("reading_progress")
     .upsert({ book_id: bBook.id, user_id: B.id, current_page: 120, status: "reading" }, { onConflict: "book_id,user_id" });
   if (pe) throw pe;
-  const { data: rx, error: re } = await cB.from("reactions")
-    .insert({ book_id: bBook.id, user_id: B.id, page: 90, body: `solo thought ${tag}` }).select().single();
+  const { error: re } = await cB.from("reactions")
+    .insert({ book_id: bBook.id, user_id: B.id, page: 90, body: `solo thought ${tag}` });
   if (re) throw re;
-  bReaction = rx;
-  const { data: po, error: poe } = await cB.from("club_posts")
-    .insert({ club_id: bClub.id, user_id: B.id, body: `solo post ${tag}` }).select().single();
+  const { error: poe } = await cB.from("club_posts")
+    .insert({ club_id: bClub.id, user_id: B.id, body: `solo post ${tag}` });
   if (poe) throw poe;
-  bPost = po;
 });
 
-await step("FOLLOW GATE: before following, A can't see B's solo profile/reaction (RLS)", async () => {
+await step("CLUB-SCOPE GATE: A can't see B's solo profile/reaction/progress/book (RLS)", async () => {
   const { data: profs } = await cA.from("profiles").select("id").eq("id", B.id);
-  assert((profs || []).length === 0, "FOLLOW LEAK: saw a non-co-member profile before following");
+  assert((profs || []).length === 0, "SCOPE LEAK: saw a profile without a shared club");
   const { data: rxs } = await cA.from("reactions").select("id").eq("book_id", bBook.id);
-  assert((rxs || []).length === 0, "FOLLOW LEAK: saw a non-member's reaction before following");
+  assert((rxs || []).length === 0, "SCOPE LEAK: saw a non-member club's reaction");
+  const { data: prog } = await cA.from("reading_progress").select("id").eq("book_id", bBook.id);
+  assert((prog || []).length === 0, "SCOPE LEAK: saw a non-member club's progress");
+  const { data: bks } = await cA.from("books").select("id").eq("id", bBook.id);
+  assert((bks || []).length === 0, "SCOPE LEAK: saw a non-member club's book");
+});
+
+await step("FOLLOWS REMOVED: the follows table no longer exists", async () => {
+  // The legacy follow system is gone - any query against it must fail with
+  // "relation does not exist" (Postgres 42P01), not return rows.
+  const { data, error } = await cA.from("follows").select("follower_id").limit(1);
+  assert(error && !data, "follows table still exists (or is readable) after removal");
 });
 
 await step("POST MEMBERSHIP GATE: a non-member cannot read a club's posts (RLS)", async () => {
-  // Posts are strictly club-member-scoped and NOT part of the additive follow
-  // path - A (not a member of B's solo club) sees nothing.
+  // Posts are strictly club-member-scoped -
+  // A (not a member of B's solo club) sees nothing.
   const { data } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
   assert((data || []).length === 0, "POST LEAK: a non-member read a club's posts");
 });
@@ -1121,52 +1130,6 @@ await step("POST INSERT GATE: a non-member cannot post to a club (RLS)", async (
   const { error } = await cA.from("club_posts")
     .insert({ club_id: bClub.id, user_id: A.id, body: `intruder ${tag}` });
   assert(error, "POST LEAK: a non-member inserted a post into a club they're not in");
-});
-
-await step("A follows B (RLS: only from self)", async () => {
-  const { error } = await cA.from("follows").insert({ follower_id: A.id, followee_id: B.id });
-  if (error) throw error;
-  const { data } = await cA.from("follows").select("followee_id").eq("follower_id", A.id).eq("followee_id", B.id);
-  assert((data || []).length === 1, "follow did not register");
-});
-
-await step("FOLLOW PATH: A now sees B's SOLO reaction + progress (additive RLS)", async () => {
-  const { data: rxs } = await cA.from("reactions").select("id,page").eq("book_id", bBook.id);
-  assert((rxs || []).some((r) => r.id === bReaction.id), "follow path did not expose the followee's solo reaction");
-  const { data: prog } = await cA.from("reading_progress").select("current_page").eq("book_id", bBook.id).eq("user_id", B.id);
-  assert((prog || []).length === 1, "follow path did not expose the followee's solo progress");
-  const { data: prof } = await cA.from("profiles").select("id").eq("id", B.id);
-  assert((prof || []).length === 1, "follow path did not expose the followee's profile");
-  const { data: bk } = await cA.from("books").select("id").eq("id", bBook.id);
-  assert((bk || []).length === 1, "follow path did not expose the followee's book row for the feed");
-  // Posts are NOT part of the follow path - following B must never expose the
-  // posts of a club A isn't a member of.
-  const { data: posts } = await cA.from("club_posts").select("id").eq("club_id", bClub.id);
-  assert((posts || []).length === 0, "POST LEAK: following exposed a non-member club's posts");
-});
-
-await step("FOLLOWING ROSTER: A resolves B's current book + page (followingReading)", async () => {
-  // Mirrors api.js followingReading(): the newest visible progress row per
-  // followee, decorated with its book - "Book Title  p.X / Y" on Following.
-  const { data: prog } = await cA.from("reading_progress").select("*")
-    .eq("user_id", B.id).order("updated_at", { ascending: false });
-  assert((prog || []).length >= 1, "no visible progress for the followee");
-  const latest = prog[0];
-  assert(latest.current_page === 120, "followee's current page did not resolve");
-  const { data: bks } = await cA.from("books").select("title,page_count").eq("id", latest.book_id);
-  assert(bks?.[0]?.page_count === 400, "followee's book (for 'p.X / Y') did not resolve");
-});
-
-await step("FOLLOW GATE: A can't forge a follow edge on B's behalf (RLS)", async () => {
-  const { data, error } = await cA.from("follows").insert({ follower_id: B.id, followee_id: A.id }).select().single();
-  assert(error && !data, "FOLLOW LEAK: forged a follow edge on someone else's behalf");
-});
-
-await step("A unfollows B → the solo view re-locks live", async () => {
-  const { error } = await cA.from("follows").delete().eq("follower_id", A.id).eq("followee_id", B.id);
-  if (error) throw error;
-  const { data: rxs } = await cA.from("reactions").select("id").eq("book_id", bBook.id);
-  assert((rxs || []).length === 0, "FOLLOW LEAK: solo reaction still visible after unfollowing");
 });
 
 await step("cleanup: B removes the solo club (cascades)", async () => {

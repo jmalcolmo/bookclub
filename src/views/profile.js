@@ -8,7 +8,7 @@ import { cropImage } from "../imageCropper.js";
 
 export async function renderProfile({ params } = {}) {
   // A profile can be MINE (the editable self view) or SOMEONE ELSE'S (read-only,
-  // with a follow/unfollow control). params.id present -> another reader.
+  // shelf only). params.id present -> another reader.
   const viewingId = params?.id;
   if (viewingId && viewingId !== store.user.id) {
     return renderOtherProfile(viewingId);
@@ -228,18 +228,14 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
 
-// Another reader's profile: read-only, with a follow/unfollow control. The
-// follow graph lives OUTSIDE clubs; following them surfaces their solo reading
-// in your "people you follow" feed. RLS returns their profile only if you share
-// a club OR already follow them, so a brittle load is expected for strangers.
+// Another reader's profile: read-only, shelf only. RLS returns their profile
+// only if you share a club, so a brittle load is expected for strangers.
 async function renderOtherProfile(userId) {
   let p = null;
   try { p = await api.getProfile(userId); } catch { /* not visible under RLS */ }
-  let followed = false;
-  try { followed = await api.isFollowing(userId); } catch { /* default false */ }
 
   // Their shelf: only the rows RLS lets ME see (their finished progress in
-  // clubs we share, or via the follow path). An empty result just hides the
+  // clubs we share). An empty result just hides the
   // section - no client-side gating is ever added here. (Named shelfBooks, not
   // `history`, so window.history.back() below isn't shadowed.)
   let shelfBooks = [];
@@ -252,7 +248,7 @@ async function renderOtherProfile(userId) {
           <button class="btn-back" data-back>← back</button>
           <h2 class="stamp-title small">READER</h2><span></span></div>
         <div class="empty-state"><p>this reader isn't visible to you.</p>
-          <p class="faint">you can see a reader once you share a club or follow them.</p></div>
+          <p class="faint">you can see a reader once you share a club with them.</p></div>
       </div>
     `, (root) => {
       root.querySelector("[data-back]").addEventListener("click", () => window.history.back());
@@ -270,10 +266,6 @@ async function renderOtherProfile(userId) {
         <div class="profile-avatar-wrap">${avatarHTML(p, 96)}</div>
         <h3 class="stamp-title small other-name">${esc(p.display_name || "Reader")}</h3>
         ${p.bio ? `<p class="other-bio">${esc(p.bio)}</p>` : `<p class="faint">no bio yet.</p>`}
-        <button type="button" class="${followed ? "btn-ghost" : "btn-primary"}" data-follow>
-          ${followed ? "Following ✓" : "Follow"}
-        </button>
-        <p class="faint follow-hint">following surfaces their solo reading on your feed.</p>
       </div>
 
       ${shelfBooks.length ? `
@@ -291,17 +283,6 @@ async function renderOtherProfile(userId) {
       // inside is still spoiler-gated to ME by RLS.
       box.querySelectorAll("[data-book]").forEach((b) =>
         b.addEventListener("click", () => navigate(`/reader/${userId}/book/${b.dataset.book}`)));
-    });
-    const btn = root.querySelector("[data-follow]");
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try {
-        if (followed) { await api.unfollow(userId); followed = false; toast("Unfollowed", "success"); }
-        else { await api.follow(userId); followed = true; toast("Following", "success"); }
-        btn.className = followed ? "btn-ghost" : "btn-primary";
-        btn.textContent = followed ? "Following ✓" : "Follow";
-      } catch (err) { toast(err.message, "error"); }
-      finally { btn.disabled = false; }
     });
   });
 }

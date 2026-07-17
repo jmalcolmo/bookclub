@@ -27,104 +27,6 @@ export async function updateProfile(userId, changes) {
   );
 }
 
-// ----------------------------------------------------------------- FOLLOWS ---
-// A follow graph OUTSIDE of clubs: I can follow another reader and then see the
-// SOLO reading they do in clubs I'm not part of (their own progress + reactions).
-// RLS enforces every rule - the follows_* policies here, plus the additive
-// follow paths on profiles/books/reactions/reading_progress. The club spoiler
-// gate is never widened: inside a shared club it stays the sole authority.
-
-// Everyone I currently follow (the followee_id list). Cheap check for follow state.
-export async function following() {
-  const user = (await supabase.auth.getUser()).data.user;
-  const rows = unwrap(
-    await supabase.from("follows").select("followee_id")
-      .eq("follower_id", user.id).order("created_at", { ascending: false })
-  );
-  return rows.map((r) => r.followee_id);
-}
-
-// The people I follow, decorated with their profile (for the feed's roster).
-export async function followingProfiles() {
-  const ids = await following();
-  if (!ids.length) return [];
-  const profiles = await getProfiles(ids);
-  const pById = Object.fromEntries(profiles.map((p) => [p.id, p]));
-  return ids.map((id) => pById[id]).filter(Boolean);
-}
-
-// Am I following one specific user?
-export async function isFollowing(userId) {
-  const user = (await supabase.auth.getUser()).data.user;
-  const rows = unwrap(
-    await supabase.from("follows").select("followee_id")
-      .eq("follower_id", user.id).eq("followee_id", userId)
-  );
-  return rows.length > 0;
-}
-
-export async function follow(userId) {
-  const user = (await supabase.auth.getUser()).data.user;
-  return unwrap(
-    await supabase.from("follows")
-      .insert({ follower_id: user.id, followee_id: userId })
-      .select().single()
-  );
-}
-
-export async function unfollow(userId) {
-  const user = (await supabase.auth.getUser()).data.user;
-  return unwrap(
-    await supabase.from("follows").delete()
-      .eq("follower_id", user.id).eq("followee_id", userId)
-  );
-}
-
-// The "people you follow" feed: for each reader I follow, their SOLO reading -
-// recent reactions and progress on books in clubs I'm NOT a member of. RLS only
-// ever returns the follow-visible rows, so whatever comes back is safe to show.
-// Rows are decorated with the author's profile and the book, and sorted newest
-// first. Returns { items, followees } where items are the feed entries.
-export async function followFeed({ limit = 40 } = {}) {
-  const followees = await followingProfiles();
-  if (!followees.length) return { items: [], followees };
-  const followeeIds = followees.map((p) => p.id);
-  const pById = Object.fromEntries(followees.map((p) => [p.id, p]));
-
-  const [reactions, progress] = await Promise.all([
-    supabase.from("reactions").select("*").in("user_id", followeeIds)
-      .order("created_at", { ascending: false }).limit(limit).then(unwrap),
-    supabase.from("reading_progress").select("*").in("user_id", followeeIds)
-      .order("updated_at", { ascending: false }).limit(limit).then(unwrap),
-  ]);
-
-  const bookIds = [...new Set([...reactions, ...progress].map((r) => r.book_id))];
-  const books = bookIds.length
-    ? unwrap(await supabase.from("books").select("*").in("id", bookIds))
-    : [];
-  const bById = Object.fromEntries(books.map((b) => [b.id, b]));
-
-  const items = [
-    ...reactions.map((r) => ({
-      kind: "reaction", id: r.id, at: r.created_at,
-      profile: pById[r.user_id], book: bById[r.book_id] || null,
-      page: r.page, body: r.body,
-    })),
-    ...progress.map((p) => ({
-      kind: "progress", id: p.id, at: p.updated_at,
-      profile: pById[p.user_id], book: bById[p.book_id] || null,
-      page: p.current_page, status: p.status,
-    })),
-  ]
-    // Only surface rows we could resolve a book for (RLS may hide the book if the
-    // follow path didn't apply - defensive, keeps the feed coherent).
-    .filter((i) => i.book)
-    .sort((a, b) => new Date(b.at) - new Date(a.at))
-    .slice(0, limit);
-
-  return { items, followees };
-}
-
 // ---------------------------------------------------------------- ACTIVITY ---
 // Who engaged with MY content: likes/emoji on my reactions, comments (replies),
 // reviews and progress milestones, plus replies posted under my reactions.
@@ -547,7 +449,7 @@ export async function markUnlocksSeen(reactionIds) {
 // first - with their rating where the viewer may see the review. Powers both my
 // own shelf and the shelf on another reader's profile. RLS does all the gating:
 //   - their reading_progress rows return only where the viewer is a co-member
-//     of the book's club (progress_select_member) or via the additive follow path;
+//     of the book's club (progress_select_member);
 //   - books resolve only in clubs the viewer can see;
 //   - the owner's review returns only when the VIEWER has finished that book
 //     (the review gate), so a hidden rating simply renders as "not rated".
@@ -590,9 +492,8 @@ export async function myReadingHistory() {
 // co-member of the owner's club, they can only see the owner's reactions/replies
 // up to the pages the VIEWER has read (the reactions_select_spoiler_gated gate),
 // and can always read the owner's reading_progress row (progress_select_member
-// lets any co-member read a member's progress). If the viewer follows the owner
-// on a book in a club the viewer is NOT in, the additive follow path applies.
-// Either way the client never re-implements gating - whatever rows return here
+// lets any co-member read a member's progress). The client never
+// re-implements gating - whatever rows return here
 // are already safe to render. Returns:
 //   { book, owner, reactions:[…], replies:[…], progress: row|null }
 // where reactions are the owner's, replies are the owner's (each decorated with

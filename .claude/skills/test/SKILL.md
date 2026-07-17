@@ -57,7 +57,7 @@ edit club settings · **club-update gate (member cannot edit settings)** ·
 **club posts (create text+photo post; co-member reads it with NO spoiler gate; edit own; delete own;
 post-update gate (non-author can't edit); post-delete gate (non-author can't delete); post-image
 gate (non-member can't upload to the club folder); membership gate (non-member can't read/insert a
-club's posts, and following does NOT expose them))** · add book · edit book
+club's posts))** · add book · edit book
 deadline · read current book + books list · log
 progress · **DB-owned progress timestamps (trigger stamps started_at once - page bumps never
 move it; finished_at cleared on un-finish, re-finish earns a new date)** ·
@@ -80,9 +80,8 @@ book for the club)** · creator marks finished → history · profile update ·
 **book-delete gate (member, not owner/picker, cannot delete)** · owner deletes a book ·
 **announcement gate (non-admin cannot broadcast)** · **admin broadcast (admin posts, everyone
 sees it, a user dismisses it)** ·
-**follows: A follows B and sees B's SOLO reading (progress/reaction/book/profile) on a club A
-isn't in - the additive follow RLS path - while a non-follower sees nothing; follow only from
-self; unfollow re-locks the solo view live** ·
+**club-scope gates (purely club-scoped app: NOTHING of a club you're not in is visible -
+profile/reaction/progress/book all hidden; the legacy follows table no longer exists)** ·
 **delete gate (member cannot delete club)** · leave club · creator deletes club (cleanup).
 
 ## MAINTENANCE RULE (important)

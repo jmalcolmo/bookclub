@@ -7,8 +7,8 @@ import PhotosUI
 import Observation
 
 struct ProfileView: View {
-    // When set, this shows ANOTHER reader's read-only profile with a follow
-    // control (reached from the follow feed). When nil, it's MY editable profile.
+    // When set, this shows ANOTHER reader's read-only profile.
+    // When nil, it's MY editable profile.
     var readerId: UUID? = nil
 
     @Environment(SessionStore.self) private var session
@@ -31,10 +31,8 @@ struct ProfileView: View {
     // Other-reader state.
     @State private var reader: Profile?
     @State private var readerLoaded = false
-    @State private var isFollowing = false
-    @State private var followBusy = false
     // Their shelf: only the rows RLS lets ME see (their finished progress in
-    // clubs we share, or via the follow path). Empty just hides the section -
+    // clubs we share). Empty just hides the section -
     // no client-side gating is ever added here.
     @State private var otherHistory: [HistoryBook] = []
     @State private var showAllOtherShelf = false
@@ -53,7 +51,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Another reader (read-only + follow control)
+    // MARK: - Another reader (read-only)
 
     private var otherBody: some View {
         ScrollView {
@@ -73,19 +71,6 @@ struct ProfileView: View {
                                 .font(Theme.displayFont(15))
                                 .foregroundStyle(Theme.textMuted)
                         }
-                        Group {
-                            if isFollowing {
-                                Button("Following \u{2713}") { toggleFollow() }
-                                    .buttonStyle(.ghost)
-                            } else {
-                                Button("Follow") { toggleFollow() }
-                                    .buttonStyle(.primary)
-                            }
-                        }
-                        .disabled(followBusy)
-                        Text("following surfaces their solo reading on your feed.")
-                            .font(Theme.monoFont(11))
-                            .foregroundStyle(Theme.textMuted)
                     }
                     .patch(accent: Theme.yarnSage, seed: "reader-card")
 
@@ -93,7 +78,7 @@ struct ProfileView: View {
                 } else if readerLoaded {
                     EmptyStateView(
                         title: "this reader isn't visible to you.",
-                        hint: "you can see a reader once you share a club or follow them."
+                        hint: "you can see a reader once you share a club with them."
                     )
                 } else {
                     ProgressView().tint(Theme.yarnSage)
@@ -111,7 +96,6 @@ struct ProfileView: View {
     private func loadReader() async {
         guard let readerId, !readerLoaded else { return }
         reader = try? await API.getProfile(readerId)
-        isFollowing = (try? await API.isFollowing(readerId)) ?? false
         otherHistory = (try? await API.readingHistoryFor(readerId)) ?? []
         readerLoaded = true
     }
@@ -143,27 +127,6 @@ struct ProfileView: View {
                 }
             }
             .patch(seed: "other-shelf-box", padding: 14)
-        }
-    }
-
-    private func toggleFollow() {
-        guard let readerId, !followBusy else { return }
-        followBusy = true
-        Task {
-            defer { followBusy = false }
-            do {
-                if isFollowing {
-                    try await API.unfollow(readerId)
-                    isFollowing = false
-                    toasts.show("Unfollowed", .success)
-                } else {
-                    try await API.follow(readerId)
-                    isFollowing = true
-                    toasts.show("Following", .success)
-                }
-            } catch {
-                toasts.error(error)
-            }
         }
     }
 
